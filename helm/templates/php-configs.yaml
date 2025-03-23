@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "app.fullname" . }}-php-config
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+data:
+  opcache.ini: |-
+{{ .Files.Get "configs/opcache.ini"  | indent 4 }}
+  php.ini: |-
+{{ .Files.Get "configs/php.ini" | indent 4 }}

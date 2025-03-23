@@ -1,0 +1,27 @@
+imagePullSecrets:
+  - name: dockerconfigjson-github-com
+
+image:
+  repository: ghcr.io/shanginn/wtf_happend_bot
+  pullPolicy: Always
+  tag: latest
+
+serviceAccount:
+  create: true
+  name: "wtf-happend-bot"
+
+deployment:
+  replicas: 1
+
+env:
+  APP_NAME: wtf_happend_bot
+  DB_HOST: pgsql-postgresql.pgsql
+  DB_PORT: 5432
+  DB_DATABASE: wtf_happend_bot
+  DB_USERNAME: wtf_happend_bot
+  TELEGRAM_BOT_USERNAME: wtf_happend_bot
+
+envSecrets:
+  DB_PASSWORD: ""
+  TELEGRAM_BOT_TOKEN: ""
+  OPENROUTER_API_KEY: ""
