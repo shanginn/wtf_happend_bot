@@ -4,13 +4,12 @@ declare(strict_types=1);
 
 namespace Bot\Entity;
 
+use Bot\Entity\Message\MessageRepository;
 use Cycle\Annotated\Annotation\Column;
 use Cycle\Annotated\Annotation\Entity;
-use DateTimeImmutable;
 use Phenogram\Bindings\Types\Interfaces\MessageInterface;
-use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
 
-#[Entity]
+#[Entity(repository: MessageRepository::class)]
 class Message
 {
     #[Column(type: 'primary')]
@@ -20,19 +19,14 @@ class Message
         // messageId
         #[Column(type: 'bigInteger')]
         public int $messageId,
-
         #[Column(type: 'text')]
         public string $text,
-
         #[Column(type: 'bigInteger')]
         public int $chatId,
-
         #[Column(type: 'bigInteger')]
         public int $date,
-
         #[Column(type: 'bigInteger')]
         public int $fromUserId,
-
         #[Column(type: 'text', nullable: true)]
         public ?string $fromUsername,
     ) {}

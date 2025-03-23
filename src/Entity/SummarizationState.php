@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Bot\Entity;
 
+use Bot\Entity\SummarizationState\SummarizationStateRepository;
 use Cycle\Annotated\Annotation\Column;
 use Cycle\Annotated\Annotation\Entity;
 
-#[Entity]
+#[Entity(repository: SummarizationStateRepository::class)]
 class SummarizationState
 {
     #[Column(type: 'primary')]
@@ -16,7 +17,6 @@ class SummarizationState
     public function __construct(
         #[Column(type: 'bigInteger')]
         public int $chatId,
-
         #[Column(type: 'bigInteger')]
         public int $lastSummarizedMessageId,
     ) {}

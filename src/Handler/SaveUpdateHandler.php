@@ -14,9 +14,7 @@ class SaveUpdateHandler implements UpdateHandlerInterface
 {
     public function __construct(
         private EntityManagerInterface $em,
-    )
-    {
-    }
+    ) {}
 
     public static function supports(UpdateInterface $update): bool
     {

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use Cycle\Database;
 use Cycle\Database\Config;
 use Cycle\Schema\Generator\Migrations\GenerateMigrations;
+use Spiral\Core\Container;
 use Spiral\Tokenizer\ClassLocator;
 use Symfony\Component\Finder\Finder;
 use Cycle\Schema;
@@ -95,8 +96,10 @@ $schema = (new Schema\Compiler())->compile(new Schema\Registry($dbal), [
     new Schema\Generator\GenerateTypecast(),        // Typecast non-string columns
 ]);
 
-$orm = new ORM\ORM(new ORM\Factory($dbal), new ORM\Schema($schema));
+$container = new Container();
+
+$orm = new ORM\ORM(new ORM\Factory($dbal, factory: $container), new ORM\Schema($schema));
 
 $migrate();
 
-return $orm;
+return [$container, $orm];
