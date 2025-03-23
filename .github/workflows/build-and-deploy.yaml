@@ -66,4 +66,4 @@ jobs:
             --set=envSecrets.TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
             --set=envSecrets.OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
           ;
-          kubectl rollout restart deployment/wtf_happend_bot
+          kubectl rollout restart deployment/wtf-happend-bot
