@@ -3,7 +3,7 @@ services:
     env_file:
       - .env
     build:
-      context: .
+      context: local
       dockerfile: Dockerfile
     volumes:
       - .:/app
