@@ -1,0 +1,36 @@
+services:
+  bot:
+    env_file:
+      - .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+    entrypoint: php src/bot.php
+
+  db:
+    env_file:
+      - .env
+    image: postgres:17
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: $DB_PASSWORD
+      POSTGRES_DB: $DB_DATABASE
+      POSTGRES_USER: $DB_USERNAME
+    ports:
+      - "5432:5432"
+    volumes:
+      - wtfhappendbot-pgsql:/var/lib/postgresql/data
+    healthcheck:
+      test: [ 'CMD', 'pg_isready', '-q', '-d', '${DB_DATABASE}', '-U', '${DB_USERNAME}' ]
+      retries: 3
+      timeout: 5s
+
+volumes:
+  wtfhappendbot-pgsql:
+    driver: local
+  wtfhappendbot-redis:
+    driver: local
