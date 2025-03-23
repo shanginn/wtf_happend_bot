@@ -40,7 +40,7 @@ assert($summarizationStateRepository instanceof Entity\SummarizationState\Summar
 
 $saveUpdateHandler = new SaveUpdateHandler($em);
 $client            = new OpenaiClient(
-    apiKey: $this->openrouterApiKey,
+    apiKey: $openrouterApiKey,
     apiUrl: 'https://openrouter.ai/api/v1'
 );
 $openai       = new Openai($client, 'mistralai/mistral-small-3.1-24b-instruct:free');
