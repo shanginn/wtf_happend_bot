@@ -17,11 +17,11 @@ use Cycle\Annotated\Locator\TokenizerEntityLocator;
 use Cycle\ORM;
 use Cycle\Migrations;
 
-$dbHost = $_ENV['DB_HOST'] ?? 'db';
-$dbPort = $_ENV['DB_PORT'] ?? '5432';
-$dbName = $_ENV['DB_DATABASE'] ?? throw new InvalidArgumentException('DB_DATABASE is not set');
-$dbUser = $_ENV['DB_USERNAME'] ?? throw new InvalidArgumentException('DB_USERNAME is not set');
-$dbPassword = $_ENV['DB_PASSWORD'] ?? throw new InvalidArgumentException('DB_PASSWORD is not set');
+$dbHost = getenv('DB_HOST') ?? 'db';
+$dbPort = getenv('DB_PORT') ?? '5432';
+$dbName = getenv('DB_DATABASE') ?? throw new InvalidArgumentException('DB_DATABASE is not set');
+$dbUser = getenv('DB_USERNAME') ?? throw new InvalidArgumentException('DB_USERNAME is not set');
+$dbPassword = getenv('DB_PASSWORD') ?? throw new InvalidArgumentException('DB_PASSWORD is not set');
 
 
 $dbal = new Database\DatabaseManager(
