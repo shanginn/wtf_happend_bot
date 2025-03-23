@@ -61,7 +61,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           cd helm 
-          helm upgrade wtf_happend_bot --namespace=wtf_happend_bot -f values.yaml . \
+          helm upgrade wtf-happend-bot --namespace=wtfhappendbot -f values.yaml . \
             --set=envSecrets.DB_PASSWORD="$DB_PASSWORD" \
             --set=envSecrets.TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
             --set=envSecrets.OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
