@@ -43,7 +43,7 @@ $client            = new OpenaiClient(
     apiKey: $openrouterApiKey,
     apiUrl: 'https://openrouter.ai/api/v1'
 );
-$openai       = new Openai($client, 'mistralai/mistral-small-3.1-24b-instruct:free');
+$openai       = new Openai($client, 'mistralai/mistral-small-3.1-24b-instruct'); //:free');
 $openaiSimple = new OpenaiSimple($openai);
 $chatService  = new ChatService(
     $em,

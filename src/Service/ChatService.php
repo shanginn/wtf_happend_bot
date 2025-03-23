@@ -70,6 +70,7 @@ class ChatService
                     temperature: 0.3,
                     maxTokens: 1024,
                 );
+                dump($summary);
             } catch (Throwable $e) {
                 dump($e);
                 ++$attempt;

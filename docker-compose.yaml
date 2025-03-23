@@ -21,7 +21,7 @@ services:
       POSTGRES_DB: $DB_DATABASE
       POSTGRES_USER: $DB_USERNAME
     ports:
-      - "5432:5432"
+      - "35432:5432"
     volumes:
       - wtfhappendbot-pgsql:/var/lib/postgresql/data
     healthcheck:

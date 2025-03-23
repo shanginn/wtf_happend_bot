@@ -3619,12 +3619,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/shanginn/openai-sdk-php.git",
-                "reference": "d00b417030e0a41a219b58203f064d57001d362a"
+                "reference": "d00be2dcf17202d18b22da92a7c8c40944c78553"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/shanginn/openai-sdk-php/zipball/d00b417030e0a41a219b58203f064d57001d362a",
-                "reference": "d00b417030e0a41a219b58203f064d57001d362a",
+                "url": "https://api.github.com/repos/shanginn/openai-sdk-php/zipball/d00be2dcf17202d18b22da92a7c8c40944c78553",
+                "reference": "d00be2dcf17202d18b22da92a7c8c40944c78553",
                 "shasum": ""
             },
             "require": {
@@ -3657,7 +3657,7 @@
                 "issues": "https://github.com/shanginn/openai-sdk-php/issues",
                 "source": "https://github.com/shanginn/openai-sdk-php/tree/master"
             },
-            "time": "2025-03-23T15:21:10+00:00"
+            "time": "2025-03-23T16:21:27+00:00"
         },
         {
             "name": "spiral/attributes",
@@ -6529,16 +6529,16 @@
         },
         {
             "name": "phpunit/phpunit",
-            "version": "12.0.9",
+            "version": "12.0.10",
             "source": {
                 "type": "git",
                 "url": "https://github.com/sebastianbergmann/phpunit.git",
-                "reference": "7835bb4276780e0bbb385ce0a777b839e03096db"
+                "reference": "6075843014de23bcd6992842d69ca99d25d6a433"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/sebastianbergmann/phpunit/zipball/7835bb4276780e0bbb385ce0a777b839e03096db",
-                "reference": "7835bb4276780e0bbb385ce0a777b839e03096db",
+                "url": "https://api.github.com/repos/sebastianbergmann/phpunit/zipball/6075843014de23bcd6992842d69ca99d25d6a433",
+                "reference": "6075843014de23bcd6992842d69ca99d25d6a433",
                 "shasum": ""
             },
             "require": {
@@ -6606,7 +6606,7 @@
             "support": {
                 "issues": "https://github.com/sebastianbergmann/phpunit/issues",
                 "security": "https://github.com/sebastianbergmann/phpunit/security/policy",
-                "source": "https://github.com/sebastianbergmann/phpunit/tree/12.0.9"
+                "source": "https://github.com/sebastianbergmann/phpunit/tree/12.0.10"
             },
             "funding": [
                 {
@@ -6622,7 +6622,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2025-03-19T13:47:33+00:00"
+            "time": "2025-03-23T16:03:59+00:00"
         },
         {
             "name": "sebastian/cli-parser",
