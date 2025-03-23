@@ -16,7 +16,7 @@ use Shanginn\Openai\Openai\OpenaiClient;
 use Shanginn\Openai\OpenaiSimple;
 use Spiral\Core\Container;
 
-Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->load();
+Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
 
 [
     'botToken'                  => $botToken,
