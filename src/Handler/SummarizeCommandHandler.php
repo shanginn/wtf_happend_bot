@@ -26,6 +26,11 @@ class SummarizeCommandHandler implements UpdateHandlerInterface
     {
         $chatId = $update->message->chat->id;
 
+        $bot->api->sendChatAction(
+            chatId: $chatId,
+            action: 'typing',
+        );
+
         $summarization = $this->chatService->summarize($chatId);
 
         if ($summarization === false) {

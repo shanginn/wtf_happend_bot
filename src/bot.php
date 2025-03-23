@@ -11,6 +11,9 @@ use Cycle\ORM\EntityManager;
 use Cycle\ORM\EntityManagerInterface;
 use Cycle\ORM\ORMInterface;
 use Phenogram\Framework\TelegramBot;
+use Shanginn\Openai\Openai;
+use Shanginn\Openai\Openai\OpenaiClient;
+use Shanginn\Openai\OpenaiSimple;
 use Spiral\Core\Container;
 
 Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->load();
@@ -37,17 +40,20 @@ assert($messageRepository instanceof Entity\Message\MessageRepository);
 $summarizationStateRepository = $orm->getRepository(Entity\SummarizationState::class);
 assert($summarizationStateRepository instanceof Entity\SummarizationState\SummarizationStateRepository);
 
-/** @var Entity\Message[] $messages */
-$messages = $messageRepository->findAll();
-
-dump($messages);
-
 $saveUpdateHandler = new SaveUpdateHandler($em);
-$chatService       = new ChatService(
+$client            = new OpenaiClient(
+    apiKey: $this->openrouterApiKey,
+    apiUrl: 'https://openrouter.ai/api/v1'
+);
+$openai       = new Openai($client, 'mistralai/mistral-small-3.1-24b-instruct:free');
+$openaiSimple = new OpenaiSimple($openai);
+$chatService  = new ChatService(
     $em,
     messages: $messageRepository,
     summarizationStates: $summarizationStateRepository,
+    openaiSimple: $openaiSimple,
 );
+
 $summarizeCommandHandler = new SummarizeCommandHandler($chatService);
 
 $bot->addHandler($saveUpdateHandler)
