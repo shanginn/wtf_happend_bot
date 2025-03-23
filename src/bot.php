@@ -21,8 +21,6 @@ Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
 [
     'botToken'                  => $botToken,
     'openrouterApiKey'          => $openrouterApiKey,
-    'systemPrompt'              => $systemPrompt,
-    'finalSystemPromptTemplate' => $finalSystemPromptTemplate,
 ] = require __DIR__ . '/../config/config.php';
 
 $bot = new TelegramBot($botToken);
