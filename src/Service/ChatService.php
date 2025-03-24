@@ -68,7 +68,7 @@ class ChatService
                     system: $systemPrompt,
                     userMessage: $userPrompt,
                     temperature: 0.3,
-                    maxTokens: 1024,
+                    maxTokens: 2048,
                 );
                 dump($summary);
             } catch (Throwable $e) {
