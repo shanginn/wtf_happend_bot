@@ -18,7 +18,11 @@ class SaveUpdateHandler implements UpdateHandlerInterface
 
     public static function supports(UpdateInterface $update): bool
     {
-        return $update->message?->text !== null;
+        return $update->message !== null && (
+            $update->message->text !== null
+            || $update->message->photo !== null
+            || $update->message->document !== null
+        );
     }
 
     public function handle(UpdateInterface $update, TelegramBot $bot)

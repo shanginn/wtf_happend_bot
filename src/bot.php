@@ -6,6 +6,7 @@ use Bot\Entity;
 use Bot\Handler\SaveUpdateHandler;
 use Bot\Handler\StartCommandHandler;
 use Bot\Handler\SummarizeCommandHandler;
+use Bot\Middleware\OneMessageAtOneTimeMiddleware;
 use Bot\Service\ChatService;
 use Cycle\ORM\EntityManager;
 use Cycle\ORM\EntityManagerInterface;
@@ -19,8 +20,8 @@ use Spiral\Core\Container;
 Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
 
 [
-    'botToken'                  => $botToken,
-    'openrouterApiKey'          => $openrouterApiKey,
+    'botToken'         => $botToken,
+    'openrouterApiKey' => $openrouterApiKey,
 ] = require __DIR__ . '/../config/config.php';
 
 $bot = new TelegramBot($botToken);
@@ -60,8 +61,11 @@ $bot->addHandler($saveUpdateHandler)
 $bot->addHandler(new StartCommandHandler())
     ->supports(StartCommandHandler::supports(...));
 
+$oneMessageAtATimeMiddleware = new OneMessageAtOneTimeMiddleware();
+
 $bot->addHandler($summarizeCommandHandler)
-    ->supports($summarizeCommandHandler::supports(...));
+    ->supports($summarizeCommandHandler::supports(...))
+    ->middleware($oneMessageAtATimeMiddleware);
 
 $pressedCtrlC     = false;
 $gracefulShutdown = function (int $signal) use ($bot, &$pressedCtrlC, $em): void {
