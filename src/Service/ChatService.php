@@ -33,8 +33,9 @@ class ChatService
         // Format messages for summarization
         $formattedMessages = [];
         foreach ($newMessages as $message) {
-            $username            = $message->fromUsername ? "@{$message->fromUsername}" : "User {$message->fromUserId}";
-            $formattedMessages[] = "{$username}: {$message->text}";
+            $username            = $message->fromUsername ? "@{$message->fromUsername}" : "user{$message->fromUserId}";
+            $dateString          = date('Y-m-d H:i:s', $message->date);
+            $formattedMessages[] = "[{$dateString}]<MESSAGE>{$username}: {$message->text}</MESSAGE>";
         }
 
         $conversationText = implode("\n", $formattedMessages);

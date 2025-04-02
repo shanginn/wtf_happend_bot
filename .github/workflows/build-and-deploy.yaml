@@ -59,11 +59,13 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           cd helm 
           helm upgrade wtf-happend-bot --namespace=wtfhappendbot -f values.yaml . \
             --set=envSecrets.DB_PASSWORD="$DB_PASSWORD" \
             --set=envSecrets.TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
             --set=envSecrets.OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
+            --set=envSecrets.DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" \
           ;
           kubectl rollout restart deployment/wtf-happend-bot

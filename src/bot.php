@@ -22,6 +22,7 @@ Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
 [
     'botToken'         => $botToken,
     'openrouterApiKey' => $openrouterApiKey,
+    'deepseekApiKey'   => $deepseekApiKey,
 ] = require __DIR__ . '/../config/config.php';
 
 $bot = new TelegramBot($botToken);
@@ -41,10 +42,10 @@ assert($summarizationStateRepository instanceof Entity\SummarizationState\Summar
 
 $saveUpdateHandler = new SaveUpdateHandler($em);
 $client            = new OpenaiClient(
-    apiKey: $openrouterApiKey,
-    apiUrl: 'https://openrouter.ai/api/v1'
+    apiKey: $deepseekApiKey,
+    apiUrl: 'https://api.deepseek.com'
 );
-$openai       = new Openai($client, 'qwen/qwq-32b');
+$openai       = new Openai($client, 'deepseek-chat');
 $openaiSimple = new OpenaiSimple($openai);
 $chatService  = new ChatService(
     $em,
