@@ -39,7 +39,7 @@ class ChatService
     public function summarize(int $chatId, ?int $startMessageId = null, ?string $question = null): false|string
     {
         if ($startMessageId !== null) {
-            $newMessages = $this->messages->findFrom($chatId, $startMessageId, 2000);
+            $newMessages = $this->messages->findFrom($chatId, $startMessageId, 1000);
         } else {
             $state       = $this->summarizationStates->findByChatOrNew($chatId);
             $newMessages = $this->messages->findAllAfter($chatId, $state->lastSummarizedMessageId);
