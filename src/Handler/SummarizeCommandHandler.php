@@ -5,47 +5,63 @@ declare(strict_types=1);
 namespace Bot\Handler;
 
 use Bot\Service\ChatService;
+use Exception;
 use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
 use Phenogram\Bindings\Types\ReplyParameters;
-use Phenogram\Framework\Handler\UpdateHandlerInterface;
+use Phenogram\Framework\Handler\AbstractCommandHandler;
 use Phenogram\Framework\TelegramBot;
 
-class SummarizeCommandHandler implements UpdateHandlerInterface
+class SummarizeCommandHandler extends AbstractCommandHandler
 {
+    private const COMMAND = '/wtf';
+
     public function __construct(
         private readonly ChatService $chatService,
     ) {}
 
     public static function supports(UpdateInterface $update): bool
     {
-        return $update->message?->text !== null
-               && str_starts_with($update->message->text, '/wtf');
+        // Ensure it's a message and the command exists (potentially with arguments)
+        return self::hasCommand($update, self::COMMAND);
     }
 
     public function handle(UpdateInterface $update, TelegramBot $bot): void
     {
-        $chatId = $update->message->chat->id;
+        $message = $update->message;
+        $chatId  = $message->chat->id;
 
         $bot->api->sendChatAction(
             chatId: $chatId,
             action: 'typing',
         );
 
-        $summarization = $this->chatService->summarize($chatId);
+        $question = explode(' ', $message->text, 2)[1] ?? null;
 
-        if ($summarization === false) {
+        $summary = $this->chatService->summarize($chatId, $message->replyToMessage?->messageId, $question);
+
+        if ($summary === false) {
             $bot->api->sendMessage(
                 chatId: $chatId,
-                text: 'Не найдено достаточно сообщений для обработки, читайте сами.'
+                text: 'Не найдено достаточно сообщений для обработки, читайте сами.',
+                replyParameters: new ReplyParameters(messageId: $message->messageId, allowSendingWithoutReply: true),
             );
 
             return;
         }
 
-        $bot->api->sendMessage(
-            chatId: $chatId,
-            text: $summarization,
-            replyParameters: new ReplyParameters(messageId: $update->message->messageId),
-        );
+        try {
+            $bot->api->sendMessage(
+                chatId: $chatId,
+                text: $summary,
+                parseMode: 'MarkdownV2',
+                replyParameters: new ReplyParameters(messageId: $message->messageId, allowSendingWithoutReply: true),
+            );
+        } catch (Exception $e) {
+            $bot->api->sendMessage(
+                chatId: $chatId,
+                text: $summary,
+                replyParameters: new ReplyParameters(messageId: $message->messageId, allowSendingWithoutReply: true),
+            );
+        }
     }
 }

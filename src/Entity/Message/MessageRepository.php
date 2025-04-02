@@ -29,17 +29,38 @@ final class MessageRepository extends Repository
     }
 
     /**
-     * @param int $chatId
-     * @param int $messageId
+     * Finds all messages in a chat after a specific message ID.
      *
-     * @return iterable<Message>
+     * @param int $chatId
+     * @param int $messageId the ID of the message *after* which to start fetching
+     *
+     * @return array<Message>
      */
-    public function findAllAfter(int $chatId, int $messageId): iterable
+    public function findAllAfter(int $chatId, int $messageId): array
     {
         return $this->select()
             ->where('chatId', $chatId)
             ->where('messageId', '>', $messageId)
             ->orderBy('messageId', 'ASC')
+            ->fetchAll();
+    }
+
+    /**
+     * Finds messages in a chat starting from a specific message ID, up to a limit.
+     *
+     * @param int $chatId
+     * @param int $startMessageId the ID of the message to start *from* (inclusive)
+     * @param int $limit          maximum number of messages to fetch
+     *
+     * @return array<Message>
+     */
+    public function findFrom(int $chatId, int $startMessageId, int $limit): array
+    {
+        return $this->select()
+            ->where('chatId', $chatId)
+            ->where('messageId', '>=', $startMessageId)
+            ->orderBy('messageId', 'ASC')
+            ->limit($limit)
             ->fetchAll();
     }
 
