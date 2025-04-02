@@ -56,6 +56,8 @@ $migrator = new Migrations\Migrator($config, $dbal, new Migrations\FileRepositor
 // Init migration table
 $migrator->configure();
 
+dump($migrator->getMigrations());
+
 $migrate = function () use ($migrator) {
     while(($migrated = $migrator->run()) !== null) {
         $status = match($migrated->getState()->getStatus()) {
@@ -68,6 +70,8 @@ $migrate = function () use ($migrator) {
         echo "{$migrated->getState()->getName()} migrated to {$status}\n";
     }
 };
+
+$migrate();
 
 $finder = (new Finder())->files()->in([__DIR__ . '/../src/Entity']);
 $classLocator = new ClassLocator($finder);
