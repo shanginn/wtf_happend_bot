@@ -69,8 +69,6 @@ $migrate = function () use ($migrator) {
     }
 };
 
-$migrate();
-
 $finder = (new Finder())->files()->in([__DIR__ . '/../src/Entity']);
 $classLocator = new ClassLocator($finder);
 

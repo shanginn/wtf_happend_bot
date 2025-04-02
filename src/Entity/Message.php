@@ -16,7 +16,6 @@ class Message
     public int $id;
 
     public function __construct(
-        // messageId
         #[Column(type: 'bigInteger')]
         public int $messageId,
         #[Column(type: 'text')]
