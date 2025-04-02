@@ -7,8 +7,10 @@ namespace Bot\Service;
 use function Amp\delay;
 
 use Bot\Entity\Message;
+
 use Bot\Entity\SummarizationState;
 use Cycle\ORM\EntityManagerInterface;
+use Shanginn\Openai\ChatCompletion\Message\UserMessage;
 use Shanginn\Openai\OpenaiSimple;
 use Throwable;
 
@@ -26,19 +28,9 @@ class ChatService
         $state       = $this->summarizationStates->findByChatOrNew($chatId);
         $newMessages = $this->messages->findAllAfter($chatId, $state->lastSummarizedMessageId);
 
-        if (count($newMessages) < 10) {
+        if (count($newMessages) < 1) {
             return false;
         }
-
-        // Format messages for summarization
-        $formattedMessages = [];
-        foreach ($newMessages as $message) {
-            $username            = $message->fromUsername ? "@{$message->fromUsername}" : "user{$message->fromUserId}";
-            $dateString          = date('Y-m-d H:i:s', $message->date);
-            $formattedMessages[] = "[{$dateString}]<MESSAGE>{$username}: {$message->text}</MESSAGE>";
-        }
-
-        $conversationText = implode("\n", $formattedMessages);
 
         $systemPrompt = <<<'PROMPT'
             You are an expert chat summarizer. Your task is to create a concise and informative summary of the chat conversation provided.
@@ -52,11 +44,17 @@ class ChatService
             7. Ignore the /wtf command mentions
             PROMPT;
 
-        $userPrompt = <<<PROMPT
-            Summarize the following chat conversation IN THE LANGUAGE OF THE MESSAGES
-            
-            {$conversationText}
-            PROMPT;
+        $userPrompt = 'Summarize the chat conversation IN THE LANGUAGE OF THE MESSAGES';
+
+        $history = [];
+
+        foreach ($newMessages as $message) {
+            $username  = $message->fromUsername ? "@{$message->fromUsername}" : "user{$message->fromUserId}";
+            $history[] = new UserMessage(
+                content: "[{$message->date}] {$username}: {$message->text}",
+                name: $username,
+            );
+        }
 
         $maxRetries = 3;
         $retryDelay = 2; // seconds
@@ -68,6 +66,7 @@ class ChatService
                 $summary = $this->openaiSimple->generate(
                     system: $systemPrompt,
                     userMessage: $userPrompt,
+                    history: $history,
                     temperature: 0.3,
                     maxTokens: 2048,
                 );
