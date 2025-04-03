@@ -89,7 +89,11 @@ class ChatService
             6. The /wtf command is used to summarize the chat conversation.
             PROMPT;
 
-        $userPrompt = $question ?? 'Summarize the chat conversation IN THE LANGUAGE OF THE MESSAGES.';
+        if ($question !== null) {
+            $userPrompt = "Answer the following question based on the conversation: {$question}";
+        } else {
+            $userPrompt = 'Summarize the chat conversation IN THE LANGUAGE OF THE MESSAGES.';
+        }
 
         /** @var array<MessageInterface> $history */
         $history = [];
