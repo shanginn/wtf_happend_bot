@@ -40,6 +40,17 @@ class SummarizeCommandHandler extends AbstractCommandHandler
 
         $question = explode(' ', $message->text, 2)[1] ?? null;
 
+        // Determine which message to reply to
+        $replyToMessageId = $message->messageId;
+
+        // If this is a plain /wtf command with no question, reply to the last summarized message
+        if ($question === null) {
+            $lastSummarizedMessageId = $this->summarizationStateRepository->getLastSummarizedMessageId($chatId, $userId);
+            if ($lastSummarizedMessageId !== null) {
+                $replyToMessageId = $lastSummarizedMessageId;
+            }
+        }
+
         $summary = $this->chatService->summarize($chatId, $userId, $message->replyToMessage?->messageId, $question);
 
         if ($summary === false) {
@@ -50,17 +61,6 @@ class SummarizeCommandHandler extends AbstractCommandHandler
             );
 
             return;
-        }
-
-        // Determine which message to reply to
-        $replyToMessageId = $message->messageId;
-        
-        // If this is a plain /wtf command with no question, reply to the last summarized message
-        if ($question === null) {
-            $lastSummarizedMessageId = $this->summarizationStateRepository->getLastSummarizedMessageId($chatId, $userId);
-            if ($lastSummarizedMessageId !== null) {
-                $replyToMessageId = $lastSummarizedMessageId;
-            }
         }
         
         try {
