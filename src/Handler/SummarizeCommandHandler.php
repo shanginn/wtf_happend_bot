@@ -29,6 +29,7 @@ class SummarizeCommandHandler extends AbstractCommandHandler
     {
         $message = $update->message;
         $chatId  = $message->chat->id;
+        $userId  = $message->from->id;
 
         $bot->api->sendChatAction(
             chatId: $chatId,
@@ -37,7 +38,7 @@ class SummarizeCommandHandler extends AbstractCommandHandler
 
         $question = explode(' ', $message->text, 2)[1] ?? null;
 
-        $summary = $this->chatService->summarize($chatId, $message->replyToMessage?->messageId, $question);
+        $summary = $this->chatService->summarize($chatId, $userId, $message->replyToMessage?->messageId, $question);
 
         if ($summary === false) {
             $bot->api->sendMessage(

@@ -18,6 +18,8 @@ class SummarizationState
         #[Column(type: 'bigInteger')]
         public int $chatId,
         #[Column(type: 'bigInteger')]
+        public int $userId,
+        #[Column(type: 'bigInteger')]
         public int $lastSummarizedMessageId,
     ) {}
 }

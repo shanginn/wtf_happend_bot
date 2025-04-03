@@ -28,12 +28,34 @@ final class SummarizationStateRepository extends Repository
         return $this->findByPK($id);
     }
 
+    public function findByChatAndUserOrNew(int $chatId, int $userId): SummarizationState
+    {
+        $state = $this->findOne(['chatId' => $chatId, 'userId' => $userId]);
+
+        if ($state === null) {
+            // Check if there's a state for this chat (from any user)
+            $existingChatState = $this->findOne(['chatId' => $chatId]);
+            
+            // If there's an existing state for this chat, copy the lastSummarizedMessageId
+            // This prevents having to process the entire chat history for new users
+            $lastMessageId = $existingChatState?->lastSummarizedMessageId ?? 0;
+            
+            $state = new SummarizationState($chatId, $userId, $lastMessageId);
+            $this->em->persist($state);
+        }
+
+        return $state;
+    }
+    
+    /**
+     * @deprecated Use findByChatAndUserOrNew() instead
+     */
     public function findByChatOrNew(int $chatId): SummarizationState
     {
         $state = $this->findOne(['chatId' => $chatId]);
 
         if ($state === null) {
-            $state = new SummarizationState($chatId, 0);
+            $state = new SummarizationState($chatId, 0, 0);
             $this->em->persist($state);
         }
 

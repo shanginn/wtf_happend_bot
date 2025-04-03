@@ -31,17 +31,18 @@ class ChatService
      * Updates the summarization state.
      *
      * @param int         $chatId
+     * @param int         $userId
      * @param string|null $question       optional specific question to ask the AI
      * @param ?int        $startMessageId
      *
      * @return false|string false if not enough messages, summary string otherwise, or error message
      */
-    public function summarize(int $chatId, ?int $startMessageId = null, ?string $question = null): false|string
+    public function summarize(int $chatId, int $userId, ?int $startMessageId = null, ?string $question = null): false|string
     {
         if ($startMessageId !== null) {
             $newMessages = $this->messages->findFrom($chatId, $startMessageId, 1000);
         } else {
-            $state       = $this->summarizationStates->findByChatOrNew($chatId);
+            $state       = $this->summarizationStates->findByChatAndUserOrNew($chatId, $userId);
             $newMessages = $this->messages->findAllAfter($chatId, $state->lastSummarizedMessageId);
         }
 
