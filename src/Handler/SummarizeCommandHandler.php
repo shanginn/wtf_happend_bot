@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Bot\Handler;
 
+use Bot\Entity\SummarizationState\SummarizationStateRepository;
 use Bot\Service\ChatService;
 use Exception;
 use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
@@ -17,6 +18,7 @@ class SummarizeCommandHandler extends AbstractCommandHandler
 
     public function __construct(
         private readonly ChatService $chatService,
+        private readonly SummarizationStateRepository $summarizationStateRepository,
     ) {}
 
     public static function supports(UpdateInterface $update): bool
@@ -50,12 +52,23 @@ class SummarizeCommandHandler extends AbstractCommandHandler
             return;
         }
 
+        // Determine which message to reply to
+        $replyToMessageId = $message->messageId;
+        
+        // If this is a plain /wtf command with no question, reply to the last summarized message
+        if ($question === null) {
+            $lastSummarizedMessageId = $this->summarizationStateRepository->getLastSummarizedMessageId($chatId, $userId);
+            if ($lastSummarizedMessageId !== null) {
+                $replyToMessageId = $lastSummarizedMessageId;
+            }
+        }
+        
         try {
             $bot->api->sendMessage(
                 chatId: $chatId,
                 text: $summary,
                 parseMode: 'MarkdownV2',
-                replyParameters: new ReplyParameters(messageId: $message->messageId, allowSendingWithoutReply: true),
+                replyParameters: new ReplyParameters(messageId: $replyToMessageId, allowSendingWithoutReply: true),
             );
         } catch (Exception $e) {
             $bot->logger->error($e->getMessage());
@@ -63,7 +76,7 @@ class SummarizeCommandHandler extends AbstractCommandHandler
             $bot->api->sendMessage(
                 chatId: $chatId,
                 text: $summary,
-                replyParameters: new ReplyParameters(messageId: $message->messageId, allowSendingWithoutReply: true),
+                replyParameters: new ReplyParameters(messageId: $replyToMessageId, allowSendingWithoutReply: true),
             );
         }
     }

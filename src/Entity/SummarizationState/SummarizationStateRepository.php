@@ -85,4 +85,19 @@ final class SummarizationStateRepository extends Repository
 
         $run && $this->em->run();
     }
+    
+    /**
+     * Gets the last summarized message ID for a specific chat and user.
+     *
+     * @param int $chatId The chat ID
+     * @param int $userId The user ID
+     *
+     * @return int|null The ID of the last summarized message, or null if no summarization state exists
+     */
+    public function getLastSummarizedMessageId(int $chatId, int $userId): ?int
+    {
+        $state = $this->findOne(['chatId' => $chatId, 'userId' => $userId]);
+        
+        return $state?->lastSummarizedMessageId;
+    }
 }

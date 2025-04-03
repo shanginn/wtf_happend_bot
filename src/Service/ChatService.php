@@ -46,7 +46,7 @@ class ChatService
             $newMessages = $this->messages->findAllAfter($chatId, $state->lastSummarizedMessageId);
         }
 
-        if (count($newMessages) < 1) {
+        if (count($newMessages) < 10) {
             return false;
         }
 

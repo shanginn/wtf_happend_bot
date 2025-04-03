@@ -54,7 +54,7 @@ $chatService  = new ChatService(
     openaiSimple: $openaiSimple,
 );
 
-$summarizeCommandHandler = new SummarizeCommandHandler($chatService);
+$summarizeCommandHandler = new SummarizeCommandHandler($chatService, $summarizationStateRepository);
 
 $bot->addHandler($saveUpdateHandler)
     ->supports($saveUpdateHandler::supports(...));
