@@ -87,6 +87,7 @@ class ChatService
             4. Maintain a neutral tone
             5. Include relevant names/usernames of participants (e.g., @username or user12345)
             6. The /wtf command is used to summarize the chat conversation.
+            7. The summary should be formatted in MarkdownV2 style.
             
             MarkdownV2 style, Use the following syntax in your message:
                 *bold \*text*
