@@ -57,6 +57,8 @@ class SummarizeCommandHandler extends AbstractCommandHandler
                 replyParameters: new ReplyParameters(messageId: $message->messageId, allowSendingWithoutReply: true),
             );
         } catch (Exception $e) {
+            $bot->logger->error($e->getMessage());
+
             $bot->api->sendMessage(
                 chatId: $chatId,
                 text: $summary,
