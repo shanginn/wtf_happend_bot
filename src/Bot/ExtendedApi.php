@@ -8,8 +8,6 @@ use function Amp\async;
 use function Amp\delay;
 
 use Phenogram\Bindings\Api;
-use Phenogram\Bindings\ClientInterface;
-use Phenogram\Bindings\SerializerInterface;
 use Phenogram\Bindings\Types\Message;
 use Phenogram\Bindings\Types\User;
 use Throwable;
@@ -17,6 +15,35 @@ use Throwable;
 class ExtendedApi extends Api
 {
     private User $me;
+
+    public function sendMessage(...$args): Message
+    {
+        $text = $args['text'];
+
+        if (mb_strlen($text) > 4095) {
+            $chunks = mb_str_split($text, 4095);
+
+            assert(is_array($chunks) && count($chunks) > 1);
+
+            foreach ($chunks as $chunk) {
+                $args['text'] = $chunk;
+                $lastMessage  = $this->sendMessage(...$args);
+            }
+
+            return $lastMessage;
+        }
+
+        return parent::sendMessage(...$args);
+    }
+
+    public function getMe(): User
+    {
+        if (!isset($this->me)) {
+            $this->me = parent::getMe();
+        }
+
+        return $this->me;
+    }
 
     protected function doRequest(
         string $method,
@@ -50,6 +77,7 @@ class ExtendedApi extends Api
                     || str_contains($errorMessage, 'forbidden')
                     || str_contains($errorMessage, 'not found')
                     || str_contains($errorMessage, 'message is not modified')
+                    || str_contains($errorMessage, 'can\'t parse entities')
                 ) {
                     break;
                 }
@@ -70,34 +98,5 @@ class ExtendedApi extends Api
         } while (++$currentRetry < $retries);
 
         throw $e;
-    }
-
-    public function sendMessage(...$args): Message
-    {
-        $text = $args['text'];
-
-        if (mb_strlen($text) > 4095) {
-            $chunks = mb_str_split($text, 4095);
-
-            assert(is_array($chunks) && count($chunks) > 1);
-
-            foreach ($chunks as $chunk) {
-                $args['text'] = $chunk;
-                $lastMessage  = $this->sendMessage(...$args);
-            }
-
-            return $lastMessage;
-        }
-
-        return parent::sendMessage(...$args);
-    }
-
-    public function getMe(): User
-    {
-        if (!isset($this->me)) {
-            $this->me = parent::getMe();
-        }
-
-        return $this->me;
     }
 }
