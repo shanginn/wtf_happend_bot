@@ -87,12 +87,12 @@ final class MessageRepository extends Repository
 
         $run && $this->em->run();
     }
-    
+
     /**
-     * Finds the ID of the last message in a specific chat, 
+     * Finds the ID of the last message in a specific chat,
      * optionally filtering by user ID.
      *
-     * @param int $chatId The ID of the chat
+     * @param int      $chatId The ID of the chat
      * @param int|null $userId Optional user ID to filter by
      *
      * @return int|null The ID of the last message, or null if there are no messages
@@ -101,16 +101,16 @@ final class MessageRepository extends Repository
     {
         $query = $this->select()
             ->where('chatId', $chatId);
-            
+
         if ($userId !== null) {
             $query = $query->where('fromUserId', $userId);
         }
-        
+
         $message = $query
             ->orderBy('messageId', 'DESC')
             ->limit(1)
             ->fetchOne();
-            
+
         return $message?->messageId;
     }
 }

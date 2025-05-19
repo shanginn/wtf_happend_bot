@@ -35,20 +35,22 @@ final class SummarizationStateRepository extends Repository
         if ($state === null) {
             // Check if there's a state for this chat (from any user)
             $existingChatState = $this->findOne(['chatId' => $chatId]);
-            
+
             // If there's an existing state for this chat, copy the lastSummarizedMessageId
             // This prevents having to process the entire chat history for new users
             $lastMessageId = $existingChatState?->lastSummarizedMessageId ?? 0;
-            
+
             $state = new SummarizationState($chatId, $userId, $lastMessageId);
             $this->em->persist($state);
         }
 
         return $state;
     }
-    
+
     /**
      * @deprecated Use findByChatAndUserOrNew() instead
+     *
+     * @param int $chatId
      */
     public function findByChatOrNew(int $chatId): SummarizationState
     {
@@ -85,7 +87,7 @@ final class SummarizationStateRepository extends Repository
 
         $run && $this->em->run();
     }
-    
+
     /**
      * Gets the last summarized message ID for a specific chat and user.
      *
@@ -97,7 +99,7 @@ final class SummarizationStateRepository extends Repository
     public function getLastSummarizedMessageId(int $chatId, int $userId): ?int
     {
         $state = $this->findOne(['chatId' => $chatId, 'userId' => $userId]);
-        
+
         return $state?->lastSummarizedMessageId;
     }
 }

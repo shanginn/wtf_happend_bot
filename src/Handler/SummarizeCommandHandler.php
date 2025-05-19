@@ -62,7 +62,7 @@ class SummarizeCommandHandler extends AbstractCommandHandler
 
             return;
         }
-        
+
         try {
             $bot->api->sendMessage(
                 chatId: $chatId,
