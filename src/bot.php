@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
+use Bot\Bot\ExtendedApi;
 use Bot\Entity;
 use Bot\Handler\SaveUpdateHandler;
 use Bot\Handler\StartCommandHandler;
@@ -11,7 +12,9 @@ use Bot\Service\ChatService;
 use Cycle\ORM\EntityManager;
 use Cycle\ORM\EntityManagerInterface;
 use Cycle\ORM\ORMInterface;
+use Phenogram\Bindings\Serializer;
 use Phenogram\Framework\TelegramBot;
+use Phenogram\Framework\TelegramBotApiClient;
 use Shanginn\Openai\Openai;
 use Shanginn\Openai\Openai\OpenaiClient;
 use Shanginn\Openai\OpenaiSimple;
@@ -25,7 +28,13 @@ Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
     'deepseekApiKey'   => $deepseekApiKey,
 ] = require __DIR__ . '/../config/config.php';
 
-$bot = new TelegramBot($botToken);
+$bot = new TelegramBot(
+    $botToken,
+    api: new ExtendedApi(
+        client: new TelegramBotApiClient($botToken),
+        serializer: new Serializer(),
+    )
+);
 
 /** @var ORMInterface $orm */
 /** @var Container $container */

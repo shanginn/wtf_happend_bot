@@ -16,10 +16,10 @@ class OneMessageAtOneTimeMiddleware implements MiddlewareInterface
 
     public function process(UpdateInterface $update, UpdateHandlerInterface $handler, TelegramBot $bot): void
     {
-        $chatId = $update->message->chat->id;
-        if (array_key_exists($chatId, $this->activeMessages)) {
+        $fromId = $update->message->from->id;
+        if (array_key_exists($fromId, $this->activeMessages)) {
             $bot->api->sendMessage(
-                chatId: $chatId,
+                chatId: $update->message->chat->id,
                 text: <<<'TXT'
                     <i>Пожалуйста, дождитесь ответа на предыдущее сообщение
                     перед отправкой следующего.
@@ -35,11 +35,11 @@ class OneMessageAtOneTimeMiddleware implements MiddlewareInterface
             return;
         }
 
-        $this->activeMessages[$chatId] = true;
+        $this->activeMessages[$fromId] = true;
 
         $handler->handle($update, $bot);
 
-        unset($this->activeMessages[$chatId]);
+        unset($this->activeMessages[$fromId]);
     }
 
     public function reactivateChat(int $chatId): void
