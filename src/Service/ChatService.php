@@ -15,8 +15,6 @@ use Shanginn\Openai\ChatCompletion\Message\UserMessage;
 use Shanginn\Openai\OpenaiSimple;
 use Throwable;
 
-// Add this
-
 class ChatService
 {
     public function __construct(
@@ -24,6 +22,7 @@ class ChatService
         private Message\MessageRepository $messages,
         private SummarizationState\SummarizationStateRepository $summarizationStates,
         private OpenaiSimple $openaiSimple,
+        private readonly ?MemoryService $memoryService = null,
     ) {}
 
     /**
@@ -228,5 +227,55 @@ class ChatService
         }
 
         return $summary;
+    }
+
+    /**
+     * Generate AI response with memory context
+     *
+     * @param string $userMessage
+     * @param int    $chatId
+     * @param int    $userId
+     * @param array  $conversationHistory
+     *
+     * @return string|null
+     */
+    public function generateResponseWithMemory(string $userMessage, int $chatId, int $userId, array $conversationHistory = []): ?string
+    {
+        if ($this->memoryService === null) {
+            // Fallback to regular generation without memory
+            return $this->openaiSimple->generate(
+                system: "You are a helpful AI assistant.",
+                userMessage: $userMessage,
+                history: $this->memoryService?->convertToOpenaiMessages($conversationHistory) ?? [],
+            );
+        }
+
+        // Search for relevant memories
+        $relevantMemories = $this->memoryService->searchMemories($userMessage, $chatId, $userId);
+        $memoriesStr = $this->memoryService->formatMemoriesForPrompt($relevantMemories);
+
+        // Generate response with memory context
+        $systemPrompt = "You are a helpful AI assistant. Answer the question based on the query and user memories.\n\nUser Memories:\n{$memoriesStr}";
+
+        try {
+            $response = $this->openaiSimple->generate(
+                system: $systemPrompt,
+                userMessage: $userMessage,
+                history: $this->memoryService->convertToOpenaiMessages($conversationHistory),
+            );
+
+            // Add the conversation to memory
+            if ($response !== null) {
+                $conversationHistory[] = ['role' => 'user', 'content' => $userMessage];
+                $conversationHistory[] = ['role' => 'assistant', 'content' => $response];
+                
+                $this->memoryService->addMemories($conversationHistory, $chatId, $userId);
+            }
+
+            return $response;
+        } catch (Throwable $e) {
+            error_log('Memory-enhanced response generation failed: ' . $e->getMessage());
+            return null;
+        }
     }
 }

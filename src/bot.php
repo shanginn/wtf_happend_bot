@@ -4,11 +4,14 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use Bot\Bot\ExtendedApi;
 use Bot\Entity;
+use Bot\Handler\IntelligentRoutingHandler;
 use Bot\Handler\SaveUpdateHandler;
 use Bot\Handler\StartCommandHandler;
 use Bot\Handler\SummarizeCommandHandler;
 use Bot\Middleware\OneMessageAtOneTimeMiddleware;
 use Bot\Service\ChatService;
+use Bot\Service\MemoryService;
+use Bot\Tool\RouterTool;
 use Cycle\ORM\EntityManager;
 use Cycle\ORM\EntityManagerInterface;
 use Cycle\ORM\ORMInterface;
@@ -19,6 +22,7 @@ use Shanginn\Openai\Openai;
 use Shanginn\Openai\Openai\OpenaiClient;
 use Shanginn\Openai\OpenaiSimple;
 use Spiral\Core\Container;
+use Mem0\Mem0;
 
 Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
 
@@ -26,6 +30,7 @@ Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
     'botToken'         => $botToken,
     'openrouterApiKey' => $openrouterApiKey,
     'deepseekApiKey'   => $deepseekApiKey,
+    'mem0ApiKey'       => $mem0ApiKey,
 ] = require __DIR__ . '/../config/config.php';
 
 $bot = new TelegramBot(
@@ -50,20 +55,36 @@ $summarizationStateRepository = $orm->getRepository(Entity\SummarizationState::c
 assert($summarizationStateRepository instanceof Entity\SummarizationState\SummarizationStateRepository);
 
 $saveUpdateHandler = new SaveUpdateHandler($em);
-$client            = new OpenaiClient(
-    apiKey: $deepseekApiKey,
-    apiUrl: 'https://api.deepseek.com'
+//$client            = new OpenaiClient(
+//    apiKey: $deepseekApiKey,
+//    apiUrl: 'https://api.deepseek.com'
+//);
+//$openai       = new Openai($client, 'deepseek-chat');
+//$openaiSimple = new OpenaiSimple($openai);
+
+$openaiSimple = OpenaiSimple::create(
+    apiKey: $openrouterApiKey,
+    model: 'moonshotai/kimi-k2',
+    apiUrl: 'https://openrouter.ai/api/v1'
 );
-$openai       = new Openai($client, 'deepseek-chat');
-$openaiSimple = new OpenaiSimple($openai);
+
+// Initialize memory service
+$mem0 = new Mem0($mem0ApiKey);
+$memoryService = new MemoryService($mem0);
+
+// Initialize router tool for intelligent message routing
+$routerTool = new RouterTool($openaiSimple);
+
 $chatService  = new ChatService(
     $em,
     messages: $messageRepository,
     summarizationStates: $summarizationStateRepository,
     openaiSimple: $openaiSimple,
+    memoryService: $memoryService,
 );
 
 $summarizeCommandHandler = new SummarizeCommandHandler($chatService, $summarizationStateRepository);
+$intelligentRoutingHandler = new IntelligentRoutingHandler($routerTool, $chatService);
 
 $bot->addHandler($saveUpdateHandler)
     ->supports($saveUpdateHandler::supports(...));
@@ -75,6 +96,11 @@ $oneMessageAtATimeMiddleware = new OneMessageAtOneTimeMiddleware();
 
 $bot->addHandler($summarizeCommandHandler)
     ->supports($summarizeCommandHandler::supports(...))
+    ->middleware($oneMessageAtATimeMiddleware);
+
+// Add intelligent routing handler for non-command messages
+$bot->addHandler($intelligentRoutingHandler)
+    ->supports($intelligentRoutingHandler::supports(...))
     ->middleware($oneMessageAtATimeMiddleware);
 
 $pressedCtrlC     = false;

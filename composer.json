@@ -28,7 +28,8 @@
         "cycle/migrations": "^4.2",
         "cycle/schema-migrations-generator": "^2.3",
         "cycle/annotated": "^4.2",
-        "symfony/var-dumper": "^7.2"
+        "symfony/var-dumper": "^7.2",
+        "shanginn/mem0": "*"
     },
     "minimum-stability": "stable",
     "scripts": {
