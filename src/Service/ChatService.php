@@ -40,14 +40,14 @@ class ChatService
     public function summarize(int $chatId, int $userId, ?int $startMessageId = null, ?string $question = null): false|string
     {
         if ($startMessageId !== null) {
-            $newMessages = $this->messages->findFrom($chatId, $startMessageId, 600);
+            $newMessages = $this->messages->findFrom($chatId, $startMessageId, 150);
         } else {
             $state       = $this->summarizationStates->findByChatAndUserOrNew($chatId, $userId);
             $newMessages = $this->messages->findAllAfter($chatId, $state->lastSummarizedMessageId);
         }
 
         if (count($newMessages) < 10) {
-            return false;
+            $newMessages = $this->messages->findLastN($chatId, 50);
         }
 
         $summary = $this->generateSummary($newMessages, $question);
@@ -198,7 +198,7 @@ class ChatService
             return null;
         }
 
-        $maxRetries = 8;
+        $maxRetries = 5;
         $retryDelay = 2; // seconds
         $attempt    = 0;
         $summary    = null;

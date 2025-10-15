@@ -113,4 +113,13 @@ final class MessageRepository extends Repository
 
         return $message?->messageId;
     }
+
+    public function findLastN(int $chatId, int $int): array
+    {
+        return $this->select()
+            ->where('chatId', $chatId)
+            ->orderBy('messageId', 'DESC')
+            ->limit($int)
+            ->fetchAll();
+    }
 }
