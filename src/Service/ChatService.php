@@ -40,7 +40,7 @@ class ChatService
     public function summarize(int $chatId, int $userId, ?int $startMessageId = null, ?string $question = null): false|string
     {
         if ($startMessageId !== null) {
-            $newMessages = $this->messages->findFrom($chatId, $startMessageId, 1000);
+            $newMessages = $this->messages->findFrom($chatId, $startMessageId, 600);
         } else {
             $state       = $this->summarizationStates->findByChatAndUserOrNew($chatId, $userId);
             $newMessages = $this->messages->findAllAfter($chatId, $state->lastSummarizedMessageId);
@@ -198,10 +198,11 @@ class ChatService
             return null;
         }
 
-        $maxRetries = 3;
+        $maxRetries = 8;
         $retryDelay = 2; // seconds
         $attempt    = 0;
         $summary    = null;
+        $lastError  = null;
 
         while ($summary === null && $attempt < $maxRetries) {
             try {
@@ -217,6 +218,7 @@ class ChatService
                 // Log the error properly instead of just dumping
                 error_log('AI Generation Error (Attempt ' . ($attempt + 1) . '): ' . $e->getMessage());
                 // dump($e); // Keep for debugging if needed
+                $lastError = $e->getMessage();
 
                 ++$attempt;
                 if ($attempt >= $maxRetries) {
@@ -227,6 +229,6 @@ class ChatService
             }
         }
 
-        return $summary;
+        return $summary ?? $lastError;
     }
 }
