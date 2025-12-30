@@ -3,3 +3,4 @@ vendor
 .env.prod
 .php-cs-fixer.cache
 database.sqlite
+.phpunit.cache

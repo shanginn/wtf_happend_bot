@@ -19,6 +19,10 @@ use Throwable;
 
 class ChatService
 {
+    private const MAX_CONTEXT_TOKENS    = 131072;
+    private const MAX_COMPLETION_TOKENS = 2048;
+    private const RESERVED_TOKENS       = 4000; // Reserve space for system prompt, user prompt, and safety margin
+
     public function __construct(
         private readonly EntityManagerInterface $em,
         private Message\MessageRepository $messages,
@@ -62,6 +66,60 @@ class ChatService
         $this->em->clean();
 
         return $summary ?? 'Не удалось сгенерировать ответ. Сервис может быть временно недоступен. Попробуйте позже.';
+    }
+
+    /**
+     * Estimates token count for a text string (rough approximation: ~1 token per 4 characters for English/Cyrillic).
+     *
+     * @param string $text
+     */
+    private function estimateTokenCount(string $text): int
+    {
+        // Simple approximation: 1 token ≈ 4 characters for most languages including English and Russian
+        // This is conservative and may overestimate slightly
+        return (int) ceil(mb_strlen($text) / 4);
+    }
+
+    /**
+     * Truncates message history to fit within context token limits.
+     *
+     * @param array<MessageInterface> $history
+     * @param string                  $systemPrompt
+     * @param string                  $userPrompt
+     *
+     * @return array<MessageInterface>
+     */
+    private function truncateHistoryToFitContext(array $history, string $systemPrompt, string $userPrompt): array
+    {
+        $availableTokens = self::MAX_CONTEXT_TOKENS - self::MAX_COMPLETION_TOKENS - self::RESERVED_TOKENS;
+
+        // Estimate tokens used by prompts
+        $promptTokens = $this->estimateTokenCount($systemPrompt) + $this->estimateTokenCount($userPrompt);
+        $availableTokens -= $promptTokens;
+
+        if ($availableTokens <= 0) {
+            // If prompts are too large, return empty array
+            return [];
+        }
+
+        // Keep the most recent messages that fit within the token limit
+        $truncatedHistory = [];
+        $usedTokens       = 0;
+
+        // Process messages in reverse order (newest first) to keep the most relevant ones
+        for ($i = count($history) - 1; $i >= 0; --$i) {
+            $message       = $history[$i];
+            $messageTokens = $this->estimateTokenCount($message->content);
+
+            if ($usedTokens + $messageTokens <= $availableTokens) {
+                array_unshift($truncatedHistory, $message);
+                $usedTokens += $messageTokens;
+            } else {
+                break; // Stop when we run out of tokens
+            }
+        }
+
+        return $truncatedHistory;
     }
 
     /**
@@ -213,6 +271,13 @@ class ChatService
         }
 
         // Check if after filtering, there are still messages to process
+        if (count($history) === 0) {
+            return null;
+        }
+
+        // Truncate history to fit within context limits
+        $history = $this->truncateHistoryToFitContext($history, $systemPrompt, $userPrompt);
+
         if (count($history) === 0) {
             return null;
         }
