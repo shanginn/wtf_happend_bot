@@ -19,9 +19,10 @@ use Throwable;
 
 class ChatService
 {
-    private const MAX_CONTEXT_TOKENS    = 131072;
+    private const MAX_CONTEXT_TOKENS    = 128000; // DeepSeek context limit (rounded down from 131072 for safety)
     private const MAX_COMPLETION_TOKENS = 2048;
-    private const RESERVED_TOKENS       = 4000; // Reserve space for system prompt, user prompt, and safety margin
+    private const RESERVED_TOKENS       = 8000; // Reserve space for system prompt, user prompt, message overhead, and safety margin
+    private const MESSAGE_OVERHEAD_TOKENS = 4; // Each message has role/name/content overhead (~4 tokens)
 
     public function __construct(
         private readonly EntityManagerInterface $em,
@@ -69,15 +70,20 @@ class ChatService
     }
 
     /**
-     * Estimates token count for a text string (rough approximation: ~1 token per 4 characters for English/Cyrillic).
+     * Estimates token count for a text string using a conservative approximation.
+     * DeepSeek/OpenAI models typically use:
+     * - ~4 chars per token for simple English
+     * - ~2-3 chars per token for code/mixed content
+     * - ~1.5-2 chars per token for Cyrillic/non-English
+     * We use 3 chars per token as a conservative estimate for mixed content.
      *
      * @param string $text
      */
     private function estimateTokenCount(string $text): int
     {
-        // Simple approximation: 1 token ≈ 4 characters for most languages including English and Russian
-        // This is conservative and may overestimate slightly
-        return (int) ceil(mb_strlen($text) / 4);
+        // Conservative approximation: 1 token ≈ 3 characters for mixed content
+        // This accounts for timestamps, usernames, formatting, and non-English text
+        return (int) ceil(mb_strlen($text) / 3);
     }
 
     /**
@@ -91,6 +97,8 @@ class ChatService
      */
     private function truncateHistoryToFitContext(array $history, string $systemPrompt, string $userPrompt): array
     {
+        // Calculate available tokens for message history
+        // Reserve space for completion, prompts, and safety margin
         $availableTokens = self::MAX_CONTEXT_TOKENS - self::MAX_COMPLETION_TOKENS - self::RESERVED_TOKENS;
 
         // Estimate tokens used by prompts
@@ -109,7 +117,8 @@ class ChatService
         // Process messages in reverse order (newest first) to keep the most relevant ones
         for ($i = count($history) - 1; $i >= 0; --$i) {
             $message       = $history[$i];
-            $messageTokens = $this->estimateTokenCount($message->content);
+            // Include message overhead for role/name/content structure
+            $messageTokens = $this->estimateTokenCount($message->content) + self::MESSAGE_OVERHEAD_TOKENS;
 
             if ($usedTokens + $messageTokens <= $availableTokens) {
                 array_unshift($truncatedHistory, $message);
