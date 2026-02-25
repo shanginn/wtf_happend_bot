@@ -9,7 +9,25 @@ services:
       - .:/app
     depends_on:
       - db
+    environment:
+      - TEMPORAL_CLI_ADDRESS=host.docker.internal:7233
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     entrypoint: php src/bot.php
+
+  worker:
+    env_file:
+      - .env
+    build:
+      context: local
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    entrypoint: ./rr serve
 
   db:
     env_file:
@@ -31,6 +49,4 @@ services:
 
 volumes:
   wtfhappendbot-pgsql:
-    driver: local
-  wtfhappendbot-redis:
     driver: local

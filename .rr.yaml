@@ -1,0 +1,29 @@
+version: '3'
+
+rpc:
+  listen: tcp://127.0.0.1:6001
+
+server:
+  command: "php src/worker.php"
+  relay: "pipes"
+  relay_timeout: 20s
+
+temporal:
+  address: "host.docker.internal:7233"
+  cache_size: 10000
+  namespace: "default"
+  codec: json
+  metrics:
+    address: "127.0.0.1:9091"
+    type: summary
+
+logs:
+  mode: development
+  level: debug
+  encoding: console
+
+kv:
+  temporal-cache:
+    driver: memory
+    config:
+      size: 10000

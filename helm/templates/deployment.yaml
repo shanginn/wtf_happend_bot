@@ -23,7 +23,7 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "app.serviceAccountName" . }}
       containers:
-        - name: {{ .Chart.Name }}
+        - name: bot
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           volumeMounts:
             - name: php-config
@@ -38,6 +38,23 @@ spec:
                 name: {{ include "app.fullname" . }}-env
             - secretRef:
                 name: {{ include "app.fullname" . }}-secret
+          command: ["php", "src/bot.php"]
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          volumeMounts:
+            - name: php-config
+              mountPath: /usr/local/etc/php/php.ini
+              subPath: php.ini
+            - name: php-config
+              mountPath: /usr/local/etc/php/conf.d/opcache.ini
+              subPath: opcache.ini
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "app.fullname" . }}-env
+            - secretRef:
+                name: {{ include "app.fullname" . }}-secret
+          command: ["php", "src/worker.php"]
       volumes:
         - name: php-config
           configMap:

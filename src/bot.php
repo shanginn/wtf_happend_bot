@@ -2,82 +2,64 @@
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use Bot\Bot\ExtendedApi;
 use Bot\Entity;
 use Bot\Handler\SaveUpdateHandler;
-use Bot\Handler\StartCommandHandler;
-use Bot\Handler\SummarizeCommandHandler;
-use Bot\Middleware\OneMessageAtOneTimeMiddleware;
-use Bot\Service\ChatService;
+use Bot\RouterWorkflow\RouterWorkflowHandler;
+use Bot\Telegram\Factory;
+use Bot\Telegram\Update;
 use Cycle\ORM\EntityManager;
+use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
 use Cycle\ORM\EntityManagerInterface;
 use Cycle\ORM\ORMInterface;
 use Phenogram\Bindings\Serializer;
 use Phenogram\Framework\TelegramBot;
 use Phenogram\Framework\TelegramBotApiClient;
-use Shanginn\Openai\Openai;
-use Shanginn\Openai\Openai\OpenaiClient;
-use Shanginn\Openai\OpenaiSimple;
 use Spiral\Core\Container;
+use Temporal\Client\GRPC\ServiceClient;
+use Temporal\Client\WorkflowClient;
 
 Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
 
 [
-    'botToken'         => $botToken,
-    'openrouterApiKey' => $openrouterApiKey,
-    'deepseekApiKey'   => $deepseekApiKey,
+    'botToken' => $botToken,
 ] = require __DIR__ . '/../config/config.php';
+
+/** @var Config $temporalConfig */
+$temporalConfig = require __DIR__ . '/../config/temporal.php';
 
 $bot = new TelegramBot(
     $botToken,
-    api: new ExtendedApi(
+    api: new \Bot\Bot\ExtendedApi(
         client: new TelegramBotApiClient($botToken),
-        serializer: new Serializer(),
+        serializer: new Serializer(new Factory()),
     )
 );
 
 /** @var ORMInterface $orm */
 /** @var Container $container */
 [$container, $orm] = require __DIR__ . '/../config/orm.php';
-$em                = new EntityManager($orm);
+$em = new EntityManager($orm);
 
 $container->bind(EntityManagerInterface::class, $em);
 
-$messageRepository = $orm->getRepository(Entity\Message::class);
-assert($messageRepository instanceof Entity\Message\MessageRepository);
-
-$summarizationStateRepository = $orm->getRepository(Entity\SummarizationState::class);
-assert($summarizationStateRepository instanceof Entity\SummarizationState\SummarizationStateRepository);
-
 $saveUpdateHandler = new SaveUpdateHandler($em);
-$client            = new OpenaiClient(
-    apiKey: $deepseekApiKey,
-    apiUrl: 'https://api.deepseek.com'
-);
-$openai       = new Openai($client, 'deepseek-chat');
-$openaiSimple = new OpenaiSimple($openai);
-$chatService  = new ChatService(
-    $em,
-    messages: $messageRepository,
-    summarizationStates: $summarizationStateRepository,
-    openaiSimple: $openaiSimple,
+
+$workflowClient = new WorkflowClient(
+    serviceClient: ServiceClient::create($temporalConfig->temporalCliAddress),
+    converter: $temporalConfig->dataConverter
 );
 
-$summarizeCommandHandler = new SummarizeCommandHandler($chatService, $summarizationStateRepository);
+$routerWorkflowHandler = new RouterWorkflowHandler(
+    client: $workflowClient
+);
 
-$bot->addHandler($saveUpdateHandler)
-    ->supports($saveUpdateHandler::supports(...));
+$bot
+    ->addHandler(function (UpdateInterface $update, TelegramBot $bot) use ($routerWorkflowHandler) {
+        assert($update instanceof Update);
+        $routerWorkflowHandler->handleUpdate($update);
+    });
 
-$bot->addHandler(new StartCommandHandler())
-    ->supports(StartCommandHandler::supports(...));
-
-$oneMessageAtATimeMiddleware = new OneMessageAtOneTimeMiddleware();
-
-$bot->addHandler($summarizeCommandHandler)
-    ->supports($summarizeCommandHandler::supports(...))
-    ->middleware($oneMessageAtATimeMiddleware);
-
-$pressedCtrlC     = false;
+$pressedCtrlC = false;
 $gracefulShutdown = function (int $signal) use ($bot, &$pressedCtrlC, $em): void {
     if ($pressedCtrlC) {
         echo "Shutting down now...\n";
