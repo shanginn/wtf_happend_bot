@@ -4,15 +4,25 @@ declare(strict_types=1);
 
 namespace Bot\Activity;
 
+use Bot\Entity\Message as ChatMessage;
+use Bot\Entity\UpdateRecord;
+use Bot\Telegram\Update;
 use Carbon\CarbonInterval;
+use Cycle\ORM\EntityManager;
+use Cycle\ORM\EntityManagerInterface;
+use Cycle\ORM\ORMInterface;
 use Phenogram\Bindings\ApiInterface;
 use Phenogram\Bindings\ResponseException;
+use Phenogram\Bindings\Serializer;
+use Phenogram\Bindings\SerializerInterface;
 use Phenogram\Bindings\Types\InlineKeyboardMarkup;
 use Phenogram\Bindings\Types\Interfaces\InputFileInterface;
 use Phenogram\Bindings\Types\Interfaces\ReplyParametersInterface;
+use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
 use Phenogram\Bindings\Types\LinkPreviewOptions;
 use Phenogram\Bindings\Types\Message;
 use Phenogram\Bindings\Types\ReplyParameters;
+use Phenogram\Bindings\Types\Interfaces\FileInterface;
 use Temporal\Activity\ActivityInterface;
 use Temporal\Activity\ActivityMethod;
 use Temporal\Activity\ActivityOptions;
@@ -23,9 +33,17 @@ use Temporal\Workflow;
 #[ActivityInterface(prefix: 'Telegram.')]
 class TelegramActivity
 {
+    private const int BOT_USER_ID = 777777;
+
+    private SerializerInterface $serializer;
+
     public function __construct(
-        private ApiInterface $api
-    ) {}
+        private ApiInterface $api,
+        private ORMInterface $orm,
+        private EntityManagerInterface $em,
+    ) {
+        $this->serializer = new Serializer();
+    }
 
     public static function getDefinition(): ActivityProxy|self
     {
@@ -127,5 +145,111 @@ class TelegramActivity
         }
 
         return true;
+    }
+
+    #[ActivityMethod]
+    public function saveMessage(
+        int $chatId,
+        string $text,
+        int $messageId,
+    ): void {
+        $message = new ChatMessage(
+            messageId: $messageId,
+            text: $text,
+            chatId: $chatId,
+            date: time(),
+            fromUserId: self::BOT_USER_ID,
+            fromUsername: 'bot',
+        );
+
+        /** @var \Bot\Entity\Message\MessageRepository $repo */
+        $repo = $this->orm->getRepository(ChatMessage::class);
+        $repo->save($message, run: true);
+    }
+
+    #[ActivityMethod]
+    public function saveUpdates(Update $update): true
+    {
+        $chatId = $update->effectiveChat?->id;
+
+        if ($chatId === null) {
+            return true;
+        }
+
+        /** @var \Bot\Entity\UpdateRecord\UpdateRecordRepository $repo */
+        $repo = $this->orm->getRepository(UpdateRecord::class);
+
+        // Skip if update already exists
+        if ($repo->exists($update->updateId)) {
+            return true;
+        }
+
+        $encoded = json_encode($this->serializer->serialize([$update])[0]);
+
+        $record = new UpdateRecord(
+            updateId: $update->updateId,
+            update: $encoded,
+            chatId: $chatId,
+            topicId: $update->effectiveMessage?->messageThreadId
+        );
+
+        $this->em->persist($record);
+        $this->em->run();
+
+        return true;
+    }
+
+    #[ActivityMethod]
+    public function sendPoll(
+        int|string $chatId,
+        string $question,
+        array $options,
+        ?int $messageThreadId = null,
+        bool $isAnonymous = true,
+        bool $allowsMultipleAnswers = false,
+    ): int|string {
+        $inputOptions = array_map(
+            fn(string $text) => new \Phenogram\Bindings\Types\InputPollOption(text: $text),
+            $options
+        );
+
+        /** @var Message $message */
+        $message = $this->api->sendPoll(
+            chatId: $chatId,
+            question: $question,
+            options: $inputOptions,
+            messageThreadId: $messageThreadId,
+            isAnonymous: $isAnonymous,
+            allowsMultipleAnswers: $allowsMultipleAnswers,
+        );
+
+        return $message->messageId;
+    }
+
+    #[ActivityMethod]
+    public function downloadFile(string $fileId): ?string
+    {
+        /** @var FileInterface $file */
+        $file = $this->api->getFile($fileId);
+
+        if ($file->filePath === null) {
+            return null;
+        }
+
+        $url = 'https://api.telegram.org/file/bot' . $_ENV['TELEGRAM_BOT_TOKEN'] . '/' . $file->filePath;
+
+        $context = stream_context_create([
+            'http' => [
+                'timeout' => 30,
+            ],
+        ]);
+
+        $content = @file_get_contents($url, false, $context);
+
+        if ($content === false) {
+            return null;
+        }
+
+        return base64_encode($content);
     }
 }

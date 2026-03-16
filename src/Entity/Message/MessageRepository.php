@@ -122,4 +122,32 @@ final class MessageRepository extends Repository
             ->limit($int)
             ->fetchAll();
     }
+
+    /**
+     * Search messages by text content.
+     *
+     * @param int $chatId
+     * @param string $query
+     * @param string|null $username
+     * @param int $limit
+     *
+     * @return array<Message>
+     */
+    public function searchByText(int $chatId, string $query, ?string $username = null, int $limit = 10): array
+    {
+        $select = $this->select()
+            ->where('chatId', $chatId)
+            ->where('text', 'ILIKE', '%' . $query . '%');
+
+        if ($username !== null) {
+            // Strip @ prefix if present
+            $username = ltrim($username, '@');
+            $select = $select->where('fromUsername', $username);
+        }
+
+        return $select
+            ->orderBy('messageId', 'DESC')
+            ->limit(min($limit, 30))
+            ->fetchAll();
+    }
 }

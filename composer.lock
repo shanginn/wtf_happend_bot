@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "a90b3f07ff2b46de4aab32d5efeb2818",
+    "content-hash": "46f3d9db1a5bd0d4c4029aa2a1b0b835",
     "packages": [
         {
             "name": "amphp/amp",
@@ -10157,6 +10157,41 @@
                 }
             ],
             "time": "2025-02-07T05:00:38+00:00"
+        },
+        {
+            "name": "shanginn/som",
+            "version": "1.3.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/shanginn/som.git",
+                "reference": "d00b8119640a61d8d18520dfc7f327f7364c2b4a"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/shanginn/som/zipball/d00b8119640a61d8d18520dfc7f327f7364c2b4a",
+                "reference": "d00b8119640a61d8d18520dfc7f327f7364c2b4a",
+                "shasum": ""
+            },
+            "bin": [
+                "bin/som"
+            ],
+            "type": "library",
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nikolai Shangin",
+                    "email": "shanginn@gmail.com"
+                }
+            ],
+            "description": "CLI tool to interact with PHP app inside docker compose env",
+            "support": {
+                "issues": "https://github.com/shanginn/som/issues",
+                "source": "https://github.com/shanginn/som/tree/1.3.0"
+            },
+            "time": "2025-04-13T14:59:04+00:00"
         },
         {
             "name": "staabm/side-effects-detector",

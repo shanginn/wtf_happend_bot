@@ -39,10 +39,11 @@
         "fix": "PHP_CS_FIXER_IGNORE_ENV=1 ./tools/vendor/bin/php-cs-fixer fix src --diff -vvv --config=.php-cs-fixer.php"
     },
     "require-dev": {
-        "phpunit/phpunit": "^12.0",
+        "buggregator/trap": "^1.15",
         "fakerphp/faker": "^1.24",
         "mockery/mockery": "^1.6",
-        "buggregator/trap": "^1.15"
+        "phpunit/phpunit": "^12.0",
+        "shanginn/som": "^1.3"
     },
     "config": {
         "optimize-autoloader": true,

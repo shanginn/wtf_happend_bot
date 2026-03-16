@@ -49,7 +49,8 @@ class Update extends \Phenogram\Bindings\Types\Update
                 )?->senderChat
                 ?? $this->pollAnswer?->voterChat
                 ?? $this->messageReaction?->actorChat
-                ?? $this->effectiveUser;
+                ?? $this->effectiveUser
+                ?? null;
             }
 
             return $this->effectiveSender;
@@ -73,7 +74,8 @@ class Update extends \Phenogram\Bindings\Types\Update
                     ?? $this->messageReactionCount?->chat
                     ?? $this->businessMessage?->chat
                     ?? $this->editedBusinessMessage?->chat
-                    ?? $this->deletedBusinessMessages?->chat;
+                    ?? $this->deletedBusinessMessages?->chat
+                    ?? null;
             }
 
             return $this->effectiveChat;

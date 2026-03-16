@@ -23,10 +23,13 @@ use Temporal\Workflow;
 #[ActivityInterface(prefix: 'Llm.')]
 class LlmActivity
 {
+    private OpenaiSimple $openaiSimple;
+
     public function __construct(
-        private OpenaiSimple $openaiSimple,
         private Openai $openai,
-    ) {}
+    ) {
+        $this->openaiSimple = new OpenaiSimple($openai);
+    }
 
     public static function getDefinition(): ActivityProxy|self
     {

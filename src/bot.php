@@ -4,7 +4,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use Bot\Entity;
 use Bot\Handler\SaveUpdateHandler;
-use Bot\RouterWorkflow\RouterWorkflowHandler;
+use Bot\AgenticWorkflow\AgenticWorkflowHandler;
 use Bot\Telegram\Factory;
 use Bot\Telegram\Update;
 use Cycle\ORM\EntityManager;
@@ -49,14 +49,18 @@ $workflowClient = new WorkflowClient(
     converter: $temporalConfig->dataConverter
 );
 
-$routerWorkflowHandler = new RouterWorkflowHandler(
+$agenticWorkflowHandler = new AgenticWorkflowHandler(
     client: $workflowClient
 );
+//
+//$bot
+//    ->addHandler($saveUpdateHandler)
+//    ->supports($saveUpdateHandler::supports(...));
 
 $bot
-    ->addHandler(function (UpdateInterface $update, TelegramBot $bot) use ($routerWorkflowHandler) {
+    ->addHandler(function (UpdateInterface $update, TelegramBot $bot) use ($agenticWorkflowHandler) {
         assert($update instanceof Update);
-        $routerWorkflowHandler->handleUpdate($update);
+        $agenticWorkflowHandler->handleUpdate($update);
     });
 
 $pressedCtrlC = false;
