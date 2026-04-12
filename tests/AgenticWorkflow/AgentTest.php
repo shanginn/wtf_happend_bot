@@ -4,10 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\AgenticWorkflow;
 
-use Bot\Agent\UpdateTransformerInterface;
 use Bot\AgenticWorkflow\Agent;
 use Bot\Llm\Tools\Decision\RespondDecision;
-use Bot\Telegram\TelegramUpdateView;
+use Bot\Telegram\InputMessageView;
 use Bot\Telegram\TelegramUpdateViewFactoryInterface;
 use Phenogram\Bindings\Types\Update;
 use Shanginn\Openai\ChatCompletion\ErrorResponse;
@@ -22,10 +21,8 @@ class AgentTest extends TestCase
         $updateA = new Update(updateId: 1);
         $updateB = new Update(updateId: 2);
 
-        $viewA = new TelegramUpdateView(text: 'first');
-        $viewB = new TelegramUpdateView(text: 'second');
-        $messageA = new UserMessage('first as llm message');
-        $messageB = new UserMessage('second as llm message');
+        $viewA = new InputMessageView(text: 'first', participantReference: 'alice');
+        $viewB = new InputMessageView(text: 'second', participantReference: 'bob');
 
         $viewFactory = $this->createMock(TelegramUpdateViewFactoryInterface::class);
         $viewFactory
@@ -33,19 +30,20 @@ class AgentTest extends TestCase
             ->method('create')
             ->willReturnOnConsecutiveCalls($viewA, $viewB);
 
-        $transformer = $this->createMock(UpdateTransformerInterface::class);
-        $transformer
-            ->expects($this->exactly(2))
-            ->method('toChatUserMessage')
-            ->willReturnOnConsecutiveCalls($messageA, $messageB);
-
         $agent = new Agent(
             openai: $this->createStub(Openai::class),
             updateViewFactory: $viewFactory,
-            updateTransformer: $transformer,
         );
 
-        $this->assertSame([$messageA, $messageB], $agent->transformUpdates([$updateA, $updateB]));
+        $messages = $agent->transformUpdates([$updateA, $updateB]);
+
+        $this->assertCount(2, $messages);
+        $this->assertInstanceOf(UserMessage::class, $messages[0]);
+        $this->assertInstanceOf(UserMessage::class, $messages[1]);
+        $this->assertSame('first', $messages[0]->content);
+        $this->assertSame('alice', $messages[0]->name);
+        $this->assertSame('second', $messages[1]->content);
+        $this->assertSame('bob', $messages[1]->name);
     }
 
     public function testCompleteUsesHistoryAndEnsuresRespondDecisionTool(): void

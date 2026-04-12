@@ -10,27 +10,33 @@ use Spiral\JsonSchemaGenerator\Attribute\Field;
 
 #[OpenaiToolSchema(
     name: 'save_memory',
-    description: 'Save a fact or note about a group chat user for future reference. Use this to remember important details about users such as their real name, interests, expertise, preferences, or notable things they said.',
+    description: 'Save a durable computed memory about a chat participant. Always include the computed memory, an exact supporting quote, and the brief surrounding context where the fact came from.',
 )]
 class SaveMemory extends AbstractTool
 {
     public function __construct(
         #[Field(
             title: 'user_identifier',
-            description: 'The Telegram username (with @) or user ID of the person this memory is about'
+            description: 'Participant reference for this memory. Prefer the exact participant reference from the message name field when available, such as "@alice", "alice", or "user_123456".'
         )]
         public readonly string $userIdentifier,
 
         #[Field(
-            title: 'category',
-            description: 'Category of the memory: "personal" (name, bio, interests), "expertise" (skills, knowledge areas), "preference" (likes, dislikes, communication style), "note" (general observations)'
+            title: 'memory',
+            description: 'The computed durable memory to store in one sentence.'
         )]
-        public readonly string $category,
+        public readonly string $memory,
 
         #[Field(
-            title: 'content',
-            description: 'The fact or note to remember about this user. Be concise but specific.'
+            title: 'quote',
+            description: 'A short direct quote from the chat that supports the memory.'
         )]
-        public readonly string $content,
+        public readonly string $quote,
+
+        #[Field(
+            title: 'context',
+            description: 'Brief surrounding context that explains the quote and why the memory matters.'
+        )]
+        public readonly string $context,
     ) {}
 }

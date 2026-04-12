@@ -14,13 +14,15 @@ class MemoryToolsTest extends TestCase
     {
         $tool = new SaveMemory(
             userIdentifier: '@john_doe',
-            category: 'personal',
-            content: 'Works as a software engineer at Google',
+            memory: 'John works as a software engineer at Google',
+            quote: 'I work at Google',
+            context: 'They were introducing themselves to the group.',
         );
 
         self::assertSame('@john_doe', $tool->userIdentifier);
-        self::assertSame('personal', $tool->category);
-        self::assertSame('Works as a software engineer at Google', $tool->content);
+        self::assertSame('John works as a software engineer at Google', $tool->memory);
+        self::assertSame('I work at Google', $tool->quote);
+        self::assertSame('They were introducing themselves to the group.', $tool->context);
     }
 
     public function testSaveMemoryToolName(): void
@@ -31,8 +33,8 @@ class MemoryToolsTest extends TestCase
     public function testSaveMemoryDescription(): void
     {
         $desc = SaveMemory::getDescription();
-        self::assertStringContainsString('Save a fact', $desc);
-        self::assertStringContainsString('user', $desc);
+        self::assertStringContainsString('computed memory', $desc);
+        self::assertStringContainsString('quote', $desc);
     }
 
     public function testRecallMemoryConstruction(): void
@@ -40,10 +42,12 @@ class MemoryToolsTest extends TestCase
         $tool = new RecallMemory(
             userIdentifier: '@john_doe',
             query: 'job',
+            limit: 3,
         );
 
         self::assertSame('@john_doe', $tool->userIdentifier);
         self::assertSame('job', $tool->query);
+        self::assertSame(3, $tool->limit);
     }
 
     public function testRecallMemoryDefaultValues(): void
@@ -52,6 +56,7 @@ class MemoryToolsTest extends TestCase
 
         self::assertNull($tool->userIdentifier);
         self::assertNull($tool->query);
+        self::assertSame(10, $tool->limit);
     }
 
     public function testRecallMemoryToolName(): void

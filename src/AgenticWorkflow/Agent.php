@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace Bot\AgenticWorkflow;
 
-use Bot\Agent\OpenaiUpdateTransformer;
-use Bot\Agent\UpdateTransformerInterface;
+use Bot\Agent\OpenaiMessageTransformer;
 use Bot\Llm\Skills\SkillInterface;
 use Bot\Llm\Tools\Decision\RespondDecision;
 use Bot\Telegram\TelegramUpdateViewFactory;
@@ -20,15 +19,15 @@ use Shanginn\Openai\Openai;
 class Agent
 {
     private readonly TelegramUpdateViewFactoryInterface $updateViewFactory;
-    private readonly UpdateTransformerInterface $updateTransformer;
+    private readonly OpenaiMessageTransformer $updateTransformer;
 
     public function __construct(
         public readonly Openai $openai,
         ?TelegramUpdateViewFactoryInterface $updateViewFactory = null,
-        ?UpdateTransformerInterface $updateTransformer = null,
+        ?OpenaiMessageTransformer $updateTransformer = null,
     ) {
         $this->updateViewFactory = $updateViewFactory ?? new TelegramUpdateViewFactory();
-        $this->updateTransformer = $updateTransformer ?? new OpenaiUpdateTransformer();
+        $this->updateTransformer = $updateTransformer ?? new OpenaiMessageTransformer();
     }
 
     /**
@@ -90,6 +89,17 @@ class Agent
 
         $toolsPrompt
         $skillsPrompt
+
+        <memory_usage>
+        Persistent memory is for durable, reusable facts about chat participants.
+        Good memories: real names, expertise, preferences, roles, ongoing projects, and stable constraints.
+        Bad memories: one-off requests, temporary mood, obvious short-lived context, or weak speculation.
+        When saving memory, store only:
+        - a computed memory sentence
+        - a short direct quote supporting it
+        - brief surrounding context explaining the quote
+        When prior participant context may matter, call `recall_memory` before answering.
+        </memory_usage>
 
         <agent_loop>
         For every batch of incoming Telegram updates:

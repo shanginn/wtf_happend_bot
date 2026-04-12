@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Bot\Telegram;
 
-final readonly class TelegramUpdateView
+final readonly class InputMessageView
 {
     /**
      * @param list<string> $imageUrls

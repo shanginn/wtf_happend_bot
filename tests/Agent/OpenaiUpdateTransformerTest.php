@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Agent;
 
-use Bot\Agent\OpenaiUpdateTransformer;
-use Bot\Telegram\TelegramUpdateView;
+use Bot\Agent\OpenaiMessageTransformer;
+use Bot\Telegram\InputMessageView;
 use Shanginn\Openai\ChatCompletion\Message\User\ImageContentPart;
 use Shanginn\Openai\ChatCompletion\Message\User\TextContentPart;
 use Tests\TestCase;
@@ -14,7 +14,7 @@ class OpenaiUpdateTransformerTest extends TestCase
 {
     public function testMapsTextOnlyViewToPlainOpenaiUserMessage(): void
     {
-        $message = (new OpenaiUpdateTransformer())->toChatUserMessage(new TelegramUpdateView(
+        $message = (new OpenaiMessageTransformer())->toChatUserMessage(new InputMessageView(
             text: "Telegram update: message\n\nText:\nhello there",
             participantReference: 'alice',
         ));
@@ -25,7 +25,7 @@ class OpenaiUpdateTransformerTest extends TestCase
 
     public function testMapsMultimodalViewToOpenaiContentParts(): void
     {
-        $message = (new OpenaiUpdateTransformer())->toChatUserMessage(new TelegramUpdateView(
+        $message = (new OpenaiMessageTransformer())->toChatUserMessage(new InputMessageView(
             text: "Telegram update: edited message\n\nCaption:\nCat tax",
             participantReference: 'user_11',
             imageUrls: [

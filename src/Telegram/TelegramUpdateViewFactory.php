@@ -48,12 +48,12 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
         private readonly ?TelegramFileUrlResolverInterface $fileUrlResolver = null,
     ) {}
 
-    public function create(UpdateInterface $update): TelegramUpdateView
+    public function create(UpdateInterface $update): InputMessageView
     {
         $messageUpdate = $this->extractMessageUpdate($update);
 
         if ($messageUpdate === null) {
-            return new TelegramUpdateView(
+            return new InputMessageView(
                 text: $this->describeNonMessageUpdate($update),
                 participantReference: $this->resolveNonMessageParticipantReference($update),
             );
@@ -61,7 +61,7 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
 
         $message = $messageUpdate['message'];
 
-        return new TelegramUpdateView(
+        return new InputMessageView(
             text: $this->formatMessageUpdate(
                 updateId: $update->updateId,
                 updateLabel: $messageUpdate['label'],

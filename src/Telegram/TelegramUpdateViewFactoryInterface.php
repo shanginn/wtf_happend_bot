@@ -8,5 +8,5 @@ use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
 
 interface TelegramUpdateViewFactoryInterface
 {
-    public function create(UpdateInterface $update): TelegramUpdateView;
+    public function create(UpdateInterface $update): InputMessageView;
 }

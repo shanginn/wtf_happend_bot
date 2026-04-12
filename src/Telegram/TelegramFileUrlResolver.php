@@ -5,21 +5,15 @@ declare(strict_types=1);
 namespace Bot\Telegram;
 
 use Phenogram\Bindings\ApiInterface;
-use Phenogram\Framework\TelegramBot;
-use Throwable;
 
 class TelegramFileUrlResolver implements TelegramFileUrlResolverInterface
 {
     /** @var array<string, string|null> */
     private array $cache = [];
 
-    private string $telegramBotToken;
-
     public function __construct(
-        private readonly TelegramBot $bot,
-    ) {
-        $this->telegramBotToken = $this->bot->getToken();
-    }
+        private readonly ApiInterface $api,
+    ) {}
 
     public function resolve(string $fileId): ?string
     {
@@ -31,7 +25,7 @@ class TelegramFileUrlResolver implements TelegramFileUrlResolverInterface
             return $this->cache[$fileId];
         }
 
-        $file = $this->bot->api->getFile($fileId);
+        $file = $this->api->getFile($fileId);
 
         if ($file->filePath === null || $file->filePath === '') {
             return null;
@@ -39,7 +33,7 @@ class TelegramFileUrlResolver implements TelegramFileUrlResolverInterface
 
         return $this->cache[$fileId] = sprintf(
             'https://api.telegram.org/file/bot%s/%s',
-            $this->telegramBotToken,
+            $_ENV['TELEGRAM_BOT_TOKEN'] ?? '',
             ltrim($file->filePath, '/'),
         );
     }

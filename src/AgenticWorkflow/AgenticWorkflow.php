@@ -6,21 +6,22 @@ namespace Bot\AgenticWorkflow;
 
 use Bot\Activity\DatabaseActivity;
 use Bot\Activity\TelegramActivity;
-use Bot\Llm\Skills\ImageAnalysisSkill;
-use Bot\Llm\Skills\QuestionAnsweringSkill;
-use Bot\Llm\Skills\SummarizationSkill;
+use Bot\Agent\LlmMessageTransformer;
+use Bot\Agent\OpenaiMessageTransformer;
 use Bot\Llm\Tools\Chat\CreatePoll;
 use Bot\Llm\Tools\Chat\GetCurrentTime;
 use Bot\Llm\Tools\Chat\SearchMessages;
 use Bot\Llm\Tools\Decision\RespondDecision;
 use Bot\Llm\Tools\Memory\RecallMemory;
 use Bot\Llm\Tools\Memory\SaveMemory;
+use Carbon\CarbonInterval;
 use Generator;
 use Shanginn\Openai\ChatCompletion\CompletionResponse;
 use Shanginn\Openai\ChatCompletion\ErrorResponse;
 use Shanginn\Openai\ChatCompletion\Message\Assistant\KnownFunctionCall;
-use Shanginn\Openai\ChatCompletion\Message\MessageInterface;
 use Shanginn\Openai\ChatCompletion\Message\ToolMessage;
+use Temporal\Activity\ActivityOptions;
+use Temporal\Common\RetryOptions;
 use Temporal\DataConverter\Type;
 use Temporal\Internal\Workflow\ActivityProxy;
 use Temporal\Workflow;
@@ -33,31 +34,14 @@ class AgenticWorkflow
 {
     private const int MAX_AGENT_STEPS = 8;
 
-    /** @var array<class-string> */
-    private const array SKILLS = [
-        SummarizationSkill::class,
-        QuestionAnsweringSkill::class,
-        ImageAnalysisSkill::class,
-    ];
-
-    /** @var array<class-string> */
-    private const array AGENTIC_TOOLS = [
-        RespondDecision::class,
-        SaveMemory::class,
-        RecallMemory::class,
-        SearchMessages::class,
-        CreatePoll::class,
-        GetCurrentTime::class,
-    ];
-
     private AgenticActivity|ActivityProxy $agenticActivity;
     private DatabaseActivity|ActivityProxy $databaseActivity;
     private TelegramActivity|ActivityProxy $telegramActivity;
     private MessageQueue $updatesQueue;
-    /** @var array<MessageInterface> */
-    private array $history = [];
     private AgenticWorkflowInput $input;
     private int $processedCount = 0;
+
+    private WorkingMemory $workingMemory;
 
     public function __construct()
     {
@@ -65,6 +49,7 @@ class AgenticWorkflow
         $this->databaseActivity = DatabaseActivity::getDefinition();
         $this->telegramActivity = TelegramActivity::getDefinition();
         $this->updatesQueue = new MessageQueue();
+        $this->workingMemory = new WorkingMemory();
     }
 
     #[WorkflowMethod]
@@ -82,99 +67,115 @@ class AgenticWorkflow
                 yield $this->telegramActivity->saveUpdates($update);
             }
 
+            foreach ($updates as $update) {
+                $inputMessageView = yield $this->telegramActivity->updateToView($update);
+                $userMessageView = OpenaiMessageTransformer::toChatUserMessage($inputMessageView);
+
+                $this->workingMemory->add($userMessageView);
+            }
+
             $this->processedCount += count($updates);
 
-            yield from $this->runAgentLoop();
+            yield $this->runAgentLoop();
         } while (true);
     }
 
     private function runAgentLoop(): Generator
     {
-        for ($step = 0; $step < self::MAX_AGENT_STEPS; $step++) {
-            /** @var CompletionResponse|ErrorResponse $result */
-            $result = yield $this->agenticActivity->complete(
-                chatId: $this->input->chatId,
-                threadId: $this->input->messageThreadId,
-                tools: self::AGENTIC_TOOLS,
-                skills: self::SKILLS,
-            );
+        $tools = [
+            RespondDecision::class,
+            SaveMemory::class,
+        ];
 
-            if ($result instanceof ErrorResponse) {
-                $errorMessage = $result->message ?? 'Unknown error.';
-                yield $this->sendMessage('Произошла ошибка: ' . $errorMessage);
+        $result = yield $this->agenticActivity->memoryComplete(
+            memory: $this->workingMemory->get(),
+            tools: $tools,
+        );
 
-                return;
-            }
-
-            if ($result->choices === []) {
-                return;
-            }
-
-            $choice = $result->choices[0] ?? null;
-            if ($choice === null) {
-                return;
-            }
-
-            $assistantMessage = $choice->message;
-            $this->history[] = $assistantMessage;
-
-            $toolCalls = $assistantMessage->toolCalls ?? [];
-            $pendingToolCalls = [];
-            $decision = null;
-
-            foreach ($toolCalls as $toolCall) {
-                if (!$toolCall instanceof KnownFunctionCall) {
-                    continue;
-                }
-
-                if ($toolCall->tool === RespondDecision::class) {
-                    /** @var RespondDecision $arguments */
-                    $arguments = $toolCall->arguments;
-                    $decision = $arguments;
-                    continue;
-                }
-
-                $pendingToolCalls[] = $toolCall;
-            }
-
-            if ($pendingToolCalls !== []) {
-                foreach ($pendingToolCalls as $toolCall) {
-                    $toolResult = yield from $this->executeToolCall($toolCall);
-                    $this->history[] = new ToolMessage(
-                        content: $toolResult,
-                        toolCallId: $toolCall->id,
-                    );
-                }
-
-                continue;
-            }
-
-            if ($decision instanceof RespondDecision) {
-                if ($decision->shouldRespond && trim($decision->response) !== '') {
-                    yield $this->sendMessage($decision->response);
-                }
-
-                return;
-            }
-
-            $content = trim($assistantMessage->content ?? '');
-            if ($content !== '') {
-                yield $this->sendMessage($content);
-            }
+        if ($result instanceof ErrorResponse) {
+            $errorMessage = $result->message ?? 'Unknown error.';
+            yield $this->sendMessage('Произошла ошибка: ' . $errorMessage);
 
             return;
         }
 
-        yield $this->sendMessage(
-            'I reached the internal tool loop limit before I could finish. Please try again.',
+        $choice = $result->choices[0] ?? null;
+        if ($choice === null) {
+            return;
+        }
+
+        yield $this->agenticActivity->saveResponseMessage(
+            chatId: $this->input->chatId,
+            topicId: $this->input->messageThreadId,
+            message: $choice->message,
+            rawResponse: $result,
         );
+
+        $assistantMessage = $choice->message;
+
+        $shouldRespond = false;
+
+        $toolsResults = [];
+        foreach ($assistantMessage->toolCalls ?? [] as $toolCall) {
+            if (!$toolCall instanceof KnownFunctionCall) {
+                continue;
+            }
+
+            if ($toolCall->arguments instanceof RespondDecision) {
+                $shouldRespond = $toolCall->arguments->shouldRespond;
+                continue;
+            }
+
+            $toolResult = yield $this->executeTool(
+                toolName: $toolCall->tool,
+                arguments: $toolCall->arguments,
+            );
+
+            $toolMessage = new ToolMessage(
+                content: $toolResult,
+                toolCallId: $toolCall->id,
+            );
+
+            $toolsResults[] = $toolMessage;
+
+            yield $this->agenticActivity->saveResponseMessage(
+                chatId: $this->input->chatId,
+                topicId: $this->input->messageThreadId,
+                message: $toolMessage,
+            );
+        }
+
+        if ($shouldRespond && $assistantMessage->content !== null) {
+            $content = trim($assistantMessage->content);
+
+            if ($content !== '') {
+                $this->workingMemory->add($assistantMessage);
+
+                yield $this->sendMessage($content);
+            }
+        }
+
+        foreach ($toolsResults as $toolMessage) {
+            $this->workingMemory->add($toolMessage);
+        }
     }
 
-    private function executeToolCall(KnownFunctionCall $toolCall): Generator
+    public function executeTool(string $toolName, object $arguments): Generator
     {
-        $arguments = $toolCall->arguments;
+        $separatorPosition = strrpos($toolName, '\\');
+        $shortClassName = $separatorPosition === false
+            ? $toolName
+            : substr($toolName, $separatorPosition + 1);
 
-
+        return yield Workflow::executeActivity(
+            $shortClassName . 'Executor.execute',
+            [$this->input->chatId, $arguments],
+            options: ActivityOptions::new()
+                ->withStartToCloseTimeout(CarbonInterval::minute())
+                ->withRetryOptions(
+                    RetryOptions::new()->withNonRetryableExceptions([])
+                )
+        );
     }
 
     private function sendMessage(string $text): Generator
@@ -202,5 +203,11 @@ class AgenticWorkflow
     public function getProcessedCount(): int
     {
         return $this->processedCount;
+    }
+
+    #[Workflow\QueryMethod]
+    public function getMemory(): array
+    {
+        return $this->workingMemory->get();
     }
 }

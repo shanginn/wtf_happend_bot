@@ -11,6 +11,9 @@ use Bot\Activity\TelegramActivity;
 use Bot\AgenticWorkflow\AgenticActivity;
 use Bot\AgenticWorkflow\AgenticWorkflow;
 use Bot\Entity\Message;
+use Bot\Llm\Tools\Memory\RecallMemoryExecutor;
+use Bot\Llm\Tools\Memory\SaveMemoryExecutor;
+use Bot\Memory\ParticipantMemoryStore;
 use Bot\RouterWorkflow\RouterActivity;
 use Bot\RouterWorkflow\RouterWorkflow;
 use Cycle\ORM\EntityManager;
@@ -57,6 +60,7 @@ $container = $ormData[0];
 
 $em = new EntityManager($orm);
 $container->bind(EntityManagerInterface::class, $em);
+$participantMemoryStore = new ParticipantMemoryStore($orm);
 
 return [
     'default' => [
@@ -72,12 +76,19 @@ return [
             AgenticActivity::class => fn () => new AgenticActivity(
                 openai: $qwen35,
                 api: $telegramApi,
+                orm: $orm,
             ),
             LlmActivity::class => fn () => new LlmActivity(
                 openai: $qwen35,
             ),
             TelegramActivity::class => fn () => new TelegramActivity($telegramApi, $orm, $em),
             DatabaseActivity::class => fn () => new DatabaseActivity($orm),
+            SaveMemoryExecutor::class => fn () => new SaveMemoryExecutor(
+                memoryStore: $participantMemoryStore,
+            ),
+            RecallMemoryExecutor::class => fn () => new RecallMemoryExecutor(
+                memoryStore: $participantMemoryStore,
+            ),
             ImageSkillActivity::class => fn () => new ImageSkillActivity($telegramApi),
         ],
     ],

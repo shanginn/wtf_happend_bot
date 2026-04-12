@@ -10,11 +10,17 @@ use Spiral\JsonSchemaGenerator\Attribute\Field;
 
 #[OpenaiToolSchema(
     name: 'respond_decision',
-    description: 'Call this to indicate whether the bot should respond to the messages and what to response with.',
+    description: 'Call this to indicate whether the bot should respond to the messages.',
 )]
 class RespondDecision extends AbstractTool
 {
     public function __construct(
+        #[Field(
+            title: 'overview',
+            description: 'Brief overview of the conversation and context. Focus on key points that may influence the decision, such as user messages, mentions, or questions directed at the bot.'
+        )]
+        public readonly string $overview,
+
         #[Field(
             title: 'should_respond',
             description: <<<TEXT
@@ -36,17 +42,5 @@ class RespondDecision extends AbstractTool
 
         )]
         public readonly bool $shouldRespond,
-        
-        #[Field(
-            title: 'reason',
-            description: 'Brief explanation of why the bot should or should not respond'
-        )]
-        public readonly string $reason,
-
-        #[Field(
-            title: 'response',
-            description: 'Response to send back to the user if should_respond is true'
-        )]
-        public readonly string $response,
     ) {}
 }

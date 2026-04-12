@@ -61,6 +61,26 @@ final class UpdateRecordRepository extends Repository
     {
         return $this->select()
             ->where('chatId', $chatId)
+            ->orderBy('createdAt', 'DESC')
+            ->orderBy('updateId', 'DESC')
+            ->limit($limit)
+            ->fetchAll();
+    }
+
+    /**
+     * @return array<UpdateRecord>
+     */
+    public function findLastNInTopic(int $chatId, ?int $topicId, int $limit): array
+    {
+        $query = $this->select()
+            ->where('chatId', $chatId);
+
+        $query = $topicId === null
+            ? $query->where('topicId', null)
+            : $query->where('topicId', $topicId);
+
+        return $query
+            ->orderBy('createdAt', 'DESC')
             ->orderBy('updateId', 'DESC')
             ->limit($limit)
             ->fetchAll();

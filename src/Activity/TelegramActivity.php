@@ -6,6 +6,8 @@ namespace Bot\Activity;
 
 use Bot\Entity\Message as ChatMessage;
 use Bot\Entity\UpdateRecord;
+use Bot\Telegram\InputMessageView;
+use Bot\Telegram\TelegramUpdateViewFactory;
 use Bot\Telegram\Update;
 use Carbon\CarbonInterval;
 use Cycle\ORM\EntityManager;
@@ -23,6 +25,7 @@ use Phenogram\Bindings\Types\LinkPreviewOptions;
 use Phenogram\Bindings\Types\Message;
 use Phenogram\Bindings\Types\ReplyParameters;
 use Phenogram\Bindings\Types\Interfaces\FileInterface;
+use Shanginn\Openai\ChatCompletion\Message\MessageInterface;
 use Temporal\Activity\ActivityInterface;
 use Temporal\Activity\ActivityMethod;
 use Temporal\Activity\ActivityOptions;
@@ -36,6 +39,7 @@ class TelegramActivity
     private const int BOT_USER_ID = 777777;
 
     private SerializerInterface $serializer;
+    private TelegramUpdateViewFactory $updateViewFactory;
 
     public function __construct(
         private ApiInterface $api,
@@ -43,6 +47,7 @@ class TelegramActivity
         private EntityManagerInterface $em,
     ) {
         $this->serializer = new Serializer();
+        $this->updateViewFactory = new TelegramUpdateViewFactory();
     }
 
     public static function getDefinition(): ActivityProxy|self
@@ -190,7 +195,8 @@ class TelegramActivity
             updateId: $update->updateId,
             update: $encoded,
             chatId: $chatId,
-            topicId: $update->effectiveMessage?->messageThreadId
+            topicId: $update->effectiveMessage?->messageThreadId,
+            createdAt: $update->effectiveMessage?->date ?? time(),
         );
 
         $this->em->persist($record);
@@ -227,29 +233,8 @@ class TelegramActivity
     }
 
     #[ActivityMethod]
-    public function downloadFile(string $fileId): ?string
+    public function updateToView(UpdateInterface $update): InputMessageView
     {
-        /** @var FileInterface $file */
-        $file = $this->api->getFile($fileId);
-
-        if ($file->filePath === null) {
-            return null;
-        }
-
-        $url = 'https://api.telegram.org/file/bot' . $_ENV['TELEGRAM_BOT_TOKEN'] . '/' . $file->filePath;
-
-        $context = stream_context_create([
-            'http' => [
-                'timeout' => 30,
-            ],
-        ]);
-
-        $content = @file_get_contents($url, false, $context);
-
-        if ($content === false) {
-            return null;
-        }
-
-        return base64_encode($content);
+        return $this->updateViewFactory->create($update);
     }
 }
