@@ -9,8 +9,13 @@ ini_set('display_errors', 'stderr');
 require_once __DIR__ . '/../vendor/autoload.php';
 
 $rrEnvironment = Environment::fromGlobals();
+$hasRoadRunnerRelay =
+    isset($_SERVER['RR_RELAY'], $_SERVER['RR_RPC'])
+    || isset($_ENV['RR_RELAY'], $_ENV['RR_RPC'])
+    || isset($_SERVER['RR_MODE'], $_SERVER['RR_VERSION'])
+    || isset($_ENV['RR_MODE'], $_ENV['RR_VERSION']);
 
-if ($rrEnvironment->getMode() === '') {
+if (!$hasRoadRunnerRelay) {
     fwrite(STDERR, "Temporal worker must be started via RoadRunner. Use `rr serve -c .rr.yaml`.\n");
     exit(1);
 }
