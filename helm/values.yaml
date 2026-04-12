@@ -21,6 +21,7 @@ env:
   DB_USERNAME: wtf_happend_bot
   TELEGRAM_BOT_USERNAME: wtf_happend_bot
   TEMPORAL_CLI_ADDRESS: temporal-frontend.temporal:7233
+  TEMPORAL_NAMESPACE: wtf-happend-bot
 
 envSecrets:
   DB_PASSWORD: ""

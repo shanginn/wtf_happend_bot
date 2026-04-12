@@ -123,12 +123,20 @@ php src/bot.php
 #### Production Deployment (Kubernetes)
 
 The bot uses Helm for Kubernetes deployment. Both bot and worker run in the same pod.
+Local development keeps using Temporal's `default` namespace unless you set `TEMPORAL_NAMESPACE` explicitly.
+
+Create the Temporal namespace once before the first production deploy:
+
+```bash
+temporal operator namespace create \
+  --address temporal-frontend.temporal:7233 \
+  --namespace wtf-happend-bot
+```
 
 Required GitHub secrets:
 - `TELEGRAM_BOT_TOKEN`
 - `DEEPSEEK_API_KEY`
 - `DB_PASSWORD`
-- `TEMPORAL_CLI_ADDRESS` (e.g., `temporal:7233`)
 
 ```bash
 # Deploy using Helm

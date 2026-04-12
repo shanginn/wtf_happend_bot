@@ -8,7 +8,6 @@ class RouterWorkflowInput
 {
     public function __construct(
         public int $chatId,
-        public ?int $messageThreadId = null,
         public int $processedCount = 0,
         public array $summarizedHistory = [],
     ) {}

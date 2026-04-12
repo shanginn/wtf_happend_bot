@@ -155,7 +155,6 @@ class RouterWorkflow
 
         $newInput = new RouterWorkflowInput(
             chatId: $this->input->chatId,
-            messageThreadId: $this->input->messageThreadId,
             processedCount: $this->processedCount,
             summarizedHistory: $summarizedHistory,
         );
@@ -234,7 +233,7 @@ class RouterWorkflow
         return yield $this->botActivity->sendMessage(
             chatId: $this->input->chatId,
             text: $message,
-            messageThreadId: $this->input->messageThreadId,
+            messageThreadId: null,
         );
     }
 

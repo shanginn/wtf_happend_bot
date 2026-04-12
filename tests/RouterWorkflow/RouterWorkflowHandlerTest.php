@@ -26,7 +26,7 @@ class RouterWorkflowHandlerTest extends TestCase
         assert($update instanceof Update);
         $workflowId = RouterWorkflowHandler::generateWorkflowId($update);
 
-        self::assertSame('[Router] chat -100123456, topic general', $workflowId);
+        self::assertSame('[Router] chat -100123456', $workflowId);
     }
 
     public function testGenerateWorkflowIdForTopic(): void
@@ -42,7 +42,7 @@ class RouterWorkflowHandlerTest extends TestCase
         assert($update instanceof Update);
         $workflowId = RouterWorkflowHandler::generateWorkflowId($update);
 
-        self::assertSame('[Router] chat -100123456, topic 789', $workflowId);
+        self::assertSame('[Router] chat -100123456', $workflowId);
     }
 
     public function testGenerateWorkflowIdForPrivateChat(): void
@@ -57,7 +57,7 @@ class RouterWorkflowHandlerTest extends TestCase
         assert($update instanceof Update);
         $workflowId = RouterWorkflowHandler::generateWorkflowId($update);
 
-        self::assertSame('[Router] chat 42, topic general', $workflowId);
+        self::assertSame('[Router] chat 42', $workflowId);
     }
 
     public function testDifferentChatsGetDifferentWorkflowIds(): void
@@ -83,7 +83,7 @@ class RouterWorkflowHandlerTest extends TestCase
         );
     }
 
-    public function testSameChatDifferentTopicsGetDifferentIds(): void
+    public function testSameChatDifferentTopicsShareTheSameId(): void
     {
         $update1 = UpdateFactory::make(
             message: MessageFactory::make(
@@ -102,7 +102,7 @@ class RouterWorkflowHandlerTest extends TestCase
         assert($update1 instanceof Update);
         assert($update2 instanceof Update);
 
-        self::assertNotSame(
+        self::assertSame(
             RouterWorkflowHandler::generateWorkflowId($update1),
             RouterWorkflowHandler::generateWorkflowId($update2),
         );

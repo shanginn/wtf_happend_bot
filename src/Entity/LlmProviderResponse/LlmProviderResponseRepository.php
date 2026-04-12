@@ -27,6 +27,22 @@ final class LlmProviderResponseRepository extends Repository
     /**
      * @return array<LlmProviderResponse>
      */
+    public function findLastNByChat(int $chatId, LlmProviderType $type, int $limit): array
+    {
+        $records = $this->select()
+            ->where('chatId', $chatId)
+            ->where('type', $type)
+            ->orderBy('createdAt', 'DESC')
+            ->orderBy('id', 'DESC')
+            ->limit($limit)
+            ->fetchAll();
+
+        return array_reverse($records);
+    }
+
+    /**
+     * @return array<LlmProviderResponse>
+     */
     public function findLastN(int $chatId, ?int $topicId, LlmProviderType $type, int $limit): array
     {
         $query = $this->select()

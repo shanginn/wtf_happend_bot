@@ -99,7 +99,7 @@ class AgenticWorkflow
 
         yield $this->agenticActivity->saveResponseMessage(
             chatId: $this->input->chatId,
-            topicId: $this->input->messageThreadId,
+            topicId: null,
             message: $choice->message,
             rawResponse: $result,
         );
@@ -133,7 +133,7 @@ class AgenticWorkflow
 
             yield $this->agenticActivity->saveResponseMessage(
                 chatId: $this->input->chatId,
-                topicId: $this->input->messageThreadId,
+                topicId: null,
                 message: $toolMessage,
             );
         }
@@ -208,7 +208,7 @@ class AgenticWorkflow
 
             yield $this->agenticActivity->saveResponseMessage(
                 chatId: $this->input->chatId,
-                topicId: $this->input->messageThreadId,
+                topicId: null,
                 message: $choice->message,
                 rawResponse: $response,
             );
@@ -252,7 +252,7 @@ class AgenticWorkflow
 
                 yield $this->agenticActivity->saveResponseMessage(
                     chatId: $this->input->chatId,
-                    topicId: $this->input->messageThreadId,
+                    topicId: null,
                     message: $toolMessage,
                 );
             }
@@ -270,7 +270,7 @@ class AgenticWorkflow
 
         return yield Workflow::executeActivity(
             $shortClassName . 'Executor.execute',
-            [$this->input->chatId, $arguments, $this->input->messageThreadId],
+            [$this->input->chatId, $arguments],
             options: ActivityOptions::new()
                 ->withStartToCloseTimeout(CarbonInterval::minute())
                 ->withRetryOptions(
@@ -284,7 +284,7 @@ class AgenticWorkflow
         return yield $this->telegramActivity->sendMessage(
             chatId: $this->input->chatId,
             text: $text,
-            messageThreadId: $this->input->messageThreadId,
+            messageThreadId: null,
         );
     }
 

@@ -87,7 +87,7 @@ class AgenticActivity
         array $tools = [],
         array $skills = [],
     ): ErrorResponse|CompletionResponse {
-        $history = $this->loadHistory($chatId, $topicId);
+        $history = $this->loadHistory($chatId);
         $result = $this->agent->complete(
             history: $history,
             tools: $tools,
@@ -159,19 +159,14 @@ class AgenticActivity
         );
     }
 
-    private static function normalizeTopicId(int|string|null $topicId): ?int
-    {
-        return $topicId === null ? null : (int) $topicId;
-    }
-
     /**
      * @return array<MessageInterface>
      */
-    private function loadHistory(int $chatId, ?int $topicId): array
+    private function loadHistory(int $chatId): array
     {
         $timeline = [
-            ...$this->loadUpdateMessages($chatId, $topicId),
-            ...$this->loadResponseMessages($chatId, $topicId),
+            ...$this->loadUpdateMessages($chatId),
+            ...$this->loadResponseMessages($chatId),
         ];
 
         usort(
@@ -189,14 +184,14 @@ class AgenticActivity
     /**
      * @return array<array{createdAt: int, sourceOrder: int, sequence: int, message: MessageInterface}>
      */
-    private function loadUpdateMessages(int $chatId, ?int $topicId): array
+    private function loadUpdateMessages(int $chatId): array
     {
         /** @var UpdateRecordRepository $repo */
         $repo = $this->orm->getRepository(UpdateRecord::class);
 
         $items = [];
 
-        foreach ($repo->findLastNInTopic($chatId, $topicId, self::HISTORY_LIMIT) as $record) {
+        foreach ($repo->findLastN($chatId, self::HISTORY_LIMIT) as $record) {
             $decoded = json_decode($record->update, true, flags: \JSON_THROW_ON_ERROR);
             $update = $this->telegramSerializer->deserialize($decoded, UpdateInterface::class);
             $message = $this->agent->transformUpdates([$update])[0] ?? null;
@@ -219,14 +214,14 @@ class AgenticActivity
     /**
      * @return array<array{createdAt: int, sourceOrder: int, sequence: int, message: MessageInterface}>
      */
-    private function loadResponseMessages(int $chatId, ?int $topicId): array
+    private function loadResponseMessages(int $chatId): array
     {
         /** @var LlmProviderResponseRepository $repo */
         $repo = $this->orm->getRepository(LlmProviderResponse::class);
 
         $items = [];
 
-        foreach ($repo->findLastN($chatId, $topicId, LlmProviderType::Openai, self::HISTORY_LIMIT) as $record) {
+        foreach ($repo->findLastNByChat($chatId, LlmProviderType::Openai, self::HISTORY_LIMIT) as $record) {
             $message = $this->deserializeResponseMessage($record);
 
             $items[] = [

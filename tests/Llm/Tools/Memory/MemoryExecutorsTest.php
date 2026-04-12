@@ -46,14 +46,14 @@ class MemoryExecutorsTest extends TestCase
                 self::assertSame(-100123, $chatId);
                 self::assertSame('Память обновлена', $text);
                 self::assertNull($businessConnectionId);
-                self::assertSame(777, $messageThreadId);
+                self::assertNull($messageThreadId);
 
                 return $message;
             });
 
         $executor = new SaveMemoryExecutor($store, $api);
 
-        self::assertSame('Memory saved', $executor->execute(-100123, $memory, 777));
+        self::assertSame('Memory saved', $executor->execute(-100123, $memory));
     }
 
     public function testSaveMemoryExecutorDoesNotNotifyChatWhenSaveFails(): void

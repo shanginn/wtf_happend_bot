@@ -62,11 +62,6 @@ class ChatExecutorsTest extends TestCase
                 return $this->records;
             }
 
-            public function findLastNInTopic(int $chatId, ?int $topicId, int $limit): array
-            {
-                return $this->records;
-            }
-
             public function findByPK(mixed $id): ?object
             {
                 return null;
@@ -124,6 +119,24 @@ class ChatExecutorsTest extends TestCase
         self::assertStringContainsString('deploy plan is ready', $result);
         self::assertStringNotContainsString('deploy failed on staging', $result);
         self::assertStringNotContainsString('random chat', $result);
+    }
+
+    public function testSearchMessagesExecutorIgnoresTopicAndSearchesWholeChat(): void
+    {
+        $chatId = -100123;
+        $repo = $this->makeUpdateRepo([
+            $this->makeUpdateRecord(2, $chatId, 'topic message', 200, 'bob', topicId: 42),
+            $this->makeUpdateRecord(1, $chatId, 'general message', 100, 'alice'),
+        ]);
+
+        $orm = Mockery::mock(ORMInterface::class);
+        $orm->shouldReceive('getRepository')->with(UpdateRecord::class)->andReturn($repo);
+
+        $executor = new SearchMessagesExecutor($orm);
+        $result = $executor->execute($chatId, new SearchMessages(limit: 5));
+
+        self::assertStringContainsString('general message', $result);
+        self::assertStringContainsString('topic message', $result);
     }
 
     public function testGetCurrentTimeExecutorReturnsFormattedTime(): void

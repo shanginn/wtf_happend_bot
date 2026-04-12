@@ -8,6 +8,5 @@ class AgenticWorkflowInput
 {
     public function __construct(
         public int $chatId,
-        public ?int $messageThreadId = null,
     ) {}
 }

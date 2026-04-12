@@ -21,11 +21,7 @@ class AgenticWorkflowHandler
     {
         $message = $update->effectiveMessage;
 
-        return sprintf(
-            'Chat %d%s [Root]',
-            $message->chat->id,
-            $message->messageThreadId ? " (topic $message->messageThreadId)" : '',
-        );
+        return sprintf('Chat %d [Root]', $message->chat->id);
     }
 
     public function handleUpdate(Update $update): void
@@ -43,10 +39,7 @@ class AgenticWorkflowHandler
             workflow: $workflow,
             signal: 'addUpdate',
             signalArgs: [$update],
-            startArgs: [new AgenticWorkflowInput(
-                chatId: $update->effectiveMessage->chat->id,
-                messageThreadId: $update->effectiveMessage->messageThreadId,
-            )],
+            startArgs: [new AgenticWorkflowInput(chatId: $update->effectiveMessage->chat->id)],
         );
     }
 }

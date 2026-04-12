@@ -31,7 +31,7 @@ class SearchMessagesExecutor
     }
 
     #[ActivityMethod]
-    public function execute(int $chatId, SearchMessages $schema, ?int $topicId = null): string
+    public function execute(int $chatId, SearchMessages $schema): string
     {
         /** @var \Bot\Entity\UpdateRecord\UpdateRecordRepository $repo */
         $repo = $this->orm->getRepository(UpdateRecord::class);
@@ -41,9 +41,7 @@ class SearchMessagesExecutor
         $username = $schema->username === null ? null : ltrim(mb_strtolower(trim($schema->username)), '@');
         $window = $query === '' ? max($limit, 50) : 300;
 
-        $records = $topicId === null
-            ? array_reverse($repo->findLastN($chatId, $window))
-            : array_reverse($repo->findLastNInTopic($chatId, $topicId, $window));
+        $records = array_reverse($repo->findLastN($chatId, $window));
 
         $matches = [];
 

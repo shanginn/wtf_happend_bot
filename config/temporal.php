@@ -13,6 +13,7 @@ use Bot\Temporal\OpenaiDataConverter;
 use Bot\Temporal\TelegramDataConverter;
 use Bot\Telegram\Factory as TelegramFactory;
 use Phenogram\Bindings\Factory;
+use Temporal\Client\ClientOptions;
 use Temporal\DataConverter\BinaryConverter;
 use Temporal\DataConverter\DataConverter;
 use Temporal\DataConverter\JsonConverter;
@@ -34,6 +35,7 @@ $deepseekApiKey = getenv('DEEPSEEK_API_KEY');
 assert(is_string($deepseekApiKey), 'DeepSeek API key must be a string');
 
 $temporalCliAddress = getenv('TEMPORAL_CLI_ADDRESS') ?: 'localhost:7233';
+$temporalNamespace = getenv('TEMPORAL_NAMESPACE') ?: 'default';
 
 if (!class_exists('Config')) {
     class Config
@@ -43,6 +45,8 @@ if (!class_exists('Config')) {
             public readonly string $openrouterApiKey,
             public readonly string $deepseekApiKey,
             public readonly string $temporalCliAddress,
+            public readonly string $temporalNamespace,
+            public readonly ClientOptions $temporalClientOptions,
             public readonly DataConverter $dataConverter,
         ) {}
     }
@@ -74,5 +78,7 @@ return new Config(
     openrouterApiKey: $openrouterApiKey,
     deepseekApiKey: $deepseekApiKey,
     temporalCliAddress: $temporalCliAddress,
+    temporalNamespace: $temporalNamespace,
+    temporalClientOptions: (new ClientOptions())->withNamespace($temporalNamespace),
     dataConverter: $dataConverter,
 );

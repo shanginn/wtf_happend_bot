@@ -300,7 +300,7 @@ class UpdateProcessingTest extends TestCase
         self::assertSame($id2, $id3);
     }
 
-    public function testTopicConversationsSeparateWorkflows(): void
+    public function testTopicConversationsShareOneWorkflow(): void
     {
         $generalUpdate = $this->makeGroupUpdate(1, 'In general', 'alice');
         $topic42Update = $this->makeGroupUpdate(2, 'In topic 42', 'bob', messageThreadId: 42);
@@ -310,10 +310,9 @@ class UpdateProcessingTest extends TestCase
         $topic42Id = RouterWorkflowHandler::generateWorkflowId($topic42Update);
         $topic99Id = RouterWorkflowHandler::generateWorkflowId($topic99Update);
 
-        // Each topic gets a unique workflow
-        self::assertNotSame($generalId, $topic42Id);
-        self::assertNotSame($generalId, $topic99Id);
-        self::assertNotSame($topic42Id, $topic99Id);
+        self::assertSame($generalId, $topic42Id);
+        self::assertSame($generalId, $topic99Id);
+        self::assertSame($topic42Id, $topic99Id);
     }
 
     // -------------------------------------------------------------------------

@@ -11,11 +11,8 @@ server:
 temporal:
   address: "${TEMPORAL_CLI_ADDRESS:-host.docker.internal:7233}"
   cache_size: 10000
-  namespace: "default"
+  namespace: "${TEMPORAL_NAMESPACE:-default}"
   codec: json
-  activities:
-    num_workers: 10
-    command: "php src/worker.php"
   metrics:
     address: "127.0.0.1:9091"
     type: summary

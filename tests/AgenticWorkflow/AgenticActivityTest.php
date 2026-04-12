@@ -36,7 +36,7 @@ class AgenticActivityTest extends TestCase
         return new class($records) implements RepositoryInterface {
             public function __construct(private readonly array $records) {}
 
-            public function findLastNInTopic(int $chatId, ?int $topicId, int $limit): array
+            public function findLastN(int $chatId, int $limit): array
             {
                 return $this->records;
             }
@@ -66,7 +66,7 @@ class AgenticActivityTest extends TestCase
                 private array &$saved,
             ) {}
 
-            public function findLastN(int $chatId, ?int $topicId, LlmProviderType $type, int $limit): array
+            public function findLastNByChat(int $chatId, LlmProviderType $type, int $limit): array
             {
                 return $this->records;
             }
@@ -262,6 +262,54 @@ class AgenticActivityTest extends TestCase
         $this->assertSame(LlmProviderType::Openai, $saved[0]->type);
         $this->assertSame(AssistantMessage::class, $saved[0]->messageClass);
         $this->assertNotNull($saved[0]->rawResponse);
+    }
+
+    public function testCompleteLoadsHistoryAcrossTopicsInTheSameChat(): void
+    {
+        $chatId = -100123;
+        $saved = [];
+        $updateRepo = $this->makeUpdateRepo([
+            $this->makeUpdateRecord(2, $chatId, 'topic message', 200, topicId: 42),
+            $this->makeUpdateRecord(1, $chatId, 'general message', 100),
+        ]);
+        $responseRepo = $this->makeResponseRepo([], $saved);
+
+        $orm = Mockery::mock(ORMInterface::class);
+        $orm->shouldReceive('getRepository')->with(UpdateRecord::class)->andReturn($updateRepo);
+        $orm->shouldReceive('getRepository')->with(LlmProviderResponse::class)->andReturn($responseRepo);
+
+        $openai = $this->createMock(Openai::class);
+        $openai
+            ->expects($this->once())
+            ->method('completion')
+            ->willReturnCallback(function (array $messages) {
+                $historyText = implode(
+                    "\n",
+                    array_map(
+                        static fn (object $message): string => (string) ($message->content ?? ''),
+                        $messages,
+                    ),
+                );
+
+                $this->assertStringContainsString('general message', $historyText);
+                $this->assertStringContainsString('topic message', $historyText);
+
+                return new ErrorResponse(
+                    message: 'synthetic',
+                    type: null,
+                    param: null,
+                    code: null,
+                    rawResponse: '',
+                );
+            });
+
+        $activity = new AgenticActivity(
+            openai: $openai,
+            api: $this->createStub(ApiInterface::class),
+            orm: $orm,
+        );
+
+        $activity->complete($chatId, 42);
     }
 
     public function testLoadAllParticipantMemoriesFormatsSavedRecords(): void

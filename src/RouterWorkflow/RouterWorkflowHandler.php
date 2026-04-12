@@ -19,11 +19,7 @@ class RouterWorkflowHandler
     {
         $message = $update->effectiveMessage;
 
-        return sprintf(
-            '[Router] chat %d, topic %s',
-            $message->chat->id,
-            $message->messageThreadId ?? 'general',
-        );
+        return sprintf('[Router] chat %d', $message->chat->id);
     }
 
     public function handleUpdate(Update $update): void
@@ -41,10 +37,7 @@ class RouterWorkflowHandler
             workflow: $workflow,
             signal: 'addUpdate',
             signalArgs: [$update],
-            startArgs: [new RouterWorkflowInput(
-                chatId: $update->effectiveMessage->chat->id,
-                messageThreadId: $update->effectiveMessage->messageThreadId,
-            )],
+            startArgs: [new RouterWorkflowInput(chatId: $update->effectiveMessage->chat->id)],
         );
     }
 }

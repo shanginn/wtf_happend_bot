@@ -18,7 +18,7 @@ class SaveMemoryExecutor
     ) {}
 
     #[ActivityMethod]
-    public function execute(int $chatId, SaveMemory $schema, ?int $topicId = null): string
+    public function execute(int $chatId, SaveMemory $schema): string
     {
         $result = $this->memoryStore->save(
             chatId: $chatId,
@@ -29,7 +29,6 @@ class SaveMemoryExecutor
             $this->api->sendMessage(
                 chatId: $chatId,
                 text: 'Память обновлена',
-                messageThreadId: $topicId,
             );
         }
 

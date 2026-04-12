@@ -46,6 +46,7 @@ $saveUpdateHandler = new SaveUpdateHandler($em);
 
 $workflowClient = new WorkflowClient(
     serviceClient: ServiceClient::create($temporalConfig->temporalCliAddress),
+    options: $temporalConfig->temporalClientOptions,
     converter: $temporalConfig->dataConverter
 );
 
