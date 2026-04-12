@@ -20,10 +20,10 @@ env:
   DB_DATABASE: wtf_happend_bot
   DB_USERNAME: wtf_happend_bot
   TELEGRAM_BOT_USERNAME: wtf_happend_bot
+  TEMPORAL_CLI_ADDRESS: temporal-frontend.temporal:7233
 
 envSecrets:
   DB_PASSWORD: ""
   TELEGRAM_BOT_TOKEN: ""
   OPENROUTER_API_KEY: ""
   DEEPSEEK_API_KEY: ""
-  TEMPORAL_CLI_ADDRESS: "temporal:7233"

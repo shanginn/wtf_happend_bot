@@ -38,6 +38,12 @@ spec:
                 name: {{ include "app.fullname" . }}-env
             - secretRef:
                 name: {{ include "app.fullname" . }}-secret
+          env:
+            - name: TEMPORAL_CLI_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "app.fullname" . }}-env
+                  key: TEMPORAL_CLI_ADDRESS
           command: ["php", "src/bot.php"]
         - name: worker
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -57,6 +63,11 @@ spec:
           env:
             - name: SKIP_MIGRATIONS
               value: "true"
+            - name: TEMPORAL_CLI_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "app.fullname" . }}-env
+                  key: TEMPORAL_CLI_ADDRESS
           command: ["/usr/local/bin/rr", "serve", "-c", "/app/.rr.yaml", "-w", "/app"]
       volumes:
         - name: php-config
