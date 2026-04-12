@@ -6,6 +6,7 @@ namespace Bot\AgenticWorkflow;
 
 use Bot\Llm\Skills\ImageAnalysisSkill;
 use Bot\Llm\Skills\QuestionAnsweringSkill;
+use Bot\Llm\Skills\RelevantMemoriesSkill;
 use Bot\Llm\Skills\SummarizationSkill;
 use Bot\Llm\Tools\Chat\CreatePoll;
 use Bot\Llm\Tools\Chat\GetCurrentTime;
@@ -28,6 +29,21 @@ final class AgenticToolset
 
     /** @var array<class-string> */
     public const array SKILLS = [
+        RelevantMemoriesSkill::class,
+        SummarizationSkill::class,
+        QuestionAnsweringSkill::class,
+        ImageAnalysisSkill::class,
+    ];
+
+    /** @var array<class-string> */
+    public const array RESPONSE_TOOLS = [
+        RecallMemory::class,
+        SearchMessages::class,
+        GetCurrentTime::class,
+    ];
+
+    /** @var array<class-string> */
+    public const array RESPONSE_SKILLS = [
         SummarizationSkill::class,
         QuestionAnsweringSkill::class,
         ImageAnalysisSkill::class,

@@ -10,20 +10,20 @@ use Spiral\JsonSchemaGenerator\Attribute\Field;
 
 #[OpenaiToolSchema(
     name: 'search_messages',
-    description: 'Search through the chat message history. Use this to find old messages, look up what someone said, or find when a topic was discussed.',
+    description: 'Search through persisted chat history. Use a query to find specific older messages, or leave the query empty to load recent chat history.',
 )]
 class SearchMessages extends AbstractTool
 {
     public function __construct(
         #[Field(
             title: 'query',
-            description: 'Text to search for in message history. Searches message content.'
+            description: 'Optional text to search for in chat history. Leave empty to load recent messages instead of searching.'
         )]
-        public readonly string $query,
+        public readonly string $query = '',
 
         #[Field(
             title: 'username',
-            description: 'Optional: filter results to messages from a specific username (with @). Leave empty to search all users.'
+            description: 'Optional: filter results to messages from a specific participant reference or username (with or without @). Leave empty to search all users.'
         )]
         public readonly ?string $username = null,
 

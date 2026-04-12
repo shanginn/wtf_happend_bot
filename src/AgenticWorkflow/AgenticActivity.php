@@ -7,8 +7,10 @@ namespace Bot\AgenticWorkflow;
 use Bot\Agent\OpenaiMessageTransformer;
 use Bot\Entity\LlmProviderResponse;
 use Bot\Entity\LlmProviderResponse\LlmProviderResponseRepository;
+use Bot\Entity\ParticipantMemory;
 use Bot\Entity\UpdateRecord;
 use Bot\Entity\UpdateRecord\UpdateRecordRepository;
+use Bot\Llm\Skills\RelevantMemoriesSkill;
 use Bot\Llm\ProviderHistory\LlmProviderType;
 use Bot\Llm\Skills\SkillInterface;
 use Bot\Telegram\Factory;
@@ -25,7 +27,6 @@ use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
 use Shanginn\Openai\ChatCompletion\CompletionResponse;
 use Shanginn\Openai\ChatCompletion\ErrorResponse;
 use Shanginn\Openai\ChatCompletion\Message\MessageInterface;
-use Shanginn\Openai\ChatCompletion\Message\ToolMessage;
 use Shanginn\Openai\ChatCompletion\Tool\AbstractTool;
 use Shanginn\Openai\Openai;
 use Shanginn\Openai\Openai\OpenaiSerializer;
@@ -87,12 +88,22 @@ class AgenticActivity
         array $skills = [],
     ): ErrorResponse|CompletionResponse {
         $history = $this->loadHistory($chatId, $topicId);
-
-        return $this->agent->complete(
+        $result = $this->agent->complete(
             history: $history,
             tools: $tools,
             skills: $skills,
         );
+
+        if ($result instanceof CompletionResponse && isset($result->choices[0])) {
+            $this->saveResponseMessage(
+                chatId: $chatId,
+                topicId: $topicId,
+                message: $result->choices[0]->message,
+                rawResponse: $result,
+            );
+        }
+
+        return $result;
     }
 
     #[ActivityMethod]
@@ -102,6 +113,46 @@ class AgenticActivity
         array $skills = [],
     ): ErrorResponse|CompletionResponse {
         return $this->agent->complete(
+            history: $memory,
+            tools: $tools,
+            skills: $skills,
+        );
+    }
+
+    #[ActivityMethod]
+    public function recollectRelevantMemories(int $chatId, array $history): ErrorResponse|CompletionResponse
+    {
+        /** @var \Bot\Entity\ParticipantMemory\ParticipantMemoryRepository $repo */
+        $repo = $this->orm->getRepository(ParticipantMemory::class);
+        $records = $repo->findByChatId($chatId);
+
+        $lines = ['All participant memories:'];
+
+        foreach ($records as $memory) {
+            $lines[] = sprintf(
+                '- %s | memory: %s | quote: %s | context: %s | updated: %s',
+                $memory->participantLabel,
+                $memory->memory,
+                $memory->quote,
+                $memory->context,
+                date('Y-m-d', $memory->updatedAt),
+            );
+        }
+
+        return $this->agent->recollectRelevantMemories(
+            history: $history,
+            allMemories: implode("\n", $lines),
+            skills: [RelevantMemoriesSkill::class],
+        );
+    }
+
+    #[ActivityMethod]
+    public function respondFromMemory(
+        array $memory,
+        array $tools = [],
+        array $skills = [],
+    ): ErrorResponse|CompletionResponse {
+        return $this->agent->respond(
             history: $memory,
             tools: $tools,
             skills: $skills,

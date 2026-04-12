@@ -24,9 +24,9 @@ class ChatToolsTest extends TestCase
 
     public function testSearchMessagesDefaults(): void
     {
-        $tool = new SearchMessages(query: 'test');
+        $tool = new SearchMessages();
 
-        self::assertSame('test', $tool->query);
+        self::assertSame('', $tool->query);
         self::assertNull($tool->username);
         self::assertSame(10, $tool->limit);
     }

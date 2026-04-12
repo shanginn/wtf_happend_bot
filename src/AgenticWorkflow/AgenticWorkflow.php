@@ -4,22 +4,16 @@ declare(strict_types=1);
 
 namespace Bot\AgenticWorkflow;
 
-use Bot\Activity\DatabaseActivity;
 use Bot\Activity\TelegramActivity;
-use Bot\Agent\LlmMessageTransformer;
 use Bot\Agent\OpenaiMessageTransformer;
-use Bot\Llm\Tools\Chat\CreatePoll;
-use Bot\Llm\Tools\Chat\GetCurrentTime;
-use Bot\Llm\Tools\Chat\SearchMessages;
 use Bot\Llm\Tools\Decision\RespondDecision;
-use Bot\Llm\Tools\Memory\RecallMemory;
 use Bot\Llm\Tools\Memory\SaveMemory;
 use Carbon\CarbonInterval;
 use Generator;
-use Shanginn\Openai\ChatCompletion\CompletionResponse;
 use Shanginn\Openai\ChatCompletion\ErrorResponse;
 use Shanginn\Openai\ChatCompletion\Message\Assistant\KnownFunctionCall;
 use Shanginn\Openai\ChatCompletion\Message\ToolMessage;
+use Shanginn\Openai\ChatCompletion\Message\UserMessage;
 use Temporal\Activity\ActivityOptions;
 use Temporal\Common\RetryOptions;
 use Temporal\DataConverter\Type;
@@ -32,10 +26,10 @@ use Temporal\Workflow\WorkflowMethod;
 #[WorkflowInterface]
 class AgenticWorkflow
 {
-    private const int MAX_AGENT_STEPS = 8;
+    private const int MAX_RESPONSE_STEPS = 15;
+    private const int RESPONSE_TOOL_CONTEXT_TOKEN_BUDGET = 128000;
 
     private AgenticActivity|ActivityProxy $agenticActivity;
-    private DatabaseActivity|ActivityProxy $databaseActivity;
     private TelegramActivity|ActivityProxy $telegramActivity;
     private MessageQueue $updatesQueue;
     private AgenticWorkflowInput $input;
@@ -46,7 +40,6 @@ class AgenticWorkflow
     public function __construct()
     {
         $this->agenticActivity = AgenticActivity::getDefinition();
-        $this->databaseActivity = DatabaseActivity::getDefinition();
         $this->telegramActivity = TelegramActivity::getDefinition();
         $this->updatesQueue = new MessageQueue();
         $this->workingMemory = new WorkingMemory();
@@ -76,7 +69,7 @@ class AgenticWorkflow
 
             $this->processedCount += count($updates);
 
-            yield $this->runAgentLoop();
+            yield from $this->runAgentLoop();
         } while (true);
     }
 
@@ -158,6 +151,114 @@ class AgenticWorkflow
         foreach ($toolsResults as $toolMessage) {
             $this->workingMemory->add($toolMessage);
         }
+
+        if ($shouldRespond) {
+            yield from $this->respond();
+        }
+    }
+
+    private function respond(): Generator
+    {
+        $memorySelection = yield $this->agenticActivity->recollectRelevantMemories(
+            chatId: $this->input->chatId,
+            history: $this->workingMemory->get(),
+        );
+
+        if ($memorySelection instanceof ErrorResponse) {
+            $errorMessage = $memorySelection->message ?? 'Unknown error.';
+            yield $this->sendMessage('Произошла ошибка: ' . $errorMessage);
+
+            return;
+        }
+
+        $relevantMemories = 'No relevant memories.';
+
+        $memoryChoice = $memorySelection->choices[0] ?? null;
+        $memoryContent = $memoryChoice?->message->content === null
+            ? ''
+            : trim($memoryChoice->message->content);
+
+        if ($memoryContent !== '') {
+            $relevantMemories = $memoryContent;
+        }
+
+        $responseMemory = $this->workingMemory->get();
+        $responseMemory[] = new UserMessage(
+            "Relevant participant memories for this reply:\n{$relevantMemories}",
+        );
+
+        for ($step = 0; $step < self::MAX_RESPONSE_STEPS; ++$step) {
+            $response = yield $this->agenticActivity->respondFromMemory(
+                memory: $responseMemory,
+                tools: AgenticToolset::RESPONSE_TOOLS,
+                skills: AgenticToolset::RESPONSE_SKILLS,
+            );
+
+            if ($response instanceof ErrorResponse) {
+                $errorMessage = $response->message ?? 'Unknown error.';
+                yield $this->sendMessage('Произошла ошибка: ' . $errorMessage);
+
+                return;
+            }
+
+            $choice = $response->choices[0] ?? null;
+            if ($choice === null) {
+                return;
+            }
+
+            yield $this->agenticActivity->saveResponseMessage(
+                chatId: $this->input->chatId,
+                topicId: $this->input->messageThreadId,
+                message: $choice->message,
+                rawResponse: $response,
+            );
+
+            $assistantMessage = $choice->message;
+            $toolCalls = $assistantMessage->toolCalls ?? [];
+
+            if ($toolCalls === []) {
+                $content = $assistantMessage->content === null ? '' : trim($assistantMessage->content);
+                if ($content === '') {
+                    continue;
+                }
+
+                $this->workingMemory->add($assistantMessage);
+
+                yield $this->sendMessage($content);
+
+                return;
+            }
+
+            $responseMemory[] = $assistantMessage;
+            $this->workingMemory->add($assistantMessage);
+
+            foreach ($toolCalls as $toolCall) {
+                if (!$toolCall instanceof KnownFunctionCall) {
+                    continue;
+                }
+
+                $toolResult = yield $this->executeTool(
+                    toolName: $toolCall->tool,
+                    arguments: $toolCall->arguments,
+                );
+
+                $toolMessage = new ToolMessage(
+                    content: $toolResult,
+                    toolCallId: $toolCall->id,
+                );
+
+                $responseMemory[] = $toolMessage;
+                $this->workingMemory->add($toolMessage);
+
+                yield $this->agenticActivity->saveResponseMessage(
+                    chatId: $this->input->chatId,
+                    topicId: $this->input->messageThreadId,
+                    message: $toolMessage,
+                );
+            }
+        }
+
+        yield $this->sendMessage('Не удалось завершить ответ за допустимое число шагов.');
     }
 
     public function executeTool(string $toolName, object $arguments): Generator
@@ -169,7 +270,7 @@ class AgenticWorkflow
 
         return yield Workflow::executeActivity(
             $shortClassName . 'Executor.execute',
-            [$this->input->chatId, $arguments],
+            [$this->input->chatId, $arguments, $this->input->messageThreadId],
             options: ActivityOptions::new()
                 ->withStartToCloseTimeout(CarbonInterval::minute())
                 ->withRetryOptions(

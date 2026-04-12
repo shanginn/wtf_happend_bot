@@ -4,3 +4,4 @@ vendor
 .php-cs-fixer.cache
 database.sqlite
 .phpunit.cache
+rr

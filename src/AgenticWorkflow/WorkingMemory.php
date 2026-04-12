@@ -9,7 +9,7 @@ use Temporal\Internal\Marshaller\Meta\MarshalArray;
 
 class WorkingMemory
 {
-    private const int LIMIT = 50;
+    private const int LIMIT = 200;
 
     public function __construct(
         #[MarshalArray(of: MessageInterface::class)]

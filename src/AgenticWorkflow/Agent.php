@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Bot\AgenticWorkflow;
 
 use Bot\Agent\OpenaiMessageTransformer;
+use Bot\Llm\Skills\RelevantMemoriesSkill;
 use Bot\Llm\Skills\SkillInterface;
 use Bot\Llm\Tools\Decision\RespondDecision;
 use Bot\Telegram\TelegramUpdateViewFactory;
@@ -13,6 +14,7 @@ use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
 use Shanginn\Openai\ChatCompletion\CompletionResponse;
 use Shanginn\Openai\ChatCompletion\ErrorResponse;
 use Shanginn\Openai\ChatCompletion\Message\MessageInterface;
+use Shanginn\Openai\ChatCompletion\Message\UserMessage;
 use Shanginn\Openai\ChatCompletion\Tool\AbstractTool;
 use Shanginn\Openai\Openai;
 
@@ -74,7 +76,7 @@ class Agent
      * @param array<class-string<AbstractTool>> $tools
      * @param array<class-string<SkillInterface>> $skills
      */
-    private static function systemPrompt(array $tools, array $skills): string
+    private static function decisionSystemPrompt(array $tools, array $skills): string
     {
         $now = date('Y-m-d H:i');
         $skillsPrompt = self::buildSkillsPrompt($skills);
@@ -119,6 +121,55 @@ class Agent
     }
 
     /**
+     * @param array<class-string<SkillInterface>> $skills
+     */
+    private static function relevantMemoriesSystemPrompt(array $skills): string
+    {
+        $now = date('Y-m-d H:i');
+        $skillsPrompt = self::buildSkillsPrompt($skills);
+
+        return <<<TEXT
+        You are selecting persistent participant memories for the next Telegram bot reply.
+
+        Now is {$now}.
+
+        {$skillsPrompt}
+
+        Use the full working memory to understand the current request.
+        You will also receive a full dump of saved participant memories.
+        Return only the memories that materially help with the next reply.
+        Do not invent new memories.
+        If nothing is useful, reply exactly: No relevant memories.
+        TEXT;
+    }
+
+    /**
+     * @param array<class-string<AbstractTool>> $tools
+     * @param array<class-string<SkillInterface>> $skills
+     */
+    private static function responseSystemPrompt(
+        array $tools,
+        array $skills,
+    ): string {
+        $now = date('Y-m-d H:i');
+        $skillsPrompt = self::buildSkillsPrompt($skills);
+        $toolsPrompt = self::buildToolsPrompt($tools);
+
+        return <<<TEXT
+        You are a helpful AI assistant integrated into a Telegram group chat. You participate only when it helps.
+
+        Now is {$now}.
+
+        You have access to the following skills and tools.
+
+        $toolsPrompt
+        $skillsPrompt
+        
+        Respond to the user messages in the history as best you can, use tools if needed.
+        TEXT;
+    }
+
+    /**
      * @param array<UpdateInterface> $updates
      * @return array<MessageInterface>
      */
@@ -158,7 +209,67 @@ class Agent
 
         return $this->openai->completion(
             messages: $history,
-            system: self::systemPrompt($tools, $skills),
+            system: self::decisionSystemPrompt($tools, $skills),
+            tools: $tools,
+        );
+    }
+
+    /**
+     * @param array<MessageInterface> $history
+     * @param array<class-string<SkillInterface>> $skills
+     */
+    public function recollectRelevantMemories(
+        array $history,
+        string $allMemories,
+        array $skills = [RelevantMemoriesSkill::class],
+    ): CompletionResponse|ErrorResponse {
+        if ($history === []) {
+            return new ErrorResponse(
+                message: 'No messages to process.',
+                type: null,
+                param: null,
+                code: null,
+                rawResponse: '',
+            );
+        }
+
+        return $this->openai->completion(
+            messages: [
+                ...$history,
+                new UserMessage(
+                    "All saved participant memories:\n{$allMemories}\n\nReturn only the memories relevant for the next reply.",
+                ),
+            ],
+            system: self::relevantMemoriesSystemPrompt($skills),
+        );
+    }
+
+    /**
+     * @param array<MessageInterface> $history
+     * @param array<class-string<AbstractTool>> $tools
+     * @param array<class-string<SkillInterface>> $skills
+     */
+    public function respond(
+        array $history,
+        array $tools = [],
+        array $skills = [],
+    ): CompletionResponse|ErrorResponse {
+        if ($history === []) {
+            return new ErrorResponse(
+                message: 'No messages to process.',
+                type: null,
+                param: null,
+                code: null,
+                rawResponse: '',
+            );
+        }
+
+        return $this->openai->completion(
+            messages: $history,
+            system: self::responseSystemPrompt(
+                tools: $tools,
+                skills: $skills,
+            ),
             tools: $tools,
         );
     }

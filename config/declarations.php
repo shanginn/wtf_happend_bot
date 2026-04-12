@@ -11,6 +11,8 @@ use Bot\Activity\TelegramActivity;
 use Bot\AgenticWorkflow\AgenticActivity;
 use Bot\AgenticWorkflow\AgenticWorkflow;
 use Bot\Entity\Message;
+use Bot\Llm\Tools\Chat\GetCurrentTimeExecutor;
+use Bot\Llm\Tools\Chat\SearchMessagesExecutor;
 use Bot\Llm\Tools\Memory\RecallMemoryExecutor;
 use Bot\Llm\Tools\Memory\SaveMemoryExecutor;
 use Bot\Memory\ParticipantMemoryStore;
@@ -85,10 +87,15 @@ return [
             DatabaseActivity::class => fn () => new DatabaseActivity($orm),
             SaveMemoryExecutor::class => fn () => new SaveMemoryExecutor(
                 memoryStore: $participantMemoryStore,
+                api: $telegramApi,
             ),
             RecallMemoryExecutor::class => fn () => new RecallMemoryExecutor(
                 memoryStore: $participantMemoryStore,
             ),
+            SearchMessagesExecutor::class => fn () => new SearchMessagesExecutor(
+                orm: $orm,
+            ),
+            GetCurrentTimeExecutor::class => fn () => new GetCurrentTimeExecutor(),
             ImageSkillActivity::class => fn () => new ImageSkillActivity($telegramApi),
         ],
     ],

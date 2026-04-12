@@ -13,18 +13,18 @@ class RespondDecisionTest extends TestCase
     {
         $decision = new RespondDecision(
             shouldRespond: true,
-            reason: 'User mentioned the bot by name',
+            overview: 'User mentioned the bot by name',
         );
 
         self::assertTrue($decision->shouldRespond);
-        self::assertSame('User mentioned the bot by name', $decision->reason);
+        self::assertSame('User mentioned the bot by name', $decision->overview);
     }
 
     public function testShouldRespondFalse(): void
     {
         $decision = new RespondDecision(
             shouldRespond: false,
-            reason: 'Regular conversation between users',
+            overview: 'Regular conversation between users',
         );
 
         self::assertFalse($decision->shouldRespond);

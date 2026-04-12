@@ -6,6 +6,7 @@ namespace Tests\AgenticWorkflow;
 
 use Bot\AgenticWorkflow\AgenticActivity;
 use Bot\Entity\LlmProviderResponse;
+use Bot\Entity\ParticipantMemory;
 use Bot\Entity\UpdateRecord;
 use Bot\Llm\ProviderHistory\LlmProviderType;
 use Bot\Telegram\Factory;
@@ -73,6 +74,33 @@ class AgenticActivityTest extends TestCase
             public function save(LlmProviderResponse $record, bool $run = true): void
             {
                 $this->saved[] = $record;
+            }
+
+            public function findByPK(mixed $id): ?object
+            {
+                return null;
+            }
+
+            public function findOne(array $scope = []): ?object
+            {
+                return null;
+            }
+
+            public function findAll(array $scope = []): iterable
+            {
+                return [];
+            }
+        };
+    }
+
+    private function makeParticipantMemoryRepo(array $records): RepositoryInterface
+    {
+        return new class($records) implements RepositoryInterface {
+            public function __construct(private readonly array $records) {}
+
+            public function findByChatId(int $chatId): array
+            {
+                return $this->records;
             }
 
             public function findByPK(mixed $id): ?object
@@ -234,6 +262,40 @@ class AgenticActivityTest extends TestCase
         $this->assertSame(LlmProviderType::Openai, $saved[0]->type);
         $this->assertSame(AssistantMessage::class, $saved[0]->messageClass);
         $this->assertNotNull($saved[0]->rawResponse);
+    }
+
+    public function testLoadAllParticipantMemoriesFormatsSavedRecords(): void
+    {
+        $chatId = -100123;
+        $memory = new ParticipantMemory(
+            chatId: $chatId,
+            participantKey: '@alice',
+            participantLabel: '@alice',
+            memory: 'Alice owns the deployment pipeline',
+            quote: 'I am on call for deploys this week',
+            context: 'They were assigning release responsibilities.',
+            createdAt: 100,
+            updatedAt: 200,
+        );
+        $memory->id = 1;
+
+        $orm = Mockery::mock(ORMInterface::class);
+        $orm->shouldReceive('getRepository')->with(ParticipantMemory::class)->andReturn(
+            $this->makeParticipantMemoryRepo([$memory]),
+        );
+
+        $activity = new AgenticActivity(
+            openai: $this->createMock(Openai::class),
+            api: $this->createStub(ApiInterface::class),
+            orm: $orm,
+        );
+
+        $formatted = $activity->loadAllParticipantMemories($chatId);
+
+        $this->assertStringContainsString('All participant memories:', $formatted);
+        $this->assertStringContainsString('@alice | memory: Alice owns the deployment pipeline', $formatted);
+        $this->assertStringContainsString('quote: I am on call for deploys this week', $formatted);
+        $this->assertStringContainsString('context: They were assigning release responsibilities.', $formatted);
     }
 
     protected function tearDown(): void
