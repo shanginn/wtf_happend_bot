@@ -71,7 +71,7 @@ The bot has two main skills:
 
 ```bash
 composer install
-./vendor/bin/rr get
+./vendor/bin/rr get-binary --no-config
 ```
 
 ### Configuration
@@ -101,10 +101,10 @@ DB_PASSWORD=postgres
 
 ```bash
 # Start all services (bot, worker, temporal, db)
-docker-compose up -d
+docker compose up -d
 
 # View logs
-docker-compose logs -f bot worker
+docker compose logs -f bot worker
 ```
 
 #### Manual Start (for development)
@@ -114,7 +114,7 @@ docker-compose logs -f bot worker
 temporal server start-dev
 
 # 2. Start the Temporal worker (in separate terminal)
-php src/worker.php
+./rr serve -c .rr.yaml
 
 # 3. Start the Telegram bot (in separate terminal)
 php src/bot.php

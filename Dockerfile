@@ -1,3 +1,6 @@
+ARG RR_IMAGE_TAG=2025.1.5
+
+FROM --platform=${TARGETPLATFORM:-linux/amd64} ghcr.io/roadrunner-server/roadrunner:${RR_IMAGE_TAG} AS roadrunner
 FROM ghcr.io/shanginn/spiral-docker-image-base:master
 
 WORKDIR /app
@@ -10,8 +13,7 @@ RUN set -xe && \
         --prefer-dist --no-scripts \
         --no-progress --no-interaction
 
-# Install RoadRunner
-RUN curl -L https://github.com/roadrunner-server/roadrunner/releases/download/v2025.1.6/roadrunner-2025.1.6-linux-arm64.tar.gz | tar -xz -C /usr/local/bin
+COPY --from=roadrunner /usr/bin/rr /usr/local/bin/rr
 
 RUN chown som:som /app /opt
 

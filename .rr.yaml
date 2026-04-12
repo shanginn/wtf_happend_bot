@@ -9,7 +9,7 @@ server:
   relay_timeout: 20s
 
 temporal:
-  address: "host.docker.internal:7233"
+  address: "${TEMPORAL_CLI_ADDRESS:-host.docker.internal:7233}"
   cache_size: 10000
   namespace: "default"
   codec: json

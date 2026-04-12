@@ -2,10 +2,18 @@
 
 declare(strict_types=1);
 
+use Spiral\RoadRunner\Environment;
 use Temporal\WorkerFactory;
 
 ini_set('display_errors', 'stderr');
-include "vendor/autoload.php";
+require_once __DIR__ . '/../vendor/autoload.php';
+
+$rrEnvironment = Environment::fromGlobals();
+
+if ($rrEnvironment->getMode() === '') {
+    fwrite(STDERR, "Temporal worker must be started via RoadRunner. Use `rr serve -c .rr.yaml`.\n");
+    exit(1);
+}
 
 /** @var Config $config */
 $config = require __DIR__ . '/../config/temporal.php';

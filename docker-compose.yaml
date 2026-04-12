@@ -13,7 +13,7 @@ services:
       - TEMPORAL_CLI_ADDRESS=host.docker.internal:7233
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    entrypoint: php src/bot.php
+    entrypoint: ["php", "src/bot.php"]
 
   worker:
     env_file:
@@ -29,7 +29,8 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       - SKIP_MIGRATIONS=true
-    entrypoint: ./rr serve
+      - TEMPORAL_CLI_ADDRESS=host.docker.internal:7233
+    entrypoint: ["/usr/local/bin/rr", "serve", "-c", "/app/.rr.yaml", "-w", "/app"]
 
   db:
     env_file:
