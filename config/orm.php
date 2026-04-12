@@ -65,7 +65,7 @@ $migrate = function () use ($migrator) {
             default => 'unknown',
         };
 
-        echo "{$migrated->getState()->getName()} migrated to {$status}\n";
+        fwrite(STDERR, "{$migrated->getState()->getName()} migrated to {$status}\n");
     }
 };
 

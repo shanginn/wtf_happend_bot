@@ -54,6 +54,9 @@ spec:
                 name: {{ include "app.fullname" . }}-env
             - secretRef:
                 name: {{ include "app.fullname" . }}-secret
+          env:
+            - name: SKIP_MIGRATIONS
+              value: "true"
           command: ["/usr/local/bin/rr", "serve", "-c", "/app/.rr.yaml", "-w", "/app"]
       volumes:
         - name: php-config
