@@ -50,6 +50,7 @@ class AgenticActivity
 
     public function __construct(
         Openai $openai,
+        Openai $decisionOpenai,
         ApiInterface $api,
         private readonly ORMInterface $orm,
         ?TelegramFileUrlResolverInterface $fileUrlResolver = null,
@@ -61,7 +62,7 @@ class AgenticActivity
         $fileUrlResolver ??= new TelegramFileUrlResolver($api);
         $updateViewFactory ??= new TelegramUpdateViewFactory($fileUrlResolver);
         $updateTransformer ??= new OpenaiMessageTransformer();
-        $this->decisionAgent = new DecisionAgent($openai, $updateViewFactory, $updateTransformer);
+        $this->decisionAgent = new DecisionAgent($decisionOpenai, $updateViewFactory, $updateTransformer);
         $this->responseAgent = new ResponseAgent($openai, $updateViewFactory, $updateTransformer);
         $this->telegramSerializer = $telegramSerializer ?? new Serializer(new Factory());
         $this->openaiSerializer = $openaiSerializer ?? new CompatibleOpenaiSerializer();

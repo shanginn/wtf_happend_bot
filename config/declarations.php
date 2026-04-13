@@ -39,12 +39,12 @@ $deepseek = new CompatibleOpenai(new OpenaiClient(
 $minimax = new CompatibleOpenai(new OpenaiClient(
     apiKey: $config->openrouterApiKey,
     apiUrl: 'https://openrouter.ai/api/v1'
-), 'minimax/minimax-m2.5');
+), 'minimax/minimax-m2.7');
 
-$qwen35 = new CompatibleOpenai(new OpenaiClient(
+$qwen = new CompatibleOpenai(new OpenaiClient(
     apiKey: $config->openrouterApiKey,
     apiUrl: 'https://openrouter.ai/api/v1'
-), 'qwen/qwen3.5-plus-02-15');
+), 'qwen/qwen3.6-plus');
 
 $bytedanceSeed = new CompatibleOpenai(new OpenaiClient(
     apiKey: $config->openrouterApiKey,
@@ -77,16 +77,17 @@ return [
         ],
         'activities' => [
             RouterActivity::class => fn () => new RouterActivity(
-                openai: $model,
+                openai: $qwen,
                 telegramSerializer: new Serializer(),
             ),
             AgenticActivity::class => fn () => new AgenticActivity(
-                openai: $model,
+                openai: $qwen,
+                decisionOpenai: $model,
                 api: $telegramApi,
                 orm: $orm,
             ),
             LlmActivity::class => fn () => new LlmActivity(
-                openai: $model,
+                openai: $qwen,
             ),
             TelegramActivity::class => fn () => new TelegramActivity($telegramApi, $orm, $em),
             DatabaseActivity::class => fn () => new DatabaseActivity($orm),
