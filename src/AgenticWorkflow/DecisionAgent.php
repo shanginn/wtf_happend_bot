@@ -63,6 +63,8 @@ final class DecisionAgent extends AbstractAgent
         - If no other tool use is needed, still call `respond_decision`.
         - If the situation is ambiguous, uncertain, or borderline, make the best decision you can and still call `respond_decision`.
         </decision_contract>
+
+        NO TEXT RESPONSE HERE!!!! YOUR ONLY JOB IS TO DECIDE IS THE MESSAGES WORTH REPLYING AT ALL
         TEXT;
     }
 
