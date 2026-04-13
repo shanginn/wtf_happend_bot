@@ -94,4 +94,33 @@ class AgentTest extends TestCase
         $this->assertInstanceOf(ErrorResponse::class, $result);
         $this->assertSame('No messages to process.', $result->message);
     }
+
+    public function testRecollectRelevantMemoriesUsesDedicatedOpenaiWhenProvided(): void
+    {
+        $history = [new UserMessage('who owns deploys?')];
+        $allMemories = "All participant memories:\n- @alice | memory: Alice owns deploys";
+        $expectedResponse = new ErrorResponse(
+            message: 'synthetic',
+            type: null,
+            param: null,
+            code: null,
+            rawResponse: '',
+        );
+
+        $responseOpenai = $this->createMock(Openai::class);
+        $responseOpenai->expects($this->never())->method('completion');
+
+        $memoryOpenai = $this->createMock(Openai::class);
+        $memoryOpenai
+            ->expects($this->once())
+            ->method('completion')
+            ->willReturn($expectedResponse);
+
+        $result = (new Agent(
+            openai: $responseOpenai,
+            memoryRecollectionOpenai: $memoryOpenai,
+        ))->recollectRelevantMemories($history, $allMemories);
+
+        $this->assertSame($expectedResponse, $result);
+    }
 }

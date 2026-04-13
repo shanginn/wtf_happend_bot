@@ -18,18 +18,28 @@ use Shanginn\Openai\Openai;
 class Agent
 {
     private readonly DecisionAgent $decisionAgent;
+    private readonly RelevantMemoriesAgent $relevantMemoriesAgent;
     private readonly ResponseAgent $responseAgent;
 
     public function __construct(
         public readonly Openai $openai,
+        ?Openai $decisionOpenai = null,
+        ?Openai $memoryRecollectionOpenai = null,
         ?TelegramUpdateViewFactoryInterface $updateViewFactory = null,
         ?OpenaiMessageTransformer $updateTransformer = null,
     ) {
         $updateViewFactory ??= new \Bot\Telegram\TelegramUpdateViewFactory();
         $updateTransformer ??= new OpenaiMessageTransformer();
+        $decisionOpenai ??= $openai;
+        $memoryRecollectionOpenai ??= $openai;
 
         $this->decisionAgent = new DecisionAgent(
-            openai: $openai,
+            openai: $decisionOpenai,
+            updateViewFactory: $updateViewFactory,
+            updateTransformer: $updateTransformer,
+        );
+        $this->relevantMemoriesAgent = new RelevantMemoriesAgent(
+            openai: $memoryRecollectionOpenai,
             updateViewFactory: $updateViewFactory,
             updateTransformer: $updateTransformer,
         );
@@ -71,7 +81,7 @@ class Agent
         string $allMemories,
         array $skills = [RelevantMemoriesSkill::class],
     ): CompletionResponse|ErrorResponse {
-        return $this->responseAgent->recollectRelevantMemories($history, $allMemories, $skills);
+        return $this->relevantMemoriesAgent->recollect($history, $allMemories, $skills);
     }
 
     /**

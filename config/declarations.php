@@ -51,7 +51,12 @@ $bytedanceSeed = new CompatibleOpenai(new OpenaiClient(
     apiUrl: 'https://openrouter.ai/api/v1'
 ), 'bytedance-seed/seed-2.0-mini');
 
-$model = new CompatibleOpenai(new OpenaiClient(
+$decisionModel = new CompatibleOpenai(new OpenaiClient(
+    apiKey: $config->openrouterApiKey,
+    apiUrl: 'https://openrouter.ai/api/v1'
+), 'openrouter/elephant-alpha');
+
+$memoryRecollectionModel = new CompatibleOpenai(new OpenaiClient(
     apiKey: $config->openrouterApiKey,
     apiUrl: 'https://openrouter.ai/api/v1'
 ), 'openrouter/elephant-alpha');
@@ -82,9 +87,10 @@ return [
             ),
             AgenticActivity::class => fn () => new AgenticActivity(
                 openai: $qwen,
-                decisionOpenai: $model,
                 api: $telegramApi,
                 orm: $orm,
+                decisionOpenai: $decisionModel,
+                memoryRecollectionOpenai: $memoryRecollectionModel,
             ),
             LlmActivity::class => fn () => new LlmActivity(
                 openai: $qwen,

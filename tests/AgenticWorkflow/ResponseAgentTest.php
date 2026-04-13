@@ -51,44 +51,4 @@ class ResponseAgentTest extends TestCase
 
         $this->assertSame($expectedResponse, $result);
     }
-
-    public function testRecollectRelevantMemoriesUsesMemorySelectionPrompt(): void
-    {
-        $history = [new UserMessage('hello')];
-        $allMemories = "All participant memories:\n- @alice | memory: Alice owns deploys";
-        $expectedResponse = new ErrorResponse(
-            message: 'synthetic',
-            type: null,
-            param: null,
-            code: null,
-            rawResponse: '',
-        );
-
-        $openai = $this->createMock(Openai::class);
-        $openai
-            ->expects($this->once())
-            ->method('completion')
-            ->willReturnCallback(function (
-                array $messages,
-                ?string $system = null,
-                ?float $temperature = null,
-                ?int $maxTokens = null,
-                ?int $maxCompletionTokens = null,
-                ?float $frequencyPenalty = null,
-                mixed $toolChoice = null,
-                ?array $tools = null,
-            ) use ($history, $allMemories, $expectedResponse) {
-                $this->assertCount(2, $messages);
-                $this->assertSame($history[0], $messages[0]);
-                $this->assertStringContainsString($allMemories, (string) $messages[1]->content);
-                $this->assertIsString($system);
-                $this->assertStringContainsString('selecting persistent participant memories for the response agent', $system);
-
-                return $expectedResponse;
-            });
-
-        $result = (new ResponseAgent($openai))->recollectRelevantMemories($history, $allMemories);
-
-        $this->assertSame($expectedResponse, $result);
-    }
 }

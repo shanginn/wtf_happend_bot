@@ -44,25 +44,34 @@ class AgenticActivity
     private const int HISTORY_LIMIT = 50;
 
     private readonly DecisionAgent $decisionAgent;
+    private readonly RelevantMemoriesAgent $relevantMemoriesAgent;
     private readonly ResponseAgent $responseAgent;
     private readonly SerializerInterface $telegramSerializer;
     private readonly OpenaiSerializerInterface $openaiSerializer;
 
     public function __construct(
         Openai $openai,
-        Openai $decisionOpenai,
         ApiInterface $api,
         private readonly ORMInterface $orm,
+        ?Openai $decisionOpenai = null,
+        ?Openai $memoryRecollectionOpenai = null,
         ?TelegramFileUrlResolverInterface $fileUrlResolver = null,
         ?TelegramUpdateViewFactoryInterface $updateViewFactory = null,
         ?OpenaiMessageTransformer $updateTransformer = null,
         ?SerializerInterface $telegramSerializer = null,
         ?OpenaiSerializerInterface $openaiSerializer = null,
     ) {
+        $decisionOpenai ??= $openai;
+        $memoryRecollectionOpenai ??= $openai;
         $fileUrlResolver ??= new TelegramFileUrlResolver($api);
         $updateViewFactory ??= new TelegramUpdateViewFactory($fileUrlResolver);
         $updateTransformer ??= new OpenaiMessageTransformer();
         $this->decisionAgent = new DecisionAgent($decisionOpenai, $updateViewFactory, $updateTransformer);
+        $this->relevantMemoriesAgent = new RelevantMemoriesAgent(
+            $memoryRecollectionOpenai,
+            $updateViewFactory,
+            $updateTransformer,
+        );
         $this->responseAgent = new ResponseAgent($openai, $updateViewFactory, $updateTransformer);
         $this->telegramSerializer = $telegramSerializer ?? new Serializer(new Factory());
         $this->openaiSerializer = $openaiSerializer ?? new CompatibleOpenaiSerializer();
@@ -126,7 +135,7 @@ class AgenticActivity
     #[ActivityMethod]
     public function recollectRelevantMemories(int $chatId, array $history): ErrorResponse|CompletionResponse
     {
-        return $this->responseAgent->recollectRelevantMemories(
+        return $this->relevantMemoriesAgent->recollect(
             history: $history,
             allMemories: $this->loadAllParticipantMemories($chatId),
             skills: [RelevantMemoriesSkill::class],

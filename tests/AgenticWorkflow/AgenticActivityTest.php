@@ -346,6 +346,69 @@ class AgenticActivityTest extends TestCase
         $this->assertStringContainsString('context: They were assigning release responsibilities.', $formatted);
     }
 
+    public function testRecollectRelevantMemoriesUsesDedicatedOpenaiWhenProvided(): void
+    {
+        $chatId = -100123;
+        $memory = new ParticipantMemory(
+            chatId: $chatId,
+            participantKey: '@alice',
+            participantLabel: '@alice',
+            memory: 'Alice owns the deployment pipeline',
+            quote: 'I am on call for deploys this week',
+            context: 'They were assigning release responsibilities.',
+            createdAt: 100,
+            updatedAt: 200,
+        );
+        $memory->id = 1;
+
+        $orm = Mockery::mock(ORMInterface::class);
+        $orm->shouldReceive('getRepository')->with(ParticipantMemory::class)->andReturn(
+            $this->makeParticipantMemoryRepo([$memory]),
+        );
+
+        $responseOpenai = $this->createMock(Openai::class);
+        $responseOpenai->expects($this->never())->method('completion');
+
+        $decisionOpenai = $this->createMock(Openai::class);
+        $decisionOpenai->expects($this->never())->method('completion');
+
+        $expectedResponse = new ErrorResponse(
+            message: 'synthetic',
+            type: null,
+            param: null,
+            code: null,
+            rawResponse: '',
+        );
+
+        $memoryOpenai = $this->createMock(Openai::class);
+        $memoryOpenai
+            ->expects($this->once())
+            ->method('completion')
+            ->willReturnCallback(function (array $messages, ?string $system = null) use ($expectedResponse) {
+                $this->assertCount(2, $messages);
+                $this->assertStringContainsString('All participant memories:', (string) $messages[1]->content);
+                $this->assertIsString($system);
+                $this->assertStringContainsString('relevant memories agent', $system);
+
+                return $expectedResponse;
+            });
+
+        $activity = new AgenticActivity(
+            openai: $responseOpenai,
+            api: $this->createStub(ApiInterface::class),
+            orm: $orm,
+            decisionOpenai: $decisionOpenai,
+            memoryRecollectionOpenai: $memoryOpenai,
+        );
+
+        $result = $activity->recollectRelevantMemories(
+            $chatId,
+            [new UserMessage('who owns deploys?')],
+        );
+
+        $this->assertSame($expectedResponse, $result);
+    }
+
     protected function tearDown(): void
     {
         Mockery::close();
