@@ -80,8 +80,9 @@ class AgenticWorkflow
             SaveMemory::class,
         ];
 
+        $last10Messages = array_slice($this->workingMemory->get(), -10);
         $result = yield $this->agenticActivity->memoryComplete(
-            memory: $this->workingMemory->get(),
+            memory: $last10Messages,
             tools: $tools,
         );
 
