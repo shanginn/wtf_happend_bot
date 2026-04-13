@@ -333,7 +333,7 @@ class AgenticActivityTest extends TestCase
         );
 
         $activity = new AgenticActivity(
-            openai: $this->createMock(Openai::class),
+            openai: $this->createStub(Openai::class),
             api: $this->createStub(ApiInterface::class),
             orm: $orm,
         );

@@ -36,7 +36,7 @@ class SearchMessagesExecutor
         /** @var \Bot\Entity\UpdateRecord\UpdateRecordRepository $repo */
         $repo = $this->orm->getRepository(UpdateRecord::class);
 
-        $limit = max(1, min($schema->limit, 30));
+        $limit = max(1, min($schema->limit, 300));
         $query = mb_strtolower(trim($schema->query));
         $username = $schema->username === null ? null : ltrim(mb_strtolower(trim($schema->username)), '@');
         $window = $query === '' ? max($limit, 50) : 300;

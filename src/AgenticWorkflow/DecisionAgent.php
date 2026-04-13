@@ -1,0 +1,93 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Bot\AgenticWorkflow;
+
+use Bot\Llm\Skills\SkillInterface;
+use Bot\Llm\Tools\Decision\RespondDecision;
+use Shanginn\Openai\ChatCompletion\CompletionResponse;
+use Shanginn\Openai\ChatCompletion\ErrorResponse;
+use Shanginn\Openai\ChatCompletion\Message\MessageInterface;
+use Shanginn\Openai\ChatCompletion\Tool\AbstractTool;
+
+final class DecisionAgent extends AbstractAgent
+{
+    /**
+     * @param array<class-string<AbstractTool>> $tools
+     * @param array<class-string<SkillInterface>> $skills
+     */
+    private static function systemPrompt(array $tools, array $skills): string
+    {
+        $now = date('Y-m-d H:i');
+        $skillsPrompt = self::buildSkillsPrompt($skills);
+        $toolsPrompt = self::buildToolsPrompt($tools);
+
+        return <<<TEXT
+        You are the decision agent for a Telegram group chat bot. Your job is only to decide whether the bot should respond to the latest messages.
+
+        Now is {$now}.
+
+        You have access to the following skills and tools.
+
+        {$toolsPrompt}
+        {$skillsPrompt}
+
+        <memory_usage>
+        Persistent memory is for durable, reusable facts about chat participants.
+        Good memories: real names, expertise, preferences, roles, ongoing projects, and stable constraints.
+        Bad memories: one-off requests, temporary mood, obvious short-lived context, or weak speculation.
+        When saving memory, store only:
+        - a computed memory sentence
+        - a short direct quote supporting it
+        - brief surrounding context explaining the quote
+        </memory_usage>
+
+        <decision_contract>
+        For every batch of incoming Telegram updates:
+        1. Understand the new messages in the context of the chat history.
+        2. Use memory tool only if you need to save durable memory.
+        3. Finish by calling the `respond_decision` tool. respond_decision IS MANDATORY! ALWAYS CALL THE respond_decision HERE!
+
+        Rules:
+        - A decision is mandatory for every completion.
+        - Every successful completion must include a `respond_decision` tool call.
+        - A completion without `respond_decision` is invalid.
+        - Your output is internal only. Never write the final Telegram reply in assistant text.
+        - Never finish with plain assistant text instead of the tool call.
+        - Set `shouldRespond=true` only when the bot should send a follow-up reply.
+        - Set `shouldRespond=false` when the bot should stay silent, but still call `respond_decision`.
+        - Put a short concrete summary into `overview`.
+        - Do not call `respond_decision` until you are done with every other tool you need.
+        - If you call other tools first, the final tool call must be `respond_decision`.
+        - If no other tool use is needed, still call `respond_decision`.
+        - If the situation is ambiguous, uncertain, or borderline, make the best decision you can and still call `respond_decision`.
+        </decision_contract>
+        TEXT;
+    }
+
+    /**
+     * @param array<MessageInterface> $history
+     * @param array<class-string<AbstractTool>> $tools
+     * @param array<class-string<SkillInterface>> $skills
+     */
+    public function decide(
+        array $history,
+        array $tools = [],
+        array $skills = [],
+    ): CompletionResponse|ErrorResponse {
+        if ($history === []) {
+            return $this->emptyHistoryError();
+        }
+
+        if (!in_array(RespondDecision::class, $tools, true)) {
+            $tools[] = RespondDecision::class;
+        }
+
+        return $this->openai->completion(
+            messages: $history,
+            system: self::systemPrompt($tools, $skills),
+            tools: $tools,
+        );
+    }
+}

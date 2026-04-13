@@ -18,6 +18,7 @@ use Bot\Telegram\TelegramFileUrlResolver;
 use Bot\Telegram\TelegramFileUrlResolverInterface;
 use Bot\Telegram\TelegramUpdateViewFactory;
 use Bot\Telegram\TelegramUpdateViewFactoryInterface;
+use Bot\Openai\CompatibleOpenaiSerializer;
 use Carbon\CarbonInterval;
 use Cycle\ORM\ORMInterface;
 use Phenogram\Bindings\ApiInterface;
@@ -29,7 +30,6 @@ use Shanginn\Openai\ChatCompletion\ErrorResponse;
 use Shanginn\Openai\ChatCompletion\Message\MessageInterface;
 use Shanginn\Openai\ChatCompletion\Tool\AbstractTool;
 use Shanginn\Openai\Openai;
-use Shanginn\Openai\Openai\OpenaiSerializer;
 use Shanginn\Openai\Openai\OpenaiSerializerInterface;
 use Temporal\Activity\ActivityInterface;
 use Temporal\Activity\ActivityMethod;
@@ -43,7 +43,8 @@ class AgenticActivity
 {
     private const int HISTORY_LIMIT = 50;
 
-    private readonly Agent $agent;
+    private readonly DecisionAgent $decisionAgent;
+    private readonly ResponseAgent $responseAgent;
     private readonly SerializerInterface $telegramSerializer;
     private readonly OpenaiSerializerInterface $openaiSerializer;
 
@@ -59,9 +60,11 @@ class AgenticActivity
     ) {
         $fileUrlResolver ??= new TelegramFileUrlResolver($api);
         $updateViewFactory ??= new TelegramUpdateViewFactory($fileUrlResolver);
-        $this->agent = new Agent($openai, $updateViewFactory, $updateTransformer);
+        $updateTransformer ??= new OpenaiMessageTransformer();
+        $this->decisionAgent = new DecisionAgent($openai, $updateViewFactory, $updateTransformer);
+        $this->responseAgent = new ResponseAgent($openai, $updateViewFactory, $updateTransformer);
         $this->telegramSerializer = $telegramSerializer ?? new Serializer(new Factory());
-        $this->openaiSerializer = $openaiSerializer ?? new OpenaiSerializer();
+        $this->openaiSerializer = $openaiSerializer ?? new CompatibleOpenaiSerializer();
     }
 
     public static function getDefinition(): ActivityProxy|self
@@ -88,7 +91,7 @@ class AgenticActivity
         array $skills = [],
     ): ErrorResponse|CompletionResponse {
         $history = $this->loadHistory($chatId);
-        $result = $this->agent->complete(
+        $result = $this->decisionAgent->decide(
             history: $history,
             tools: $tools,
             skills: $skills,
@@ -112,7 +115,7 @@ class AgenticActivity
         array $tools = [],
         array $skills = [],
     ): ErrorResponse|CompletionResponse {
-        return $this->agent->complete(
+        return $this->decisionAgent->decide(
             history: $memory,
             tools: $tools,
             skills: $skills,
@@ -121,6 +124,15 @@ class AgenticActivity
 
     #[ActivityMethod]
     public function recollectRelevantMemories(int $chatId, array $history): ErrorResponse|CompletionResponse
+    {
+        return $this->responseAgent->recollectRelevantMemories(
+            history: $history,
+            allMemories: $this->loadAllParticipantMemories($chatId),
+            skills: [RelevantMemoriesSkill::class],
+        );
+    }
+
+    public function loadAllParticipantMemories(int $chatId): string
     {
         /** @var \Bot\Entity\ParticipantMemory\ParticipantMemoryRepository $repo */
         $repo = $this->orm->getRepository(ParticipantMemory::class);
@@ -139,11 +151,7 @@ class AgenticActivity
             );
         }
 
-        return $this->agent->recollectRelevantMemories(
-            history: $history,
-            allMemories: implode("\n", $lines),
-            skills: [RelevantMemoriesSkill::class],
-        );
+        return implode("\n", $lines);
     }
 
     #[ActivityMethod]
@@ -152,7 +160,7 @@ class AgenticActivity
         array $tools = [],
         array $skills = [],
     ): ErrorResponse|CompletionResponse {
-        return $this->agent->respond(
+        return $this->responseAgent->respond(
             history: $memory,
             tools: $tools,
             skills: $skills,
@@ -194,7 +202,7 @@ class AgenticActivity
         foreach ($repo->findLastN($chatId, self::HISTORY_LIMIT) as $record) {
             $decoded = json_decode($record->update, true, flags: \JSON_THROW_ON_ERROR);
             $update = $this->telegramSerializer->deserialize($decoded, UpdateInterface::class);
-            $message = $this->agent->transformUpdates([$update])[0] ?? null;
+            $message = $this->decisionAgent->transformUpdates([$update])[0] ?? null;
 
             if (!$message instanceof MessageInterface) {
                 continue;

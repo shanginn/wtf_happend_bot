@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Bot\Temporal;
 
-use Shanginn\Openai\Openai\OpenaiSerializer;
+use Bot\Openai\CompatibleOpenaiSerializer;
 use Shanginn\Openai\Openai\OpenaiSerializerInterface;
 use Temporal\Api\Common\V1\Payload;
 use Temporal\DataConverter\EncodingKeys;
@@ -20,7 +20,7 @@ class OpenaiDataConverter implements PayloadConverterInterface
     private array $knownTools = [];
 
     public function __construct(
-        private ?OpenaiSerializerInterface $openaiSerializer = new OpenaiSerializer()
+        private ?OpenaiSerializerInterface $openaiSerializer = new CompatibleOpenaiSerializer()
     ) {}
 
     public function registerTools(string ...$toolClasses): void

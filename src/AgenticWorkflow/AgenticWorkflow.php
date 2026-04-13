@@ -138,16 +138,6 @@ class AgenticWorkflow
             );
         }
 
-        if ($shouldRespond && $assistantMessage->content !== null) {
-            $content = trim($assistantMessage->content);
-
-            if ($content !== '') {
-                $this->workingMemory->add($assistantMessage);
-
-                yield $this->sendMessage($content);
-            }
-        }
-
         foreach ($toolsResults as $toolMessage) {
             $this->workingMemory->add($toolMessage);
         }
