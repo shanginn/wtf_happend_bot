@@ -51,6 +51,11 @@ $bytedanceSeed = new CompatibleOpenai(new OpenaiClient(
     apiUrl: 'https://openrouter.ai/api/v1'
 ), 'bytedance-seed/seed-2.0-mini');
 
+$model = new CompatibleOpenai(new OpenaiClient(
+    apiKey: $config->openrouterApiKey,
+    apiUrl: 'https://openrouter.ai/api/v1'
+), 'openrouter/elephant-alpha');
+
 $telegramApi = new Api(
     client: new TelegramBotApiClient($config->botToken),
     serializer: new Serializer(),
@@ -72,16 +77,16 @@ return [
         ],
         'activities' => [
             RouterActivity::class => fn () => new RouterActivity(
-                openai: $qwen35,
+                openai: $model,
                 telegramSerializer: new Serializer(),
             ),
             AgenticActivity::class => fn () => new AgenticActivity(
-                openai: $qwen35,
+                openai: $model,
                 api: $telegramApi,
                 orm: $orm,
             ),
             LlmActivity::class => fn () => new LlmActivity(
-                openai: $qwen35,
+                openai: $model,
             ),
             TelegramActivity::class => fn () => new TelegramActivity($telegramApi, $orm, $em),
             DatabaseActivity::class => fn () => new DatabaseActivity($orm),
