@@ -51,9 +51,9 @@ $bytedanceSeed = new CompatibleOpenai(new OpenaiClient(
     apiUrl: 'https://openrouter.ai/api/v1'
 ), 'bytedance-seed/seed-2.0-mini');
 
-$decisionModel = $minimax;
-$memoryRecollectionModel = $minimax;
-$answerGenerationModel = $minimax;
+$decisionModel = $qwen;
+$memoryRecollectionModel = $qwen;
+$answerGenerationModel = $qwen;
 
 $telegramApi = new Api(
     client: new TelegramBotApiClient($config->botToken),
