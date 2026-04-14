@@ -41,6 +41,6 @@ class RespondDecision extends AbstractTool
                 TEXT
 
         )]
-        public readonly bool $shouldRespond,
+        public readonly bool $shouldRespond = false,
     ) {}
 }
