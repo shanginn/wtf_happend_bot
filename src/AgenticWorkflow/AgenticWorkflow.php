@@ -14,11 +14,13 @@ use Shanginn\Openai\ChatCompletion\ErrorResponse;
 use Shanginn\Openai\ChatCompletion\Message\Assistant\KnownFunctionCall;
 use Shanginn\Openai\ChatCompletion\Message\ToolMessage;
 use Shanginn\Openai\ChatCompletion\Message\UserMessage;
+use Temporal\Exception\Failure\CanceledFailure;
 use Temporal\Activity\ActivityOptions;
 use Temporal\Common\RetryOptions;
 use Temporal\DataConverter\Type;
 use Temporal\Internal\Workflow\ActivityProxy;
 use Temporal\Workflow;
+use Temporal\Workflow\CancellationScopeInterface;
 use Temporal\Workflow\ReturnType;
 use Temporal\Workflow\WorkflowInterface;
 use Temporal\Workflow\WorkflowMethod;
@@ -28,6 +30,7 @@ class AgenticWorkflow
 {
     private const int MAX_RESPONSE_STEPS = 15;
     private const int RESPONSE_TOOL_CONTEXT_TOKEN_BUDGET = 128000;
+    private const int TYPING_ACTION_REFRESH_INTERVAL_SECONDS = 4;
 
     private AgenticActivity|ActivityProxy $agenticActivity;
     private TelegramActivity|ActivityProxy $telegramActivity;
@@ -144,7 +147,15 @@ class AgenticWorkflow
         }
 
         if ($shouldRespond) {
-            yield from $this->respond();
+            yield $this->sendTypingAction();
+
+            $typingScope = $this->startTypingIndicator();
+
+            try {
+                yield from $this->respond();
+            } finally {
+                $typingScope->cancel();
+            }
         }
     }
 
@@ -277,6 +288,29 @@ class AgenticWorkflow
             text: $text,
             messageThreadId: null,
         );
+    }
+
+    private function sendTypingAction(): Generator
+    {
+        return yield $this->telegramActivity->sendChatAction(
+            chatId: $this->input->chatId,
+            action: 'typing',
+            messageThreadId: null,
+        );
+    }
+
+    private function startTypingIndicator(): CancellationScopeInterface
+    {
+        return Workflow::async(function (): Generator {
+            try {
+                while (true) {
+                    yield Workflow::timer(self::TYPING_ACTION_REFRESH_INTERVAL_SECONDS);
+                    yield $this->sendTypingAction();
+                }
+            } catch (CanceledFailure) {
+                return;
+            }
+        });
     }
 
     #[Workflow\SignalMethod]
