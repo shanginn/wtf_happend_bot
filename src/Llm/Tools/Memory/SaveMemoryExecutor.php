@@ -20,18 +20,9 @@ class SaveMemoryExecutor
     #[ActivityMethod]
     public function execute(int $chatId, SaveMemory $schema): string
     {
-        $result = $this->memoryStore->save(
+        return $this->memoryStore->save(
             chatId: $chatId,
             memory: $schema,
         );
-
-        if (str_starts_with($result, 'Memory saved') || str_starts_with($result, 'Memory updated')) {
-            $this->api->sendMessage(
-                chatId: $chatId,
-                text: 'Память обновлена',
-            );
-        }
-
-        return $result;
     }
 }
