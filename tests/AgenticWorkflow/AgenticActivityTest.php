@@ -409,6 +409,103 @@ class AgenticActivityTest extends TestCase
         $this->assertSame($expectedResponse, $result);
     }
 
+    public function testCompactWorkingMemoryReturnsUpdatedCompactedContext(): void
+    {
+        $expectedContext = "- Alice owns deploys\n- Rollback plan still missing";
+
+        $openai = $this->createMock(Openai::class);
+        $openai
+            ->expects($this->once())
+            ->method('completion')
+            ->willReturnCallback(function (array $messages, ?string $system = null) use ($expectedContext) {
+                $this->assertCount(2, $messages);
+                $this->assertSame('deploy notes', $messages[0]->content);
+                $this->assertStringContainsString('Existing compacted context:', (string) $messages[1]->content);
+                $this->assertStringContainsString('Alice is release lead', (string) $messages[1]->content);
+                $this->assertIsString($system);
+                $this->assertStringContainsString('working memory compaction agent', $system);
+
+                return new CompletionResponse(
+                    id: 'resp_compact_1',
+                    choices: [new Choice(index: 0, message: new AssistantMessage($expectedContext), finishReason: 'stop')],
+                    model: 'test-model',
+                    usage: new Usage(completionTokens: 1, promptTokens: 1, totalTokens: 2),
+                    object: 'chat.completion',
+                    created: 400,
+                );
+            });
+
+        $activity = new AgenticActivity(
+            openai: $openai,
+            api: $this->createStub(ApiInterface::class),
+            orm: Mockery::mock(ORMInterface::class),
+        );
+
+        $result = $activity->compactWorkingMemory(
+            existingCompactedContext: '- Alice is release lead',
+            memory: [new UserMessage('deploy notes')],
+        );
+
+        $this->assertSame($expectedContext, $result);
+    }
+
+    public function testCompactWorkingMemoryReturnsNullOnErrorResponse(): void
+    {
+        $openai = $this->createMock(Openai::class);
+        $openai
+            ->expects($this->once())
+            ->method('completion')
+            ->willReturn(new ErrorResponse(
+                message: 'synthetic',
+                type: null,
+                param: null,
+                code: null,
+                rawResponse: '',
+            ));
+
+        $activity = new AgenticActivity(
+            openai: $openai,
+            api: $this->createStub(ApiInterface::class),
+            orm: Mockery::mock(ORMInterface::class),
+        );
+
+        $result = $activity->compactWorkingMemory(
+            existingCompactedContext: '',
+            memory: [new UserMessage('deploy notes')],
+        );
+
+        $this->assertNull($result);
+    }
+
+    public function testCompactWorkingMemoryReturnsNullOnEmptyModelOutput(): void
+    {
+        $openai = $this->createMock(Openai::class);
+        $openai
+            ->expects($this->once())
+            ->method('completion')
+            ->willReturn(new CompletionResponse(
+                id: 'resp_compact_empty',
+                choices: [new Choice(index: 0, message: new AssistantMessage('   '), finishReason: 'stop')],
+                model: 'test-model',
+                usage: new Usage(completionTokens: 1, promptTokens: 1, totalTokens: 2),
+                object: 'chat.completion',
+                created: 400,
+            ));
+
+        $activity = new AgenticActivity(
+            openai: $openai,
+            api: $this->createStub(ApiInterface::class),
+            orm: Mockery::mock(ORMInterface::class),
+        );
+
+        $result = $activity->compactWorkingMemory(
+            existingCompactedContext: '',
+            memory: [new UserMessage('deploy notes')],
+        );
+
+        $this->assertNull($result);
+    }
+
     protected function tearDown(): void
     {
         Mockery::close();

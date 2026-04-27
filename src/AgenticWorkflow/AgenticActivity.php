@@ -43,6 +43,7 @@ class AgenticActivity
 {
     private const int HISTORY_LIMIT = 50;
 
+    private readonly CompactionAgent $compactionAgent;
     private readonly DecisionAgent $decisionAgent;
     private readonly RelevantMemoriesAgent $relevantMemoriesAgent;
     private readonly ResponseAgent $responseAgent;
@@ -66,6 +67,7 @@ class AgenticActivity
         $fileUrlResolver ??= new TelegramFileUrlResolver($api);
         $updateViewFactory ??= new TelegramUpdateViewFactory($fileUrlResolver);
         $updateTransformer ??= new OpenaiMessageTransformer();
+        $this->compactionAgent = new CompactionAgent($openai, $updateViewFactory, $updateTransformer);
         $this->decisionAgent = new DecisionAgent($decisionOpenai, $updateViewFactory, $updateTransformer);
         $this->relevantMemoriesAgent = new RelevantMemoriesAgent(
             $memoryRecollectionOpenai,
@@ -175,6 +177,30 @@ class AgenticActivity
             tools: $tools,
             skills: $skills,
         );
+    }
+
+    #[ActivityMethod]
+    public function compactWorkingMemory(
+        string $existingCompactedContext,
+        array $memory,
+    ): ?string {
+        $result = $this->compactionAgent->compact(
+            history: $memory,
+            existingCompactedContext: $existingCompactedContext,
+        );
+
+        if ($result instanceof ErrorResponse) {
+            return null;
+        }
+
+        $choice = $result->choices[0] ?? null;
+        $content = $choice?->message->content;
+
+        if (!is_string($content) || trim($content) === '') {
+            return null;
+        }
+
+        return trim($content);
     }
 
     /**
