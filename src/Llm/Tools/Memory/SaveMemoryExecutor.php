@@ -25,10 +25,22 @@ class SaveMemoryExecutor
             memory: $schema,
         );
 
-        if (!str_starts_with($result, 'Memory not saved:')) {
-            $this->api->sendMessage($chatId, 'Память обновлена');
+        $notification = self::notificationText($result);
+
+        if ($notification !== null) {
+            $this->api->sendMessage($chatId, $notification);
         }
 
         return $result;
+    }
+
+    private static function notificationText(string $result): ?string
+    {
+        return match (true) {
+            str_starts_with($result, 'Memory saved') => 'Память добавлена',
+            str_starts_with($result, 'Memory updated') => 'Память обновлена',
+            str_starts_with($result, 'Memory unchanged') => 'Память уже актуальна',
+            default => null,
+        };
     }
 }

@@ -102,9 +102,11 @@ return [
             ),
             UpdateMemoryExecutor::class => fn () => new UpdateMemoryExecutor(
                 memoryStore: $participantMemoryStore,
+                api: $telegramApi,
             ),
             ForgetMemoryExecutor::class => fn () => new ForgetMemoryExecutor(
                 memoryStore: $participantMemoryStore,
+                api: $telegramApi,
             ),
             SearchMessagesExecutor::class => fn () => new SearchMessagesExecutor(
                 orm: $orm,

@@ -19,7 +19,7 @@ use Tests\TestCase;
 
 class MemoryExecutorsTest extends TestCase
 {
-    public function testSaveMemoryExecutorPassesChatIdExplicitlyAndNotifiesChat(): void
+    public function testSaveMemoryExecutorPassesChatIdExplicitlyAndNotifiesAddedMemory(): void
     {
         $store = $this->createMock(ParticipantMemoryStore::class);
         $api = $this->createMock(ApiInterface::class);
@@ -48,7 +48,7 @@ class MemoryExecutorsTest extends TestCase
                 ?int $messageThreadId = null,
             ) use ($message): MessageInterface {
                 self::assertSame(-100123, $chatId);
-                self::assertSame('Память обновлена', $text);
+                self::assertSame('Память добавлена', $text);
                 self::assertNull($businessConnectionId);
                 self::assertNull($messageThreadId);
 
@@ -105,9 +105,10 @@ class MemoryExecutorsTest extends TestCase
         self::assertSame('Memories for @alice', $executor->execute(-100123, $query));
     }
 
-    public function testUpdateMemoryExecutorPassesChatIdExplicitly(): void
+    public function testUpdateMemoryExecutorPassesChatIdExplicitlyAndNotifiesChat(): void
     {
         $store = $this->createMock(ParticipantMemoryStore::class);
+        $api = $this->createMock(ApiInterface::class);
         $request = new UpdateMemory(
             memory: 'Alice uses Neovim',
             quote: 'I switched to Neovim',
@@ -121,7 +122,26 @@ class MemoryExecutorsTest extends TestCase
             ->with(-100123, $request)
             ->willReturn('Memory updated for @alice (#7): Alice uses Neovim');
 
-        $executor = new UpdateMemoryExecutor($store);
+        $message = $this->createStub(MessageInterface::class);
+
+        $api
+            ->expects($this->once())
+            ->method('sendMessage')
+            ->willReturnCallback(function (
+                int|string $chatId,
+                string $text,
+                ?string $businessConnectionId = null,
+                ?int $messageThreadId = null,
+            ) use ($message): MessageInterface {
+                self::assertSame(-100123, $chatId);
+                self::assertSame('Память обновлена', $text);
+                self::assertNull($businessConnectionId);
+                self::assertNull($messageThreadId);
+
+                return $message;
+            });
+
+        $executor = new UpdateMemoryExecutor($store, $api);
 
         self::assertSame(
             'Memory updated for @alice (#7): Alice uses Neovim',
@@ -129,9 +149,38 @@ class MemoryExecutorsTest extends TestCase
         );
     }
 
-    public function testForgetMemoryExecutorPassesChatIdExplicitly(): void
+    public function testUpdateMemoryExecutorDoesNotNotifyChatWhenUpdateFails(): void
     {
         $store = $this->createMock(ParticipantMemoryStore::class);
+        $api = $this->createMock(ApiInterface::class);
+        $request = new UpdateMemory(
+            memory: 'Alice uses Neovim',
+            quote: 'I switched to Neovim',
+            context: 'They corrected their editor preference.',
+        );
+
+        $store
+            ->expects($this->once())
+            ->method('update')
+            ->with(-100123, $request)
+            ->willReturn('Memory not updated: pass memory_id, current_memory, or a narrow query selector.');
+
+        $api
+            ->expects($this->never())
+            ->method('sendMessage');
+
+        $executor = new UpdateMemoryExecutor($store, $api);
+
+        self::assertSame(
+            'Memory not updated: pass memory_id, current_memory, or a narrow query selector.',
+            $executor->execute(-100123, $request),
+        );
+    }
+
+    public function testForgetMemoryExecutorPassesChatIdExplicitlyAndNotifiesChat(): void
+    {
+        $store = $this->createMock(ParticipantMemoryStore::class);
+        $api = $this->createMock(ApiInterface::class);
         $request = new ForgetMemory(memoryId: 7);
 
         $store
@@ -140,10 +189,53 @@ class MemoryExecutorsTest extends TestCase
             ->with(-100123, $request)
             ->willReturn('Memory forgotten for @alice (#7): Alice uses Vim');
 
-        $executor = new ForgetMemoryExecutor($store);
+        $message = $this->createStub(MessageInterface::class);
+
+        $api
+            ->expects($this->once())
+            ->method('sendMessage')
+            ->willReturnCallback(function (
+                int|string $chatId,
+                string $text,
+                ?string $businessConnectionId = null,
+                ?int $messageThreadId = null,
+            ) use ($message): MessageInterface {
+                self::assertSame(-100123, $chatId);
+                self::assertSame('Память удалена', $text);
+                self::assertNull($businessConnectionId);
+                self::assertNull($messageThreadId);
+
+                return $message;
+            });
+
+        $executor = new ForgetMemoryExecutor($store, $api);
 
         self::assertSame(
             'Memory forgotten for @alice (#7): Alice uses Vim',
+            $executor->execute(-100123, $request),
+        );
+    }
+
+    public function testForgetMemoryExecutorDoesNotNotifyChatWhenForgetFails(): void
+    {
+        $store = $this->createMock(ParticipantMemoryStore::class);
+        $api = $this->createMock(ApiInterface::class);
+        $request = new ForgetMemory();
+
+        $store
+            ->expects($this->once())
+            ->method('forget')
+            ->with(-100123, $request)
+            ->willReturn('Memory not forgotten: pass memory_id, a narrow query, or set forget_all_for_participant for an explicit broad deletion.');
+
+        $api
+            ->expects($this->never())
+            ->method('sendMessage');
+
+        $executor = new ForgetMemoryExecutor($store, $api);
+
+        self::assertSame(
+            'Memory not forgotten: pass memory_id, a narrow query, or set forget_all_for_participant for an explicit broad deletion.',
             $executor->execute(-100123, $request),
         );
     }
