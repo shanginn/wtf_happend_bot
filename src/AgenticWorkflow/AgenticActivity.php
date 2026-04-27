@@ -42,6 +42,7 @@ use Temporal\Workflow;
 class AgenticActivity
 {
     private const int HISTORY_LIMIT = 50;
+    private const int START_TO_CLOSE_TIMEOUT_MINUTES = 5;
 
     private readonly CompactionAgent $compactionAgent;
     private readonly DecisionAgent $decisionAgent;
@@ -84,7 +85,7 @@ class AgenticActivity
         return Workflow::newActivityStub(
             self::class,
             ActivityOptions::new()
-                ->withStartToCloseTimeout(CarbonInterval::minute())
+                ->withStartToCloseTimeout(CarbonInterval::minutes(self::START_TO_CLOSE_TIMEOUT_MINUTES))
                 ->withRetryOptions(
                     RetryOptions::new()->withNonRetryableExceptions([])
                 )
