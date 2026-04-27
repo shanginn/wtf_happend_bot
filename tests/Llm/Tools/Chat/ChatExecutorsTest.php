@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace Tests\Llm\Tools\Chat;
 
+use Bot\Entity\LlmProviderResponse;
 use Bot\Entity\UpdateRecord;
+use Bot\Llm\ProviderHistory\LlmProviderType;
 use Bot\Llm\Tools\Chat\GetCurrentTime;
 use Bot\Llm\Tools\Chat\GetCurrentTimeExecutor;
 use Bot\Llm\Tools\Chat\SearchMessages;
 use Bot\Llm\Tools\Chat\SearchMessagesExecutor;
+use Bot\Llm\Tools\Decision\RespondDecision;
+use Bot\Openai\CompatibleOpenaiSerializer;
 use Bot\Telegram\Factory;
 use Bot\Telegram\Update;
 use Cycle\ORM\ORMInterface;
@@ -18,6 +22,8 @@ use Phenogram\Bindings\Serializer;
 use Phenogram\Bindings\Types\Chat;
 use Phenogram\Bindings\Types\Message;
 use Phenogram\Bindings\Types\User;
+use Shanginn\Openai\ChatCompletion\Message\Assistant\KnownFunctionCall;
+use Shanginn\Openai\ChatCompletion\Message\AssistantMessage;
 use Tests\TestCase;
 
 class ChatExecutorsTest extends TestCase
@@ -79,6 +85,76 @@ class ChatExecutorsTest extends TestCase
         };
     }
 
+    private function makeAssistantRecord(
+        int $id,
+        int $chatId,
+        string $content,
+        int $createdAt,
+        bool $withToolCalls = false,
+    ): LlmProviderResponse {
+        $serializer = new CompatibleOpenaiSerializer();
+        $message = new AssistantMessage(
+            content: $content,
+            toolCalls: $withToolCalls
+                ? [new KnownFunctionCall(
+                    id: 'call_' . $id,
+                    tool: RespondDecision::class,
+                    arguments: new RespondDecision('internal decision', false),
+                )]
+                : null,
+        );
+
+        $record = new LlmProviderResponse(
+            chatId: $chatId,
+            topicId: null,
+            type: LlmProviderType::Openai,
+            messageClass: AssistantMessage::class,
+            payload: $serializer->serialize($message),
+            createdAt: $createdAt,
+        );
+        $record->id = $id;
+
+        return $record;
+    }
+
+    private function makeResponseRepo(array $records = []): RepositoryInterface
+    {
+        return new class($records) implements RepositoryInterface {
+            public function __construct(private readonly array $records) {}
+
+            public function findLastNByChat(int $chatId, LlmProviderType $type, int $limit): array
+            {
+                return $this->records;
+            }
+
+            public function findByPK(mixed $id): ?object
+            {
+                return null;
+            }
+
+            public function findOne(array $scope = []): ?object
+            {
+                return null;
+            }
+
+            public function findAll(array $scope = []): iterable
+            {
+                return [];
+            }
+        };
+    }
+
+    private function makeOrm(RepositoryInterface $updateRepo, ?RepositoryInterface $responseRepo = null): ORMInterface
+    {
+        $orm = Mockery::mock(ORMInterface::class);
+        $orm->shouldReceive('getRepository')->with(UpdateRecord::class)->andReturn($updateRepo);
+        $orm->shouldReceive('getRepository')->with(LlmProviderResponse::class)->andReturn(
+            $responseRepo ?? $this->makeResponseRepo(),
+        );
+
+        return $orm;
+    }
+
     public function testSearchMessagesExecutorLoadsRecentHistoryWhenQueryIsEmpty(): void
     {
         $chatId = -100123;
@@ -87,8 +163,7 @@ class ChatExecutorsTest extends TestCase
             $this->makeUpdateRecord(1, $chatId, 'first message', 100, 'alice'),
         ]);
 
-        $orm = Mockery::mock(ORMInterface::class);
-        $orm->shouldReceive('getRepository')->with(UpdateRecord::class)->andReturn($repo);
+        $orm = $this->makeOrm($repo);
 
         $executor = new SearchMessagesExecutor($orm);
         $result = $executor->execute($chatId, new SearchMessages(limit: 2));
@@ -106,8 +181,7 @@ class ChatExecutorsTest extends TestCase
             $this->makeUpdateRecord(1, $chatId, 'random chat', 100, 'alice'),
         ]);
 
-        $orm = Mockery::mock(ORMInterface::class);
-        $orm->shouldReceive('getRepository')->with(UpdateRecord::class)->andReturn($repo);
+        $orm = $this->makeOrm($repo);
 
         $executor = new SearchMessagesExecutor($orm);
         $result = $executor->execute(
@@ -129,14 +203,66 @@ class ChatExecutorsTest extends TestCase
             $this->makeUpdateRecord(1, $chatId, 'general message', 100, 'alice'),
         ]);
 
-        $orm = Mockery::mock(ORMInterface::class);
-        $orm->shouldReceive('getRepository')->with(UpdateRecord::class)->andReturn($repo);
+        $orm = $this->makeOrm($repo);
 
         $executor = new SearchMessagesExecutor($orm);
         $result = $executor->execute($chatId, new SearchMessages(limit: 5));
 
         self::assertStringContainsString('general message', $result);
         self::assertStringContainsString('topic message', $result);
+    }
+
+    public function testSearchMessagesExecutorIncludesAssistantRepliesInRecentHistory(): void
+    {
+        $chatId = -100123;
+        $updateRepo = $this->makeUpdateRepo([
+            $this->makeUpdateRecord(2, $chatId, 'show your last messages', 200, 'alice'),
+            $this->makeUpdateRecord(1, $chatId, 'hello bot', 100, 'alice'),
+        ]);
+        $responseRepo = $this->makeResponseRepo([
+            $this->makeAssistantRecord(1, $chatId, 'Hello, I am alive', 150),
+            $this->makeAssistantRecord(2, $chatId, 'Internal text should not leak', 175, withToolCalls: true),
+        ]);
+
+        $executor = new SearchMessagesExecutor($this->makeOrm($updateRepo, $responseRepo));
+        $result = $executor->execute($chatId, new SearchMessages(limit: 5));
+
+        self::assertStringContainsString('hello bot', $result);
+        self::assertStringContainsString('Assistant message', $result);
+        self::assertStringContainsString('From: bot', $result);
+        self::assertStringContainsString('Hello, I am alive', $result);
+        self::assertStringContainsString('show your last messages', $result);
+        self::assertStringNotContainsString('Internal text should not leak', $result);
+        self::assertTrue(strpos($result, 'hello bot') < strpos($result, 'Hello, I am alive'));
+        self::assertTrue(strpos($result, 'Hello, I am alive') < strpos($result, 'show your last messages'));
+    }
+
+    public function testSearchMessagesExecutorFiltersAssistantRepliesByBotUsernameAlias(): void
+    {
+        $chatId = -100123;
+        $updateRepo = $this->makeUpdateRepo([
+            $this->makeUpdateRecord(1, $chatId, 'human deploy note', 100, 'alice'),
+        ]);
+        $responseRepo = $this->makeResponseRepo([
+            $this->makeAssistantRecord(1, $chatId, 'bot deploy answer', 150),
+        ]);
+
+        $executor = new SearchMessagesExecutor($this->makeOrm($updateRepo, $responseRepo));
+        $result = $executor->execute(
+            $chatId,
+            new SearchMessages(query: 'deploy', username: 'bot', limit: 5),
+        );
+
+        self::assertStringContainsString('bot deploy answer', $result);
+        self::assertStringNotContainsString('human deploy note', $result);
+
+        $result = $executor->execute(
+            $chatId,
+            new SearchMessages(query: 'deploy', username: 'WTF happend??', limit: 5),
+        );
+
+        self::assertStringContainsString('bot deploy answer', $result);
+        self::assertStringNotContainsString('human deploy note', $result);
     }
 
     public function testGetCurrentTimeExecutorReturnsFormattedTime(): void
