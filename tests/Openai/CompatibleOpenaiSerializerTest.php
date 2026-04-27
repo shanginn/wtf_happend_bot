@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Openai;
 
 use Bot\Llm\Tools\Chat\SearchMessages;
+use Bot\Llm\Tools\Memory\ForgetMemory;
 use Bot\Openai\CompatibleOpenai;
 use Bot\Openai\CompatibleOpenaiSerializer;
 use Shanginn\Openai\ChatCompletion\CompletionResponse;
@@ -99,6 +100,51 @@ final class CompatibleOpenaiSerializerTest extends TestCase
         self::assertInstanceOf(UnknownFunctionCall::class, $toolCall);
         self::assertSame('missing_tool', $toolCall->name);
         self::assertSame('{"foo":"bar"}', $toolCall->arguments);
+    }
+
+    public function testDeserializeToolCallAcceptsSnakeCaseArgumentAliases(): void
+    {
+        $serializer = new CompatibleOpenaiSerializer();
+
+        $response = $serializer->deserialize(
+            serialized: json_encode([
+                'id' => 'gen-3',
+                'choices' => [[
+                    'index' => 0,
+                    'message' => [
+                        'role' => 'assistant',
+                        'tool_calls' => [[
+                            'id' => 'call_4',
+                            'type' => 'function',
+                            'function' => [
+                                'name' => 'forget_memory',
+                                'arguments' => '{"memory_id":"42","user_identifier":"@alice","query":"deploys","forget_all_for_participant":"true"}',
+                            ],
+                        ]],
+                    ],
+                    'finish_reason' => 'tool_calls',
+                ]],
+                'model' => 'qwen/qwen3.5-plus-20260216',
+                'usage' => [
+                    'completion_tokens' => 90,
+                    'prompt_tokens' => 8617,
+                    'total_tokens' => 8707,
+                ],
+                'object' => 'chat.completion',
+                'created' => 1776020161,
+            ], \JSON_THROW_ON_ERROR),
+            to: CompletionResponse::class,
+            tools: [ForgetMemory::class],
+        );
+
+        $toolCall = $response->choices[0]->message->toolCalls[0] ?? null;
+
+        self::assertInstanceOf(KnownFunctionCall::class, $toolCall);
+        self::assertSame(ForgetMemory::class, $toolCall->tool);
+        self::assertSame(42, $toolCall->arguments->memoryId);
+        self::assertSame('@alice', $toolCall->arguments->userIdentifier);
+        self::assertSame('deploys', $toolCall->arguments->query);
+        self::assertTrue($toolCall->arguments->forgetAllForParticipant);
     }
 
     public function testCompatibleOpenaiReturnsKnownToolCallForStringifiedScalarArguments(): void

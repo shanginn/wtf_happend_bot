@@ -14,8 +14,10 @@ use Bot\AgenticWorkflow\AgenticWorkflow;
 use Bot\Entity\Message;
 use Bot\Llm\Tools\Chat\GetCurrentTimeExecutor;
 use Bot\Llm\Tools\Chat\SearchMessagesExecutor;
+use Bot\Llm\Tools\Memory\ForgetMemoryExecutor;
 use Bot\Llm\Tools\Memory\RecallMemoryExecutor;
 use Bot\Llm\Tools\Memory\SaveMemoryExecutor;
+use Bot\Llm\Tools\Memory\UpdateMemoryExecutor;
 use Bot\Memory\ParticipantMemoryStore;
 use Bot\RouterWorkflow\RouterActivity;
 use Bot\RouterWorkflow\RouterWorkflow;
@@ -96,6 +98,12 @@ return [
                 api: $telegramApi,
             ),
             RecallMemoryExecutor::class => fn () => new RecallMemoryExecutor(
+                memoryStore: $participantMemoryStore,
+            ),
+            UpdateMemoryExecutor::class => fn () => new UpdateMemoryExecutor(
+                memoryStore: $participantMemoryStore,
+            ),
+            ForgetMemoryExecutor::class => fn () => new ForgetMemoryExecutor(
                 memoryStore: $participantMemoryStore,
             ),
             SearchMessagesExecutor::class => fn () => new SearchMessagesExecutor(

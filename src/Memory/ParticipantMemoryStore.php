@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Bot\Memory;
 
 use Bot\Entity\ParticipantMemory;
+use Bot\Llm\Tools\Memory\ForgetMemory;
 use Bot\Llm\Tools\Memory\RecallMemory;
 use Bot\Llm\Tools\Memory\SaveMemory;
+use Bot\Llm\Tools\Memory\UpdateMemory;
 use Cycle\ORM\ORMInterface;
 
 class ParticipantMemoryStore
@@ -119,6 +121,267 @@ class ParticipantMemoryStore
         return self::formatMemories(array_slice($records, 0, $limit), $participantLabel);
     }
 
+    public function update(int $chatId, UpdateMemory $request): string
+    {
+        if ($request->memoryId !== null && $request->memoryId <= 0) {
+            return 'Memory not updated: memory_id must be a positive integer.';
+        }
+
+        $computedMemory = self::normalizeRequiredText($request->memory);
+        $quote = self::normalizeRequiredText($request->quote);
+        $context = self::normalizeRequiredText($request->context);
+        $participantLabel = self::normalizeOptionalText($request->userIdentifier);
+        $currentMemory = self::normalizeOptionalText($request->currentMemory);
+        $needle = self::normalizeSearchNeedle($request->query);
+
+        if ($computedMemory === '') {
+            return 'Memory not updated: corrected memory is required.';
+        }
+
+        if ($quote === '') {
+            return 'Memory not updated: quote is required.';
+        }
+
+        if ($context === '') {
+            return 'Memory not updated: context is required.';
+        }
+
+        if ($request->memoryId === null && $currentMemory === null && $needle === null) {
+            return 'Memory not updated: pass memory_id, current_memory, or a narrow query selector.';
+        }
+
+        /** @var \Bot\Entity\ParticipantMemory\ParticipantMemoryRepository $repo */
+        $repo = $this->orm->getRepository(ParticipantMemory::class);
+
+        $target = $this->findSingleTarget(
+            repo: $repo,
+            chatId: $chatId,
+            memoryId: $request->memoryId,
+            participantLabel: $participantLabel,
+            currentMemory: $currentMemory,
+            needle: $needle,
+            operation: 'updated',
+        );
+
+        if (!$target instanceof ParticipantMemory) {
+            return $target;
+        }
+
+        if (
+            $target->memory === $computedMemory
+            && $target->quote === $quote
+            && $target->context === $context
+        ) {
+            return sprintf(
+                'Memory unchanged for %s (%s): %s',
+                $target->participantLabel,
+                self::formatMemoryId($target),
+                $target->memory,
+            );
+        }
+
+        $target->memory = $computedMemory;
+        $target->quote = $quote;
+        $target->context = $context;
+        $target->updatedAt = time();
+
+        $repo->save($target);
+
+        return sprintf(
+            'Memory updated for %s (%s): %s',
+            $target->participantLabel,
+            self::formatMemoryId($target),
+            $target->memory,
+        );
+    }
+
+    public function forget(int $chatId, ForgetMemory $request): string
+    {
+        if ($request->memoryId !== null && $request->memoryId <= 0) {
+            return 'Memory not forgotten: memory_id must be a positive integer.';
+        }
+
+        $participantLabel = self::normalizeOptionalText($request->userIdentifier);
+        $needle = self::normalizeSearchNeedle($request->query);
+
+        /** @var \Bot\Entity\ParticipantMemory\ParticipantMemoryRepository $repo */
+        $repo = $this->orm->getRepository(ParticipantMemory::class);
+
+        if ($request->memoryId !== null) {
+            $target = $this->findSingleTarget(
+                repo: $repo,
+                chatId: $chatId,
+                memoryId: $request->memoryId,
+                participantLabel: $participantLabel,
+                currentMemory: null,
+                needle: $needle,
+                operation: 'forgotten',
+            );
+
+            if (!$target instanceof ParticipantMemory) {
+                return $target;
+            }
+
+            $summary = sprintf(
+                'Memory forgotten for %s (%s): %s',
+                $target->participantLabel,
+                self::formatMemoryId($target),
+                $target->memory,
+            );
+            $repo->delete($target);
+
+            return $summary;
+        }
+
+        if ($request->forgetAllForParticipant) {
+            if ($participantLabel === null) {
+                return 'Memory not forgotten: participant reference is required when forget_all_for_participant is true.';
+            }
+
+            $records = $this->findCandidates($repo, $chatId, $participantLabel);
+            $records = self::filterByNeedle($records, $needle);
+
+            if ($records === []) {
+                return self::buildNotFoundMessage($participantLabel, $needle);
+            }
+
+            foreach ($records as $memory) {
+                $repo->delete($memory);
+            }
+
+            return sprintf(
+                '%d memories forgotten for %s.',
+                count($records),
+                $participantLabel,
+            );
+        }
+
+        if ($needle === null) {
+            return 'Memory not forgotten: pass memory_id, a narrow query, or set forget_all_for_participant for an explicit broad deletion.';
+        }
+
+        $target = $this->findSingleTarget(
+            repo: $repo,
+            chatId: $chatId,
+            memoryId: null,
+            participantLabel: $participantLabel,
+            currentMemory: null,
+            needle: $needle,
+            operation: 'forgotten',
+        );
+
+        if (!$target instanceof ParticipantMemory) {
+            return $target;
+        }
+
+        $summary = sprintf(
+            'Memory forgotten for %s (%s): %s',
+            $target->participantLabel,
+            self::formatMemoryId($target),
+            $target->memory,
+        );
+        $repo->delete($target);
+
+        return $summary;
+    }
+
+    private function findSingleTarget(
+        object $repo,
+        int $chatId,
+        ?int $memoryId,
+        ?string $participantLabel,
+        ?string $currentMemory,
+        ?string $needle,
+        string $operation,
+    ): ParticipantMemory|string {
+        if ($memoryId !== null) {
+            $memory = $repo->findById($chatId, $memoryId);
+
+            if (!$memory instanceof ParticipantMemory) {
+                return sprintf('Memory not %s: no memory found with id #%d.', $operation, $memoryId);
+            }
+
+            if (
+                $participantLabel !== null
+                && $memory->participantKey !== self::normalizeParticipantKey($participantLabel)
+            ) {
+                return sprintf(
+                    'Memory not %s: memory #%d does not belong to %s.',
+                    $operation,
+                    $memoryId,
+                    $participantLabel,
+                );
+            }
+
+            if ($currentMemory !== null && self::normalizeRequiredText($memory->memory) !== $currentMemory) {
+                return sprintf(
+                    'Memory not %s: memory #%d does not match current_memory.',
+                    $operation,
+                    $memoryId,
+                );
+            }
+
+            if ($needle !== null && !self::matches($memory, $needle)) {
+                return sprintf(
+                    'Memory not %s: memory #%d does not match query.',
+                    $operation,
+                    $memoryId,
+                );
+            }
+
+            return $memory;
+        }
+
+        $records = $this->findCandidates($repo, $chatId, $participantLabel);
+
+        if ($currentMemory !== null) {
+            $records = array_values(array_filter(
+                $records,
+                static fn (ParticipantMemory $memory): bool => self::normalizeRequiredText($memory->memory) === $currentMemory,
+            ));
+        }
+
+        $records = self::filterByNeedle($records, $needle);
+
+        if ($records === []) {
+            return self::buildNotFoundMessage($participantLabel, $needle ?? $currentMemory);
+        }
+
+        if (count($records) > 1) {
+            return sprintf(
+                'Memory not %s: selector matched multiple memories. Recall memories first and retry with memory_id. Matches: %s',
+                $operation,
+                self::formatMemoryReferences($records),
+            );
+        }
+
+        return $records[0];
+    }
+
+    /**
+     * @return array<ParticipantMemory>
+     */
+    private function findCandidates(object $repo, int $chatId, ?string $participantLabel): array
+    {
+        if ($participantLabel === null) {
+            return $repo->findByChatId($chatId);
+        }
+
+        return $repo->findByParticipantKey($chatId, self::normalizeParticipantKey($participantLabel));
+    }
+
+    /**
+     * @param array<ParticipantMemory> $records
+     * @return array<ParticipantMemory>
+     */
+    private static function filterByNeedle(array $records, ?string $needle): array
+    {
+        return array_values(array_filter(
+            $records,
+            static fn (ParticipantMemory $memory): bool => self::matches($memory, $needle),
+        ));
+    }
+
     private static function matches(ParticipantMemory $memory, ?string $needle): bool
     {
         if ($needle === null) {
@@ -158,7 +421,7 @@ class ParticipantMemoryStore
         foreach ($records as $memory) {
             $line = sprintf(
                 '- %s | memory: %s | quote: %s | context: %s | updated: %s',
-                $memory->participantLabel,
+                self::formatMemoryReference($memory),
                 $memory->memory,
                 $memory->quote,
                 $memory->context,
@@ -169,6 +432,33 @@ class ParticipantMemoryStore
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @param array<ParticipantMemory> $records
+     */
+    private static function formatMemoryReferences(array $records): string
+    {
+        $references = array_map(
+            static fn (ParticipantMemory $memory): string => self::formatMemoryReference($memory) . ': ' . $memory->memory,
+            array_slice($records, 0, 5),
+        );
+
+        if (count($records) > 5) {
+            $references[] = sprintf('and %d more', count($records) - 5);
+        }
+
+        return implode('; ', $references);
+    }
+
+    private static function formatMemoryReference(ParticipantMemory $memory): string
+    {
+        return sprintf('%s %s', self::formatMemoryId($memory), $memory->participantLabel);
+    }
+
+    private static function formatMemoryId(ParticipantMemory $memory): string
+    {
+        return isset($memory->id) ? '#' . $memory->id : '#unknown';
     }
 
     private static function buildNotFoundMessage(

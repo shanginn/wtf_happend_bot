@@ -33,6 +33,15 @@ final class ParticipantMemoryRepository extends Repository
             ->fetchOne();
     }
 
+    public function findById(int $chatId, int $id): ?ParticipantMemory
+    {
+        return $this->select()
+            ->where('chatId', $chatId)
+            ->where('id', $id)
+            ->limit(1)
+            ->fetchOne();
+    }
+
     /**
      * @return array<ParticipantMemory>
      */
@@ -61,6 +70,13 @@ final class ParticipantMemoryRepository extends Repository
     public function save(ParticipantMemory $memory, bool $run = true): void
     {
         $this->em->persist($memory);
+
+        $run && $this->em->run();
+    }
+
+    public function delete(ParticipantMemory $memory, bool $run = true): void
+    {
+        $this->em->delete($memory);
 
         $run && $this->em->run();
     }

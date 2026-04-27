@@ -53,11 +53,13 @@ src/
 
 ## Skills
 
-The bot has two main skills:
+The bot has three main skill areas:
 
 1. **Summarization Skill**: Generates concise summaries of chat conversations, identifying distinct threads and key points.
 
 2. **Question Answering Skill**: Answers specific questions about chat history with contextual insights.
+
+3. **Memory Management Skill**: Saves, recalls, corrects, and forgets durable participant memories using explicit memory tools.
 
 ## Setup
 
@@ -149,6 +151,7 @@ helm upgrade wtf-happend-bot --namespace=wtfhappendbot -f values.yaml .
 - Send any message to the bot - it will be processed by the LLM
 - Ask for summaries: "What happened in the chat?"
 - Ask questions: "What did @user say about X?"
+- Ask about saved memories, corrections, or deletion: "What do you remember about me?", "Update that", "Forget my editor preference"
 
 ## Migration from Deterministic Handlers
 

@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Llm\Tools\Memory;
 
+use Bot\Llm\Tools\Memory\ForgetMemory;
+use Bot\Llm\Tools\Memory\ForgetMemoryExecutor;
 use Bot\Llm\Tools\Memory\RecallMemory;
 use Bot\Llm\Tools\Memory\RecallMemoryExecutor;
 use Bot\Llm\Tools\Memory\SaveMemory;
 use Bot\Llm\Tools\Memory\SaveMemoryExecutor;
+use Bot\Llm\Tools\Memory\UpdateMemory;
+use Bot\Llm\Tools\Memory\UpdateMemoryExecutor;
 use Bot\Memory\ParticipantMemoryStore;
 use Phenogram\Bindings\ApiInterface;
 use Phenogram\Bindings\Types\Interfaces\MessageInterface;
@@ -99,5 +103,48 @@ class MemoryExecutorsTest extends TestCase
         $executor = new RecallMemoryExecutor($store);
 
         self::assertSame('Memories for @alice', $executor->execute(-100123, $query));
+    }
+
+    public function testUpdateMemoryExecutorPassesChatIdExplicitly(): void
+    {
+        $store = $this->createMock(ParticipantMemoryStore::class);
+        $request = new UpdateMemory(
+            memory: 'Alice uses Neovim',
+            quote: 'I switched to Neovim',
+            context: 'They corrected their editor preference.',
+            memoryId: 7,
+        );
+
+        $store
+            ->expects($this->once())
+            ->method('update')
+            ->with(-100123, $request)
+            ->willReturn('Memory updated for @alice (#7): Alice uses Neovim');
+
+        $executor = new UpdateMemoryExecutor($store);
+
+        self::assertSame(
+            'Memory updated for @alice (#7): Alice uses Neovim',
+            $executor->execute(-100123, $request),
+        );
+    }
+
+    public function testForgetMemoryExecutorPassesChatIdExplicitly(): void
+    {
+        $store = $this->createMock(ParticipantMemoryStore::class);
+        $request = new ForgetMemory(memoryId: 7);
+
+        $store
+            ->expects($this->once())
+            ->method('forget')
+            ->with(-100123, $request)
+            ->willReturn('Memory forgotten for @alice (#7): Alice uses Vim');
+
+        $executor = new ForgetMemoryExecutor($store);
+
+        self::assertSame(
+            'Memory forgotten for @alice (#7): Alice uses Vim',
+            $executor->execute(-100123, $request),
+        );
     }
 }

@@ -131,6 +131,15 @@ final class ToolCallPayloadNormalizer
             return $argumentsJson;
         }
 
+        foreach (array_keys($parameterMap) as $name) {
+            $alias = self::camelToSnake($name);
+
+            if ($alias !== $name && array_key_exists($alias, $arguments) && !array_key_exists($name, $arguments)) {
+                $arguments[$name] = $arguments[$alias];
+                unset($arguments[$alias]);
+            }
+        }
+
         foreach ($parameterMap as $name => $type) {
             if (!array_key_exists($name, $arguments)) {
                 continue;
@@ -294,5 +303,12 @@ final class ToolCallPayloadNormalizer
             'string' => 3,
             default => 4,
         };
+    }
+
+    private static function camelToSnake(string $value): string
+    {
+        $snake = preg_replace('/(?<!^)[A-Z]/', '_$0', $value) ?? $value;
+
+        return strtolower($snake);
     }
 }

@@ -36,6 +36,7 @@ final class ResponseAgent extends AbstractAgent
         <response_policy>
         - Focus on the best helpful reply to the latest user messages.
         - Use tools if you need more information.
+        - For explicit memory requests, use memory tools before replying instead of only describing what you would do.
         - Respond in the same language as the user unless the chat context strongly suggests otherwise.
         - Keep the reply concise unless the user asked for depth.
         - Do not explain the internal decision process.

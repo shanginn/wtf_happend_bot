@@ -7,7 +7,6 @@ namespace Bot\AgenticWorkflow;
 use Bot\Activity\TelegramActivity;
 use Bot\Agent\OpenaiMessageTransformer;
 use Bot\Llm\Tools\Decision\RespondDecision;
-use Bot\Llm\Tools\Memory\SaveMemory;
 use Carbon\CarbonInterval;
 use Generator;
 use Shanginn\Openai\ChatCompletion\ErrorResponse;
@@ -129,15 +128,10 @@ class AgenticWorkflow
 
     private function runAgentLoop(): Generator
     {
-        $tools = [
-            RespondDecision::class,
-            SaveMemory::class,
-        ];
-
         $last10Messages = $this->workingMemory->getContext(recentLimit: 10);
         $result = yield $this->agenticActivity->memoryComplete(
             memory: $last10Messages,
-            tools: $tools,
+            tools: AgenticToolset::DECISION_TOOLS,
         );
 
         if ($result instanceof ErrorResponse) {
