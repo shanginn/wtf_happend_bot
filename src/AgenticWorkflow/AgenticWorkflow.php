@@ -22,7 +22,6 @@ use Temporal\Common\RetryOptions;
 use Temporal\DataConverter\Type;
 use Temporal\Internal\Workflow\ActivityProxy;
 use Temporal\Workflow;
-use Temporal\Workflow\CancellationScopeInterface;
 use Temporal\Workflow\ReturnType;
 use Temporal\Workflow\WorkflowInterface;
 use Temporal\Workflow\WorkflowMethod;
@@ -51,6 +50,7 @@ class AgenticWorkflow
     private int $pipelinePendingSince = 0;
     private int $processedCount = 0;
     private int $processedSinceContinueAsNew = 0;
+    private int $typingIndicatorGeneration = 0;
 
     private WorkingMemory $workingMemory;
 
@@ -189,12 +189,12 @@ class AgenticWorkflow
         if ($shouldRespond) {
             yield $this->sendTypingAction();
 
-            $typingScope = $this->startTypingIndicator();
+            $this->startTypingIndicator();
 
             try {
                 yield from $this->respond();
             } finally {
-                $typingScope->cancel();
+                $this->stopTypingIndicator();
             }
         }
     }
@@ -547,18 +547,30 @@ class AgenticWorkflow
         );
     }
 
-    private function startTypingIndicator(): CancellationScopeInterface
+    private function startTypingIndicator(): void
     {
-        return Workflow::async(function (): Generator {
+        $generation = ++$this->typingIndicatorGeneration;
+
+        Workflow::async(function () use ($generation): Generator {
             try {
-                while (true) {
+                while ($this->typingIndicatorGeneration === $generation) {
                     yield Workflow::timer(self::TYPING_ACTION_REFRESH_INTERVAL_SECONDS);
+
+                    if ($this->typingIndicatorGeneration !== $generation) {
+                        return;
+                    }
+
                     yield $this->sendTypingAction();
                 }
             } catch (CanceledFailure) {
                 return;
             }
         });
+    }
+
+    private function stopTypingIndicator(): void
+    {
+        ++$this->typingIndicatorGeneration;
     }
 
     #[Workflow\SignalMethod]
