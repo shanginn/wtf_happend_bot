@@ -7,6 +7,8 @@ namespace Bot\AgenticWorkflow;
 use Bot\Activity\TelegramActivity;
 use Bot\Agent\OpenaiMessageTransformer;
 use Bot\Llm\Tools\Decision\RespondDecision;
+use Bot\Llm\Tools\Telegram\TelegramApiCall;
+use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
 use Carbon\CarbonInterval;
 use Generator;
 use Shanginn\Openai\ChatCompletion\ErrorResponse;
@@ -226,6 +228,12 @@ class AgenticWorkflow
         $responseMemory[] = new UserMessage(
             "Relevant participant memories for this reply:\n{$relevantMemories}",
         );
+        $responseMemory[] = new UserMessage(
+            "Current Telegram API target context:\n"
+            . "- current chat_id: {$this->input->chatId}\n"
+            . "- When using telegram_api_call for this chat, omit chat_id/chatId and the tool will inject it.\n"
+            . "- Use telegram_api_schema if you need exact Telegram Bot API method signatures."
+        );
 
         for ($step = 0; $step < self::MAX_RESPONSE_STEPS; ++$step) {
             $response = yield $this->agenticActivity->respondFromMemory(
@@ -284,12 +292,20 @@ class AgenticWorkflow
 
             $responseMemory[] = $assistantToolMessage;
             $this->workingMemory->add($assistantToolMessage);
+            $hasTerminalTelegramApiCall = false;
 
             foreach ($knownToolCalls as $toolCall) {
                 $toolResult = yield $this->executeTool(
                     toolName: $toolCall->tool,
                     arguments: $toolCall->arguments,
                 );
+
+                if (
+                    $toolCall->arguments instanceof TelegramApiCall
+                    && TelegramApiCallExecutor::isTerminalMethod($toolCall->arguments->method)
+                ) {
+                    $hasTerminalTelegramApiCall = true;
+                }
 
                 $toolMessage = new ToolMessage(
                     content: $toolResult,
@@ -304,6 +320,10 @@ class AgenticWorkflow
                     topicId: null,
                     message: $toolMessage,
                 );
+            }
+
+            if ($hasTerminalTelegramApiCall) {
+                return;
             }
         }
 

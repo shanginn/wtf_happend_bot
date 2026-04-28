@@ -6,8 +6,10 @@ namespace Tests\Openai;
 
 use Bot\Llm\Tools\Chat\SearchMessages;
 use Bot\Llm\Tools\Memory\ForgetMemory;
+use Bot\Llm\Tools\Telegram\TelegramApiCall;
 use Bot\Openai\CompatibleOpenai;
 use Bot\Openai\CompatibleOpenaiSerializer;
+use Shanginn\Openai\ChatCompletion\CompletionRequest;
 use Shanginn\Openai\ChatCompletion\CompletionResponse;
 use Shanginn\Openai\ChatCompletion\CompletionResponse\Choice;
 use Shanginn\Openai\ChatCompletion\CompletionResponse\Usage;
@@ -20,6 +22,71 @@ use Tests\TestCase;
 
 final class CompatibleOpenaiSerializerTest extends TestCase
 {
+    public function testSerializeTelegramApiCallParametersAsJsonObjectSchema(): void
+    {
+        $serializer = new CompatibleOpenaiSerializer();
+
+        $serialized = $serializer->serialize(new CompletionRequest(
+            model: 'test-model',
+            messages: [],
+            tools: [TelegramApiCall::class],
+        ));
+
+        $decoded = json_decode($serialized, true, flags: \JSON_THROW_ON_ERROR);
+        $parameters = $decoded['tools'][0]['function']['parameters']['properties']['parameters'];
+
+        self::assertSame('object', $parameters['type']);
+        self::assertTrue($parameters['additionalProperties']);
+        self::assertSame([], $parameters['default']);
+        self::assertArrayNotHasKey('items', $parameters);
+    }
+
+    public function testDeserializeTelegramApiCallParametersObjectIntoArray(): void
+    {
+        $serializer = new CompatibleOpenaiSerializer();
+
+        $response = $serializer->deserialize(
+            serialized: json_encode([
+                'id' => 'gen-telegram-1',
+                'choices' => [[
+                    'index' => 0,
+                    'message' => [
+                        'role' => 'assistant',
+                        'tool_calls' => [[
+                            'id' => 'call_telegram_1',
+                            'type' => 'function',
+                            'function' => [
+                                'name' => 'telegram_api_call',
+                                'arguments' => json_encode([
+                                    'method' => 'sendMessage',
+                                    'parameters' => ['text' => 'Hello'],
+                                ], \JSON_THROW_ON_ERROR),
+                            ],
+                        ]],
+                    ],
+                    'finish_reason' => 'tool_calls',
+                ]],
+                'model' => 'qwen/qwen3.5-plus-20260216',
+                'usage' => [
+                    'completion_tokens' => 90,
+                    'prompt_tokens' => 8617,
+                    'total_tokens' => 8707,
+                ],
+                'object' => 'chat.completion',
+                'created' => 1776020161,
+            ], \JSON_THROW_ON_ERROR),
+            to: CompletionResponse::class,
+            tools: [TelegramApiCall::class],
+        );
+
+        $toolCall = $response->choices[0]->message->toolCalls[0] ?? null;
+
+        self::assertInstanceOf(KnownFunctionCall::class, $toolCall);
+        self::assertSame(TelegramApiCall::class, $toolCall->tool);
+        self::assertSame('sendMessage', $toolCall->arguments->method);
+        self::assertSame(['text' => 'Hello'], $toolCall->arguments->parameters);
+    }
+
     public function testDeserializeFlatToolCallCoercesArgumentsIntoKnownFunctionCall(): void
     {
         $serializer = new CompatibleOpenaiSerializer();

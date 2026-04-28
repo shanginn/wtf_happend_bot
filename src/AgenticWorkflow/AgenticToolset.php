@@ -17,6 +17,8 @@ use Bot\Llm\Tools\Memory\ForgetMemory;
 use Bot\Llm\Tools\Memory\RecallMemory;
 use Bot\Llm\Tools\Memory\SaveMemory;
 use Bot\Llm\Tools\Memory\UpdateMemory;
+use Bot\Llm\Tools\Telegram\TelegramApiCall;
+use Bot\Llm\Tools\Telegram\TelegramApiSchema;
 
 final class AgenticToolset
 {
@@ -30,6 +32,8 @@ final class AgenticToolset
         SearchMessages::class,
         CreatePoll::class,
         GetCurrentTime::class,
+        TelegramApiSchema::class,
+        TelegramApiCall::class,
     ];
 
     /** @var array<class-string> */
@@ -63,6 +67,8 @@ final class AgenticToolset
         ForgetMemory::class,
         SearchMessages::class,
         GetCurrentTime::class,
+        TelegramApiSchema::class,
+        TelegramApiCall::class,
     ];
 
     /** @var array<class-string> */

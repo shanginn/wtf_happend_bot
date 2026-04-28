@@ -20,6 +20,7 @@ final class CompatibleOpenaiSerializer implements OpenaiSerializerInterface
         $serialized = $serializer->serialize($data);
 
         $normalized = $this->normalizer()->normalizeJson($serialized);
+        $normalized = $this->normalizeTelegramApiCallSchema($normalized);
         assert(is_string($normalized));
 
         return $normalized;
@@ -39,5 +40,41 @@ final class CompatibleOpenaiSerializer implements OpenaiSerializerInterface
     private function normalizer(): ToolCallPayloadNormalizer
     {
         return $this->payloadNormalizer ?? new ToolCallPayloadNormalizer();
+    }
+
+    private function normalizeTelegramApiCallSchema(mixed $serialized): mixed
+    {
+        if (!is_string($serialized) || !str_contains($serialized, '"telegram_api_call"')) {
+            return $serialized;
+        }
+
+        try {
+            $decoded = json_decode($serialized, true, flags: \JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return $serialized;
+        }
+
+        if (!isset($decoded['tools']) || !is_array($decoded['tools'])) {
+            return $serialized;
+        }
+
+        foreach ($decoded['tools'] as &$tool) {
+            if (($tool['function']['name'] ?? null) !== 'telegram_api_call') {
+                continue;
+            }
+
+            $parameters = &$tool['function']['parameters']['properties']['parameters'];
+            if (!is_array($parameters)) {
+                continue;
+            }
+
+            $parameters['type'] = 'object';
+            $parameters['additionalProperties'] = true;
+            $parameters['default'] = new \stdClass();
+            unset($parameters['items']);
+        }
+        unset($tool, $parameters);
+
+        return json_encode($decoded, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
     }
 }

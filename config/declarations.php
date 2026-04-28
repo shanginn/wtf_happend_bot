@@ -18,6 +18,8 @@ use Bot\Llm\Tools\Memory\ForgetMemoryExecutor;
 use Bot\Llm\Tools\Memory\RecallMemoryExecutor;
 use Bot\Llm\Tools\Memory\SaveMemoryExecutor;
 use Bot\Llm\Tools\Memory\UpdateMemoryExecutor;
+use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
+use Bot\Llm\Tools\Telegram\TelegramApiSchemaExecutor;
 use Bot\Memory\ParticipantMemoryStore;
 use Bot\RouterWorkflow\RouterActivity;
 use Bot\RouterWorkflow\RouterWorkflow;
@@ -57,9 +59,11 @@ $decisionModel = $qwen;
 $memoryRecollectionModel = $qwen;
 $answerGenerationModel = $qwen;
 
+$telegramClient = new TelegramBotApiClient($config->botToken);
+$telegramSerializer = new Serializer();
 $telegramApi = new Api(
-    client: new TelegramBotApiClient($config->botToken),
-    serializer: new Serializer(),
+    client: $telegramClient,
+    serializer: $telegramSerializer,
 );
 
 $ormData = require __DIR__ . '/orm.php';
@@ -112,6 +116,11 @@ return [
                 orm: $orm,
             ),
             GetCurrentTimeExecutor::class => fn () => new GetCurrentTimeExecutor(),
+            TelegramApiSchemaExecutor::class => fn () => new TelegramApiSchemaExecutor(),
+            TelegramApiCallExecutor::class => fn () => new TelegramApiCallExecutor(
+                client: $telegramClient,
+                serializer: $telegramSerializer,
+            ),
             ImageSkillActivity::class => fn () => new ImageSkillActivity($telegramApi),
         ],
     ],
