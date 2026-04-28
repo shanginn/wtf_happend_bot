@@ -2,15 +2,8 @@
 
 declare(strict_types=1);
 
-use Bot\Llm\Tools\Chat\CreatePoll;
-use Bot\Llm\Tools\Chat\GetCurrentTime;
-use Bot\Llm\Tools\Chat\SearchMessages;
-use Bot\Llm\Tools\Decision\RespondDecision;
+use Bot\AgenticWorkflow\AgenticToolset;
 use Bot\Llm\Tools\Image\DownloadImage;
-use Bot\Llm\Tools\Memory\ForgetMemory;
-use Bot\Llm\Tools\Memory\RecallMemory;
-use Bot\Llm\Tools\Memory\SaveMemory;
-use Bot\Llm\Tools\Memory\UpdateMemory;
 use Bot\Temporal\OpenaiDataConverter;
 use Bot\Temporal\TelegramDataConverter;
 use Bot\Telegram\Factory as TelegramFactory;
@@ -56,15 +49,8 @@ if (!class_exists('Config')) {
 
 $openaiDataConverter = new OpenaiDataConverter();
 $openaiDataConverter->registerTools(
-    RespondDecision::class,
     DownloadImage::class,
-    SaveMemory::class,
-    RecallMemory::class,
-    UpdateMemory::class,
-    ForgetMemory::class,
-    SearchMessages::class,
-    GetCurrentTime::class,
-    CreatePoll::class,
+    ...AgenticToolset::TOOLS,
 );
 
 $dataConverter = new DataConverter(
