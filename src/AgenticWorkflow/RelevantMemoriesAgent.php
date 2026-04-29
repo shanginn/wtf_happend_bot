@@ -88,6 +88,7 @@ final class RelevantMemoriesAgent extends AbstractAgent
                 ),
             ],
             system: self::systemPrompt($skills),
+            extraBody: ['thinking' => ['type' => 'disabled']]
         );
     }
 }

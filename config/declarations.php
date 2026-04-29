@@ -38,7 +38,12 @@ $config = require __DIR__ . '/temporal.php';
 $deepseek = new CompatibleOpenai(new OpenaiClient(
     apiKey: $config->deepseekApiKey,
     apiUrl: 'https://api.deepseek.com'
-), 'deepseek-chat');
+), 'deepseek-v4-pro');
+
+$deepseekFlash = new CompatibleOpenai(new OpenaiClient(
+    apiKey: $config->deepseekApiKey,
+    apiUrl: 'https://api.deepseek.com'
+), 'deepseek-v4-flash');
 
 $minimax = new CompatibleOpenai(new OpenaiClient(
     apiKey: $config->openrouterApiKey,
@@ -55,9 +60,9 @@ $bytedanceSeed = new CompatibleOpenai(new OpenaiClient(
     apiUrl: 'https://openrouter.ai/api/v1'
 ), 'bytedance-seed/seed-2.0-mini');
 
-$decisionModel = $qwen;
-$memoryRecollectionModel = $qwen;
-$answerGenerationModel = $qwen;
+$decisionModel = $deepseekFlash;
+$memoryRecollectionModel = $deepseekFlash;
+$answerGenerationModel = $deepseek;
 
 $telegramClient = new TelegramBotApiClient($config->botToken);
 $telegramSerializer = new Serializer();

@@ -90,6 +90,7 @@ final class DecisionAgent extends AbstractAgent
             messages: $history,
             system: self::systemPrompt($tools, $skills),
             tools: $tools,
+            extraBody: ['thinking' => ['type' => 'disabled']]
         );
     }
 }
