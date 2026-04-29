@@ -29,6 +29,8 @@ use Temporal\Workflow\WorkflowMethod;
 #[WorkflowInterface]
 class AgenticWorkflow
 {
+    public const string WORKFLOW_TYPE = 'AgenticWorkflow';
+
     private const int COMPACTION_INTERVAL_SECONDS = 86400;
     private const int IDLE_COMPACTION_AFTER_SECONDS = 3600;
     private const int COMPACTION_RETRY_AFTER_SECONDS = 300;
@@ -62,7 +64,7 @@ class AgenticWorkflow
         $this->workingMemory = new WorkingMemory();
     }
 
-    #[WorkflowMethod]
+    #[WorkflowMethod(name: self::WORKFLOW_TYPE)]
     #[ReturnType(Type::TYPE_STRING)]
     public function create(AgenticWorkflowInput $input): Generator
     {
@@ -524,7 +526,7 @@ class AgenticWorkflow
         );
 
         return yield Workflow::continueAsNew(
-            self::class,
+            self::WORKFLOW_TYPE,
             [$input],
         );
     }

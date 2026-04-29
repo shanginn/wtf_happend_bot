@@ -29,6 +29,8 @@ use Temporal\Workflow\WorkflowMethod;
 #[WorkflowInterface]
 class RouterWorkflow
 {
+    public const string WORKFLOW_TYPE = 'RouterWorkflow';
+
     private const int MAX_UPDATES_BEFORE_CONTINUE = 100;
     private const int MAX_HISTORY_MESSAGES = 50;
 
@@ -50,7 +52,7 @@ class RouterWorkflow
         $this->updatesQueue = new MessageQueue();
     }
 
-    #[WorkflowMethod]
+    #[WorkflowMethod(name: self::WORKFLOW_TYPE)]
     #[ReturnType(Type::TYPE_STRING)]
     public function create(RouterWorkflowInput $input): Generator
     {
@@ -160,7 +162,7 @@ class RouterWorkflow
         );
 
         return yield Workflow::continueAsNew(
-            self::class,
+            self::WORKFLOW_TYPE,
             [$newInput]
         );
     }
