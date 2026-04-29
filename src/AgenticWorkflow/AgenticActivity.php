@@ -130,7 +130,13 @@ class AgenticActivity
         array $memory,
         array $tools = [],
         array $skills = [],
+        ?int $chatId = null,
     ): ErrorResponse|CompletionResponse {
+        if ($chatId !== null) {
+            $tools = $this->runtimeCapabilities->responseToolsForChat($chatId, $tools);
+            $skills = $this->runtimeCapabilities->responseSkillsForChat($chatId, $skills);
+        }
+
         return $this->decisionAgent->decide(
             history: $memory,
             tools: $tools,

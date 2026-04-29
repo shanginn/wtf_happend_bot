@@ -139,6 +139,7 @@ class AgenticWorkflow
         $result = yield $this->agenticActivity->memoryComplete(
             memory: $last10Messages,
             tools: AgenticToolset::DECISION_TOOLS,
+            chatId: $this->input->chatId,
         );
 
         if ($result instanceof ErrorResponse) {

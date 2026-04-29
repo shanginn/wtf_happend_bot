@@ -7,8 +7,11 @@ namespace Tests\AgenticWorkflow;
 use Bot\AgenticWorkflow\AgenticActivity;
 use Bot\Entity\LlmProviderResponse;
 use Bot\Entity\ParticipantMemory;
+use Bot\Entity\RuntimeSkill;
+use Bot\Entity\RuntimeTool;
 use Bot\Entity\UpdateRecord;
 use Bot\Llm\ProviderHistory\LlmProviderType;
+use Bot\Llm\Tools\Memory\SaveMemory;
 use Bot\Telegram\Factory;
 use Bot\Telegram\Update;
 use Cycle\ORM\ORMInterface;
@@ -310,6 +313,113 @@ class AgenticActivityTest extends TestCase
         );
 
         $activity->complete($chatId, 42);
+    }
+
+    public function testMemoryCompleteAddsRuntimeToolsToDecisionPromptForChat(): void
+    {
+        $chatId = -100123;
+        $runtimeTool = new RuntimeTool(
+            chatId: $chatId,
+            name: 'whois',
+            description: 'Summarizes known participant information from supplied arguments.',
+            parametersSchema: '{"type":"object","properties":{}}',
+            instructions: 'Return only known participant facts from arguments.',
+        );
+        $runtimeTool->id = 1;
+
+        $runtimeToolRepo = new class($runtimeTool) implements RepositoryInterface {
+            public function __construct(private RuntimeTool $runtimeTool) {}
+
+            public function findByChatId(int $chatId, bool $enabledOnly = true): array
+            {
+                return [$this->runtimeTool];
+            }
+
+            public function findByPK(mixed $id): ?object
+            {
+                return null;
+            }
+
+            public function findOne(array $scope = []): ?object
+            {
+                return null;
+            }
+
+            public function findAll(array $scope = []): iterable
+            {
+                return [];
+            }
+        };
+        $runtimeSkillRepo = new class implements RepositoryInterface {
+            public function findByChatId(int $chatId, bool $enabledOnly = true): array
+            {
+                return [];
+            }
+
+            public function findByPK(mixed $id): ?object
+            {
+                return null;
+            }
+
+            public function findOne(array $scope = []): ?object
+            {
+                return null;
+            }
+
+            public function findAll(array $scope = []): iterable
+            {
+                return [];
+            }
+        };
+
+        $orm = Mockery::mock(ORMInterface::class);
+        $orm->shouldReceive('getRepository')->with(RuntimeTool::class)->andReturn($runtimeToolRepo);
+        $orm->shouldReceive('getRepository')->with(RuntimeSkill::class)->andReturn($runtimeSkillRepo);
+
+        $expectedResponse = new ErrorResponse(
+            message: 'synthetic',
+            type: null,
+            param: null,
+            code: null,
+            rawResponse: '',
+        );
+
+        $openai = $this->createMock(Openai::class);
+        $openai
+            ->expects($this->once())
+            ->method('completion')
+            ->willReturnCallback(function (
+                array $messages,
+                ?string $system = null,
+                ?float $temperature = null,
+                ?int $maxTokens = null,
+                ?int $maxCompletionTokens = null,
+                ?float $frequencyPenalty = null,
+                mixed $toolChoice = null,
+                ?array $tools = null,
+            ) use ($expectedResponse) {
+                $this->assertIsString($system);
+                $this->assertStringContainsString('<tool name="whois"', $system);
+                $this->assertContains(SaveMemory::class, $tools);
+                $this->assertIsArray($tools);
+                $this->assertNotContains('whois', $tools);
+
+                return $expectedResponse;
+            });
+
+        $activity = new AgenticActivity(
+            openai: $openai,
+            api: $this->createStub(ApiInterface::class),
+            orm: $orm,
+        );
+
+        $result = $activity->memoryComplete(
+            memory: [new UserMessage('/whois @alice')],
+            tools: [SaveMemory::class],
+            chatId: $chatId,
+        );
+
+        $this->assertSame($expectedResponse, $result);
     }
 
     public function testLoadAllParticipantMemoriesFormatsSavedRecords(): void

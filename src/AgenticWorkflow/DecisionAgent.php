@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Bot\AgenticWorkflow;
 
+use Bot\Llm\Runtime\RuntimeToolDefinition;
 use Bot\Llm\Skills\SkillInterface;
 use Bot\Llm\Tools\Decision\RespondDecision;
+use Shanginn\Openai\ChatCompletion\CompletionRequest\ToolInterface;
 use Shanginn\Openai\ChatCompletion\CompletionResponse;
 use Shanginn\Openai\ChatCompletion\ErrorResponse;
 use Shanginn\Openai\ChatCompletion\Message\MessageInterface;
@@ -14,7 +16,7 @@ use Shanginn\Openai\ChatCompletion\Tool\AbstractTool;
 final class DecisionAgent extends AbstractAgent
 {
     /**
-     * @param array<class-string<AbstractTool>> $tools
+     * @param array<class-string<AbstractTool>|RuntimeToolDefinition> $tools
      * @param array<class-string<SkillInterface>> $skills
      */
     private static function systemPrompt(array $tools, array $skills): string
@@ -50,6 +52,9 @@ final class DecisionAgent extends AbstractAgent
         3. Finish by calling the `respond_decision` tool. respond_decision IS MANDATORY! ALWAYS CALL THE respond_decision HERE!
 
         Rules:
+        - Some listed tools may be response-phase runtime tools created in this chat. Use them only to decide whether a message is asking for bot functionality.
+        - If a user invokes or asks about a listed runtime tool, set `shouldRespond=true` so the response agent can execute or explain it.
+        - Do not try to execute runtime/generated tools in this decision phase.
         - A decision is mandatory for every completion.
         - Every successful completion must include a `respond_decision` tool call.
         - A completion without `respond_decision` is invalid.
@@ -70,7 +75,7 @@ final class DecisionAgent extends AbstractAgent
 
     /**
      * @param array<MessageInterface> $history
-     * @param array<class-string<AbstractTool>> $tools
+     * @param array<class-string<AbstractTool>|RuntimeToolDefinition> $tools
      * @param array<class-string<SkillInterface>> $skills
      */
     public function decide(
@@ -89,8 +94,21 @@ final class DecisionAgent extends AbstractAgent
         return $this->openai->completion(
             messages: $history,
             system: self::systemPrompt($tools, $skills),
-            tools: $tools,
+            tools: self::callableDecisionTools($tools),
             extraBody: ['thinking' => ['type' => 'disabled']]
         );
+    }
+
+    /**
+     * @param array<class-string<AbstractTool>|RuntimeToolDefinition> $tools
+     * @return array<class-string<ToolInterface>>
+     */
+    private static function callableDecisionTools(array $tools): array
+    {
+        return array_values(array_filter(
+            $tools,
+            static fn (string|RuntimeToolDefinition $tool): bool => is_string($tool)
+                && is_a($tool, ToolInterface::class, true),
+        ));
     }
 }
