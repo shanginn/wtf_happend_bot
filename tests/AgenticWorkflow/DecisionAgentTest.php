@@ -8,6 +8,7 @@ use Bot\AgenticWorkflow\DecisionAgent;
 use Bot\Llm\Runtime\RuntimeToolDefinition;
 use Bot\Llm\Tools\Decision\RespondDecision;
 use Bot\Llm\Tools\Memory\SaveMemory;
+use Bot\Llm\Tools\Runtime\ListRuntimeCapabilities;
 use Shanginn\Openai\ChatCompletion\ErrorResponse;
 use Shanginn\Openai\ChatCompletion\Message\UserMessage;
 use Shanginn\Openai\Openai;
@@ -101,6 +102,45 @@ class DecisionAgentTest extends TestCase
         $result = (new DecisionAgent($openai))->decide(
             history: $history,
             tools: [SaveMemory::class, $runtimeTool],
+        );
+
+        $this->assertSame($expectedResponse, $result);
+    }
+
+    public function testDecideDoesNotExposeNonDecisionStaticToolsEvenIfPassed(): void
+    {
+        $history = [new UserMessage('why are commands missing?')];
+        $expectedResponse = new ErrorResponse(
+            message: 'synthetic',
+            type: null,
+            param: null,
+            code: null,
+            rawResponse: '',
+        );
+
+        $openai = $this->createMock(Openai::class);
+        $openai
+            ->expects($this->once())
+            ->method('completion')
+            ->willReturnCallback(function (
+                array $messages,
+                ?string $system = null,
+                ?float $temperature = null,
+                ?int $maxTokens = null,
+                ?int $maxCompletionTokens = null,
+                ?float $frequencyPenalty = null,
+                mixed $toolChoice = null,
+                ?array $tools = null,
+            ) use ($expectedResponse) {
+                $this->assertContains(RespondDecision::class, $tools);
+                $this->assertNotContains(ListRuntimeCapabilities::class, $tools);
+
+                return $expectedResponse;
+            });
+
+        $result = (new DecisionAgent($openai))->decide(
+            history: $history,
+            tools: [ListRuntimeCapabilities::class],
         );
 
         $this->assertSame($expectedResponse, $result);

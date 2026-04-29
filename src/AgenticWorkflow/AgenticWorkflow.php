@@ -40,6 +40,7 @@ class AgenticWorkflow
     private const int MAX_COMPACTION_RETRY_AFTER_SECONDS = 3600;
     private const int MAX_COMPACTION_FAILURES_BEFORE_DROP = 5;
     private const int MAX_UPDATES_BEFORE_CONTINUE = 100;
+    private const int MAX_DECISION_STEPS = 3;
     private const int MAX_RESPONSE_STEPS = 15;
     private const int PIPELINE_BATCH_WINDOW_SECONDS = 5;
     private const int TYPING_ACTION_REFRESH_INTERVAL_SECONDS = 4;
@@ -135,73 +136,217 @@ class AgenticWorkflow
 
     private function runAgentLoop(): Generator
     {
-        $last10Messages = $this->workingMemory->getContext(recentLimit: 10);
-        $result = yield $this->agenticActivity->memoryComplete(
-            memory: $last10Messages,
-            tools: AgenticToolset::DECISION_TOOLS,
-            chatId: $this->input->chatId,
-        );
+        $decisionMemory = $this->workingMemory->getContext(recentLimit: 10);
+        $initialDecisionMemory = $decisionMemory;
 
-        if ($result instanceof ErrorResponse) {
-            $errorMessage = $result->message ?? 'Unknown error.';
-            yield $this->sendMessage('Произошла ошибка: ' . $errorMessage);
-
-            return;
-        }
-
-        $choice = $result->choices[0] ?? null;
-        if ($choice === null) {
-            return;
-        }
-
-        yield $this->agenticActivity->saveResponseMessage(
-            chatId: $this->input->chatId,
-            topicId: null,
-            message: $choice->message,
-            rawResponse: $result,
-        );
-
-        $assistantMessage = $choice->message;
-
-        $shouldRespond = false;
-
-        foreach ($assistantMessage->toolCalls ?? [] as $toolCall) {
-            if (!$toolCall instanceof KnownFunctionCall) {
-                continue;
-            }
-
-            if ($toolCall->arguments instanceof RespondDecision) {
-                $shouldRespond = $toolCall->arguments->shouldRespond;
-                continue;
-            }
-
-            $toolResult = yield $this->executeTool(
-                toolName: $toolCall->tool,
-                arguments: $toolCall->arguments,
+        for ($step = 0; $step < self::MAX_DECISION_STEPS; ++$step) {
+            $result = yield $this->agenticActivity->memoryComplete(
+                memory: $decisionMemory,
+                tools: AgenticToolset::DECISION_TOOLS,
+                chatId: $this->input->chatId,
             );
 
-            $toolMessage = new ToolMessage(
-                content: $toolResult,
-                toolCallId: $toolCall->id,
-            );
+            if ($result instanceof ErrorResponse) {
+                $errorMessage = $result->message ?? 'Unknown error.';
+                yield $this->sendMessage('Произошла ошибка: ' . $errorMessage);
+
+                return;
+            }
+
+            $choice = $result->choices[0] ?? null;
+            if ($choice === null) {
+                return;
+            }
 
             yield $this->agenticActivity->saveResponseMessage(
                 chatId: $this->input->chatId,
                 topicId: null,
-                message: $toolMessage,
+                message: $choice->message,
+                rawResponse: $result,
             );
+
+            $assistantMessage = $choice->message;
+            $shouldRespond = null;
+            $decisionToolCalls = [];
+            $decisionToolMessages = [];
+            $executedToolCalls = [];
+            $executedToolMessages = [];
+
+            foreach ($assistantMessage->toolCalls ?? [] as $toolCall) {
+                if ($toolCall instanceof UnknownFunctionCall) {
+                    $decisionToolCalls[] = $toolCall;
+                    $decisionToolMessages[] = $this->decisionToolUnavailableMessage($toolCall->name, $toolCall->id);
+                    continue;
+                }
+
+                if (!$toolCall instanceof KnownFunctionCall) {
+                    continue;
+                }
+
+                if ($toolCall->arguments instanceof RespondDecision) {
+                    $shouldRespond = $toolCall->arguments->shouldRespond;
+                    continue;
+                }
+
+                if (!$this->isExecutableDecisionToolCall($toolCall)) {
+                    $decisionToolCalls[] = $toolCall;
+                    $decisionToolMessages[] = $this->decisionToolUnavailableMessage($toolCall->tool, $toolCall->id);
+                    continue;
+                }
+
+                $toolResult = yield $this->executeTool(
+                    toolName: $toolCall->tool,
+                    arguments: $toolCall->arguments,
+                );
+
+                $toolMessage = new ToolMessage(
+                    content: $toolResult,
+                    toolCallId: $toolCall->id,
+                );
+
+                $decisionToolCalls[] = $toolCall;
+                $decisionToolMessages[] = $toolMessage;
+                $executedToolCalls[] = $toolCall;
+                $executedToolMessages[] = $toolMessage;
+            }
+
+            if ($decisionToolCalls !== []) {
+                $decisionMemory[] = AssistantMessage::withToolCalls($assistantMessage, $decisionToolCalls);
+
+                foreach ($decisionToolMessages as $toolMessage) {
+                    $decisionMemory[] = $toolMessage;
+
+                    yield $this->agenticActivity->saveResponseMessage(
+                        chatId: $this->input->chatId,
+                        topicId: null,
+                        message: $toolMessage,
+                    );
+                }
+            }
+
+            $this->rememberDecisionToolResults($assistantMessage, $executedToolCalls, $executedToolMessages);
+
+            if ($shouldRespond !== null) {
+                if ($shouldRespond) {
+                    yield from $this->respondWithTyping();
+                }
+
+                return;
+            }
+
+            $decisionMemory[] = $this->invalidDecisionRetryMessage($decisionToolCalls !== []);
         }
 
-        if ($shouldRespond) {
-            yield $this->sendTypingAction();
+        if ($this->shouldFallbackRespond($initialDecisionMemory)) {
+            yield from $this->respondWithTyping();
+        }
+    }
 
-            $this->startTypingIndicator();
+    private function isExecutableDecisionToolCall(KnownFunctionCall $toolCall): bool
+    {
+        return in_array($toolCall->tool, AgenticToolset::DECISION_TOOLS, true)
+            && !$toolCall->arguments instanceof RespondDecision;
+    }
 
-            try {
-                yield from $this->respond();
-            } finally {
-                $this->stopTypingIndicator();
+    private function decisionToolUnavailableMessage(string $toolName, string $toolCallId): ToolMessage
+    {
+        return new ToolMessage(
+            content: sprintf(
+                'Tool "%s" is not available in the decision phase. Do not execute tools here. '
+                . 'Finish by calling respond_decision; set shouldRespond=true if the response agent should handle this request.',
+                $toolName,
+            ),
+            toolCallId: $toolCallId,
+        );
+    }
+
+    private function invalidDecisionRetryMessage(bool $hadToolCalls): UserMessage
+    {
+        $reason = $hadToolCalls
+            ? 'The previous decision step used tool calls but did not call respond_decision.'
+            : 'The previous decision step did not call respond_decision.';
+
+        return new UserMessage(
+            $reason . ' This completion is invalid. Call respond_decision now. '
+            . 'If the latest user message asks for bot functionality or runtime tools, set shouldRespond=true.'
+        );
+    }
+
+    /**
+     * Keep decision-side memory tool effects visible to later decision passes.
+     * The internal respond_decision tool is intentionally excluded because it
+     * has no tool result and would make the chat-completion history invalid.
+     *
+     * @param array<KnownFunctionCall> $toolCalls
+     * @param array<ToolMessage>       $toolMessages
+     */
+    private function rememberDecisionToolResults(
+        AssistantMessage $assistantMessage,
+        array $toolCalls,
+        array $toolMessages,
+    ): void {
+        if ($toolCalls === [] || $toolMessages === []) {
+            return;
+        }
+
+        $this->workingMemory->add(AssistantMessage::withToolCalls($assistantMessage, $toolCalls));
+
+        foreach ($toolMessages as $toolMessage) {
+            $this->workingMemory->add($toolMessage);
+        }
+    }
+
+    /**
+     * Last-resort guard for malformed decision completions. It is deliberately
+     * conservative and only responds when the recent Telegram text clearly
+     * looks directed at the bot or invokes a command.
+     *
+     * @param array<object> $messages
+     */
+    private function shouldFallbackRespond(array $messages): bool
+    {
+        for ($index = count($messages) - 1; $index >= 0; --$index) {
+            $message = $messages[$index] ?? null;
+            if (!$message instanceof UserMessage) {
+                continue;
             }
+
+            $content = self::stringifyUserContent($message->content);
+            $normalized = mb_strtolower($content);
+
+            if (
+                preg_match('/(^|\s)\/[a-z0-9_]+/iu', $content) === 1
+                || str_contains($normalized, '@wtf_happend_bot')
+                || str_contains($normalized, '@wtf_happened_bot')
+                || str_contains($normalized, 'бот')
+                || str_contains($normalized, 'bot')
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function stringifyUserContent(array|string $content): string
+    {
+        if (is_string($content)) {
+            return $content;
+        }
+
+        return json_encode($content, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) ?: '';
+    }
+
+    private function respondWithTyping(): Generator
+    {
+        yield $this->sendTypingAction();
+
+        $this->startTypingIndicator();
+
+        try {
+            yield from $this->respond();
+        } finally {
+            $this->stopTypingIndicator();
         }
     }
 

@@ -54,7 +54,8 @@ final class DecisionAgent extends AbstractAgent
         Rules:
         - Some listed tools may be response-phase runtime tools created in this chat. Use them only to decide whether a message is asking for bot functionality.
         - If a user invokes or asks about a listed runtime tool, set `shouldRespond=true` so the response agent can execute or explain it.
-        - Do not try to execute runtime/generated tools in this decision phase.
+        - Do not call runtime/generated tools, runtime capability tools, Telegram tools, or chat search tools in this decision phase.
+        - The only tools you may call in this phase are `save_memory` for durable participant facts and `respond_decision` for the terminal decision.
         - A decision is mandatory for every completion.
         - Every successful completion must include a `respond_decision` tool call.
         - A completion without `respond_decision` is invalid.
@@ -108,6 +109,7 @@ final class DecisionAgent extends AbstractAgent
         return array_values(array_filter(
             $tools,
             static fn (string|RuntimeToolDefinition $tool): bool => is_string($tool)
+                && in_array($tool, AgenticToolset::DECISION_TOOLS, true)
                 && is_a($tool, ToolInterface::class, true),
         ));
     }
