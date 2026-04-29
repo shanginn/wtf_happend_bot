@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\AgenticWorkflow;
 
 use Bot\AgenticWorkflow\AgenticWorkflow;
+use Bot\AgenticWorkflow\AgenticWorkflowInput;
 use Bot\AgenticWorkflow\WorkingMemory;
 use Bot\Llm\Tools\Decision\RespondDecision;
 use Bot\Llm\Tools\Memory\SaveMemory;
@@ -90,6 +91,14 @@ class AgenticWorkflowTest extends TestCase
         $method = new ReflectionMethod(AgenticWorkflow::class, 'shouldContinueAsNewForSuggestion');
 
         self::assertFalse($method->invoke($workflow, true));
+    }
+
+    public function testPendingUpdatesDefaultsToEmptyForOldSerializedInputs(): void
+    {
+        $input = new AgenticWorkflowInput(chatId: -100123);
+        unset($input->pendingUpdates);
+
+        self::assertSame([], $input->getPendingUpdates());
     }
 
     public function testDecisionMemoryToolResultsAreRememberedWithoutRespondDecision(): void

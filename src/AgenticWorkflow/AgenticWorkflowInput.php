@@ -24,4 +24,9 @@ class AgenticWorkflowInput
         #[MarshalArray(of: Update::class)]
         public array $pendingUpdates = [],
     ) {}
+
+    public function getPendingUpdates(): array
+    {
+        return isset($this->pendingUpdates) ? $this->pendingUpdates : [];
+    }
 }

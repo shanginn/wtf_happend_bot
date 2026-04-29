@@ -83,7 +83,7 @@ class AgenticWorkflow
         $this->compactionRetryAfter = $input->compactionRetryAfter;
         $this->consecutiveCompactionFailures = $input->consecutiveCompactionFailures;
         $this->pipelinePendingSince = $input->pipelinePendingSince;
-        foreach ($input->pendingUpdates as $pendingUpdate) {
+        foreach ($input->getPendingUpdates() as $pendingUpdate) {
             $this->updatesQueue->push($pendingUpdate);
         }
         $this->workingMemory = new WorkingMemory(
