@@ -8,6 +8,7 @@ use Bot\Activity\TelegramActivity;
 use Bot\Agent\OpenaiMessageTransformer;
 use Bot\Llm\Tools\Decision\RespondDecision;
 use Bot\Llm\Tools\Runtime\UpsertRuntimeSkill;
+use Bot\Llm\Tools\Runtime\UpsertRuntimeTool;
 use Bot\Llm\Tools\Telegram\TelegramApiCall;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
 use Carbon\CarbonInterval;
@@ -314,7 +315,7 @@ class AgenticWorkflow
                         $hasTerminalUserNotification = true;
                     }
 
-                    if ($toolCall->arguments instanceof UpsertRuntimeSkill) {
+                    if ($toolCall->arguments instanceof UpsertRuntimeSkill || $toolCall->arguments instanceof UpsertRuntimeTool) {
                         $hasTerminalUserNotification = true;
                     }
                 } else {

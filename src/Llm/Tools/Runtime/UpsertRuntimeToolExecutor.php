@@ -7,6 +7,7 @@ namespace Bot\Llm\Tools\Runtime;
 use Bot\Entity\RuntimeTool;
 use Bot\Llm\Runtime\RuntimeCapabilityValidator;
 use Cycle\ORM\ORMInterface;
+use Phenogram\Bindings\ApiInterface;
 use Temporal\Activity\ActivityInterface;
 use Temporal\Activity\ActivityMethod;
 
@@ -15,6 +16,7 @@ class UpsertRuntimeToolExecutor
 {
     public function __construct(
         private readonly ORMInterface $orm,
+        private readonly ApiInterface $api,
     ) {}
 
     #[ActivityMethod]
@@ -68,11 +70,25 @@ class UpsertRuntimeToolExecutor
 
         $repo->save($tool);
 
+        $this->api->sendMessage(
+            chatId: $chatId,
+            text: self::notificationText($name, $created),
+        );
+
         return sprintf(
             'Runtime tool "%s" %s and is %s.',
             $name,
             $created ? 'created' : 'updated',
             $tool->enabled ? 'enabled' : 'disabled',
+        );
+    }
+
+    private static function notificationText(string $name, bool $created): string
+    {
+        return sprintf(
+            'Инструмент %s: %s',
+            $created ? 'добавлен' : 'обновлён',
+            $name,
         );
     }
 }

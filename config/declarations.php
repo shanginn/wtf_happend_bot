@@ -140,6 +140,7 @@ return [
             ),
             UpsertRuntimeToolExecutor::class => fn () => new UpsertRuntimeToolExecutor(
                 orm: $orm,
+                api: $telegramApi,
             ),
             SetRuntimeCapabilityStatusExecutor::class => fn () => new SetRuntimeCapabilityStatusExecutor(
                 orm: $orm,

@@ -159,7 +159,22 @@ final class RuntimeCapabilityTest extends TestCase
         $orm = Mockery::mock(ORMInterface::class);
         $orm->shouldReceive('getRepository')->with(RuntimeTool::class)->andReturn($repo);
 
-        $result = (new UpsertRuntimeToolExecutor($orm))->execute(
+        $message = $this->createStub(MessageInterface::class);
+        $api = $this->createMock(ApiInterface::class);
+        $api
+            ->expects($this->once())
+            ->method('sendMessage')
+            ->willReturnCallback(function (
+                int|string $chatId,
+                string $text,
+            ) use ($message): MessageInterface {
+                self::assertSame(-100123, $chatId);
+                self::assertSame('Инструмент добавлен: format_incident', $text);
+
+                return $message;
+            });
+
+        $result = (new UpsertRuntimeToolExecutor($orm, $api))->execute(
             -100123,
             new UpsertRuntimeTool(
                 name: 'Format Incident',

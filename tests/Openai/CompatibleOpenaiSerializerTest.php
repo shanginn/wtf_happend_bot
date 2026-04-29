@@ -10,6 +10,7 @@ use Bot\Llm\Tools\Telegram\TelegramApiCall;
 use Bot\Llm\Runtime\RuntimeToolDefinition;
 use Bot\Openai\CompatibleOpenai;
 use Bot\Openai\CompatibleOpenaiSerializer;
+use Bot\Llm\Tools\Runtime\UpsertRuntimeTool;
 use Shanginn\Openai\ChatCompletion\CompletionRequest;
 use Shanginn\Openai\ChatCompletion\CompletionResponse;
 use Shanginn\Openai\ChatCompletion\CompletionResponse\Choice;
@@ -40,6 +41,25 @@ final class CompatibleOpenaiSerializerTest extends TestCase
         self::assertTrue($parameters['additionalProperties']);
         self::assertSame([], $parameters['default']);
         self::assertArrayNotHasKey('items', $parameters);
+    }
+
+    public function testSerializeUpsertRuntimeToolParametersSchemaAsJsonObjectSchema(): void
+    {
+        $serializer = new CompatibleOpenaiSerializer();
+
+        $serialized = $serializer->serialize(new CompletionRequest(
+            model: 'test-model',
+            messages: [],
+            tools: [UpsertRuntimeTool::class],
+        ));
+
+        $decoded = json_decode($serialized, true, flags: \JSON_THROW_ON_ERROR);
+        $properties = $decoded['tools'][0]['function']['parameters']['properties'];
+
+        self::assertSame('object', $properties['parametersSchema']['type']);
+        self::assertTrue($properties['parametersSchema']['additionalProperties']);
+        self::assertSame([], $properties['parametersSchema']['default']);
+        self::assertArrayNotHasKey('items', $properties['parametersSchema']);
     }
 
     public function testDeserializeTelegramApiCallParametersObjectIntoArray(): void

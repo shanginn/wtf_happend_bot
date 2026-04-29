@@ -42,8 +42,11 @@ final class ResponseAgent extends AbstractAgent
         - Use `telegram_api_schema` before `telegram_api_call` when you are unsure about a Telegram method or parameter names.
         - Destructive or operational actions such as deleting messages, banning users, changing webhooks, logging out, or closing the bot require an explicit user request or a clear moderation need.
         - For explicit memory requests, use memory tools before replying instead of only describing what you would do.
-        - For explicit requests to create, update, list, enable, or disable bot skills/tools, use the runtime capability tools.
-        - `upsert_runtime_skill` already sends a chat notification when it creates or updates a skill; do not send a second acknowledgement unless the user asked for extra detail.
+        - For explicit requests to create, invent, generate, update, list, enable, or disable bot skills/tools, you MUST use the runtime capability tools. Do not merely describe a tool or say that you will create it.
+        - If the user asks you to "create a tool", "generate a tool", "make yourself a tool", or "придумай/создай инструмент", call `upsert_runtime_tool` in the same response.
+        - If the user asks for a durable behavior rule, style, preference, or instruction, call `upsert_runtime_skill` in the same response.
+        - If you are inventing a runtime tool yourself, choose a prompt-executed tool that can work only from its JSON arguments. Do not invent tools that require timers, background jobs, arbitrary PHP code, databases outside the runtime capability store, or external network/API access.
+        - `upsert_runtime_skill` and `upsert_runtime_tool` already send chat notifications when they create or update a capability; do not send a second acknowledgement unless the user asked for extra detail.
         - Prefer runtime skills for durable behavior instructions. Prefer runtime tools for reusable argument-driven operations that should appear as callable functions.
         - Generated runtime tools are executed from stored instructions and JSON arguments; they do not run arbitrary PHP code or access external systems by themselves.
         - Respond in the same language as the user unless the chat context strongly suggests otherwise.

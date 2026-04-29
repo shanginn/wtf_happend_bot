@@ -49,6 +49,8 @@ class ResponseAgentTest extends TestCase
                 $this->assertIsString($system);
                 $this->assertStringContainsString('response agent', $system);
                 $this->assertStringContainsString('already decided that the bot should respond', $system);
+                $this->assertStringContainsString('you MUST use the runtime capability tools', $system);
+                $this->assertStringContainsString('call `upsert_runtime_tool` in the same response', $system);
                 $this->assertSame([GetCurrentTime::class], $tools);
                 $this->assertSame(['thinking' => ['type' => 'disabled']], $extraBody);
 

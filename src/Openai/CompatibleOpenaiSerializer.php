@@ -21,6 +21,7 @@ final class CompatibleOpenaiSerializer implements OpenaiSerializerInterface
 
         $normalized = $this->normalizer()->normalizeJson($serialized);
         $normalized = $this->normalizeTelegramApiCallSchema($normalized);
+        $normalized = $this->normalizeUpsertRuntimeToolSchema($normalized);
         assert(is_string($normalized));
 
         return $normalized;
@@ -92,6 +93,48 @@ final class CompatibleOpenaiSerializer implements OpenaiSerializerInterface
             unset($parameters['items']);
         }
         unset($tool, $parameters);
+
+        return json_encode($decoded, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
+    }
+
+    private function normalizeUpsertRuntimeToolSchema(mixed $serialized): mixed
+    {
+        if (!is_string($serialized) || !str_contains($serialized, '"upsert_runtime_tool"')) {
+            return $serialized;
+        }
+
+        try {
+            $decoded = json_decode($serialized, true, flags: \JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return $serialized;
+        }
+
+        if (!isset($decoded['tools']) || !is_array($decoded['tools'])) {
+            return $serialized;
+        }
+
+        foreach ($decoded['tools'] as &$tool) {
+            if (($tool['function']['name'] ?? null) !== 'upsert_runtime_tool') {
+                continue;
+            }
+
+            $properties = &$tool['function']['parameters']['properties'];
+            if (!is_array($properties)) {
+                continue;
+            }
+
+            foreach (['parametersSchema', 'parameters_schema'] as $propertyName) {
+                if (!isset($properties[$propertyName]) || !is_array($properties[$propertyName])) {
+                    continue;
+                }
+
+                $properties[$propertyName]['type'] = 'object';
+                $properties[$propertyName]['additionalProperties'] = true;
+                $properties[$propertyName]['default'] = new \stdClass();
+                unset($properties[$propertyName]['items']);
+            }
+        }
+        unset($tool, $properties);
 
         return json_encode($decoded, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
     }
