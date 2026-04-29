@@ -27,14 +27,32 @@ final class CompatibleOpenaiSerializer implements OpenaiSerializerInterface
     }
 
     /**
-     * @param array<class-string<ToolInterface>>|null $tools
+     * @param array<mixed>|null $tools
      */
     public function deserialize(mixed $serialized, string $to, ?array $tools = null): object|array
     {
         $serializer = new VendorOpenaiSerializer();
         $normalized = $this->normalizer()->normalizeJson($serialized, $tools);
 
-        return $serializer->deserialize($normalized, $to, $tools);
+        return $serializer->deserialize($normalized, $to, $this->staticTools($tools));
+    }
+
+    /**
+     * @param array<mixed>|null $tools
+     * @return array<class-string<ToolInterface>>|null
+     */
+    private function staticTools(?array $tools): ?array
+    {
+        if ($tools === null) {
+            return null;
+        }
+
+        $staticTools = array_values(array_filter(
+            $tools,
+            static fn (mixed $tool): bool => is_string($tool) && is_a($tool, ToolInterface::class, true),
+        ));
+
+        return $staticTools === [] ? null : $staticTools;
     }
 
     private function normalizer(): ToolCallPayloadNormalizer

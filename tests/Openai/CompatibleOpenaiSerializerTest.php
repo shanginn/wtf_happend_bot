@@ -7,6 +7,7 @@ namespace Tests\Openai;
 use Bot\Llm\Tools\Chat\SearchMessages;
 use Bot\Llm\Tools\Memory\ForgetMemory;
 use Bot\Llm\Tools\Telegram\TelegramApiCall;
+use Bot\Llm\Runtime\RuntimeToolDefinition;
 use Bot\Openai\CompatibleOpenai;
 use Bot\Openai\CompatibleOpenaiSerializer;
 use Shanginn\Openai\ChatCompletion\CompletionRequest;
@@ -344,5 +345,79 @@ final class CompatibleOpenaiSerializerTest extends TestCase
         self::assertInstanceOf(CompletionResponse::class, $response);
         self::assertSame('low', $client->body['reasoning_effort'] ?? null);
         self::assertSame(['type' => 'disabled'], $client->body['thinking'] ?? null);
+    }
+
+    public function testCompatibleOpenaiSendsRuntimeToolSchemasAndKeepsCallsUnknown(): void
+    {
+        $runtimeTool = new RuntimeToolDefinition(
+            name: 'format_incident',
+            description: 'Format an incident report from structured facts.',
+            parametersSchema: [
+                'type' => 'object',
+                'properties' => [
+                    'summary' => ['type' => 'string'],
+                ],
+                'required' => ['summary'],
+            ],
+            instructions: 'Return a terse incident report.',
+        );
+
+        $client = new class implements OpenaiClientInterface
+        {
+            public ?array $body = null;
+
+            public function sendRequest(string $method, string $json): string
+            {
+                $this->body = json_decode($json, true, flags: \JSON_THROW_ON_ERROR);
+
+                return json_encode([
+                    'id' => 'gen-runtime-tool',
+                    'choices' => [[
+                        'index' => 0,
+                        'message' => [
+                            'role' => 'assistant',
+                            'tool_calls' => [[
+                                'id' => 'call_runtime',
+                                'type' => 'function',
+                                'function' => [
+                                    'name' => 'format_incident',
+                                    'arguments' => '{"summary":"deploy failed"}',
+                                ],
+                            ]],
+                        ],
+                        'finish_reason' => 'tool_calls',
+                    ]],
+                    'model' => 'test-model',
+                    'usage' => [
+                        'completion_tokens' => 1,
+                        'prompt_tokens' => 1,
+                        'total_tokens' => 2,
+                    ],
+                    'object' => 'chat.completion',
+                    'created' => 1,
+                ], \JSON_THROW_ON_ERROR);
+            }
+        };
+
+        $openai = new CompatibleOpenai($client, 'test-model');
+        $response = $openai->completion(
+            messages: [new UserMessage('format this')],
+            tools: [SearchMessages::class, $runtimeTool],
+        );
+
+        self::assertInstanceOf(CompletionResponse::class, $response);
+
+        $toolNames = array_map(
+            static fn (array $tool): string => $tool['function']['name'],
+            $client->body['tools'] ?? [],
+        );
+
+        self::assertContains('search_messages', $toolNames);
+        self::assertContains('format_incident', $toolNames);
+
+        $toolCall = $response->choices[0]->message->toolCalls[0] ?? null;
+        self::assertInstanceOf(UnknownFunctionCall::class, $toolCall);
+        self::assertSame('format_incident', $toolCall->name);
+        self::assertSame('{"summary":"deploy failed"}', $toolCall->arguments);
     }
 }

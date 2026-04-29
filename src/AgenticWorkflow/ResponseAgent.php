@@ -42,6 +42,10 @@ final class ResponseAgent extends AbstractAgent
         - Use `telegram_api_schema` before `telegram_api_call` when you are unsure about a Telegram method or parameter names.
         - Destructive or operational actions such as deleting messages, banning users, changing webhooks, logging out, or closing the bot require an explicit user request or a clear moderation need.
         - For explicit memory requests, use memory tools before replying instead of only describing what you would do.
+        - For explicit requests to create, update, list, enable, or disable bot skills/tools, use the runtime capability tools.
+        - `upsert_runtime_skill` already sends a chat notification when it creates or updates a skill; do not send a second acknowledgement unless the user asked for extra detail.
+        - Prefer runtime skills for durable behavior instructions. Prefer runtime tools for reusable argument-driven operations that should appear as callable functions.
+        - Generated runtime tools are executed from stored instructions and JSON arguments; they do not run arbitrary PHP code or access external systems by themselves.
         - Respond in the same language as the user unless the chat context strongly suggests otherwise.
         - Keep the reply concise unless the user asked for depth.
         - Do not explain the internal decision process.

@@ -17,7 +17,7 @@ final class ToolCallPayloadNormalizer
     private const int JSON_FLAGS = \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE;
 
     /**
-     * @param array<class-string<ToolInterface>>|null $tools
+     * @param array<mixed>|null $tools
      */
     public function normalizeJson(mixed $serialized, ?array $tools = null): mixed
     {
@@ -256,7 +256,7 @@ final class ToolCallPayloadNormalizer
     }
 
     /**
-     * @param array<class-string<ToolInterface>> $tools
+     * @param array<mixed> $tools
      * @return array<string, array<string, ReflectionType|null>>
      */
     private function buildToolParameterMap(array $tools): array
@@ -264,7 +264,7 @@ final class ToolCallPayloadNormalizer
         $parameterMap = [];
 
         foreach ($tools as $toolClass) {
-            if (!is_a($toolClass, ToolInterface::class, true)) {
+            if (!is_string($toolClass) || !is_a($toolClass, ToolInterface::class, true)) {
                 continue;
             }
 

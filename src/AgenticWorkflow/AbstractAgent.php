@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Bot\AgenticWorkflow;
 
 use Bot\Agent\OpenaiMessageTransformer;
+use Bot\Llm\Runtime\RuntimeSkillDefinition;
+use Bot\Llm\Runtime\RuntimeToolDefinition;
 use Bot\Llm\Skills\SkillInterface;
 use Bot\Telegram\TelegramUpdateViewFactory;
 use Bot\Telegram\TelegramUpdateViewFactoryInterface;
@@ -29,7 +31,7 @@ abstract class AbstractAgent
     }
 
     /**
-     * @param array<class-string<SkillInterface>> $skills
+     * @param array<class-string<SkillInterface>|RuntimeSkillDefinition> $skills
      */
     protected static function buildSkillsPrompt(array $skills): string
     {
@@ -38,11 +40,17 @@ abstract class AbstractAgent
         }
 
         $parts = array_map(
-            fn (string $skill) => <<<XML
-            <skill name="{$skill::name()}" description="{$skill::description()}">
-                {$skill::skill()}
-            </skill>
-            XML,
+            static function (string|RuntimeSkillDefinition $skill): string {
+                $name = self::skillName($skill);
+                $description = self::skillDescription($skill);
+                $body = self::skillBody($skill);
+
+                return <<<XML
+                <skill name="{$name}" description="{$description}">
+                    {$body}
+                </skill>
+                XML;
+            },
             $skills,
         );
 
@@ -50,7 +58,7 @@ abstract class AbstractAgent
     }
 
     /**
-     * @param array<class-string<AbstractTool>> $tools
+     * @param array<class-string<AbstractTool>|RuntimeToolDefinition> $tools
      */
     protected static function buildToolsPrompt(array $tools): string
     {
@@ -59,13 +67,43 @@ abstract class AbstractAgent
         }
 
         $toolParts = array_map(
-            fn (string $toolClass) => <<<XML
-            <tool name="{$toolClass::getName()}" description="{$toolClass::getDescription()}"/>
-            XML,
+            static function (string|RuntimeToolDefinition $tool): string {
+                $name = self::toolName($tool);
+                $description = self::toolDescription($tool);
+
+                return <<<XML
+                <tool name="{$name}" description="{$description}"/>
+                XML;
+            },
             $tools,
         );
 
         return "\n<available_tools>\n" . implode("\n\n", $toolParts) . "\n</available_tools>\n";
+    }
+
+    private static function skillName(string|RuntimeSkillDefinition $skill): string
+    {
+        return $skill instanceof RuntimeSkillDefinition ? $skill->name : $skill::name();
+    }
+
+    private static function skillDescription(string|RuntimeSkillDefinition $skill): string
+    {
+        return $skill instanceof RuntimeSkillDefinition ? $skill->description : $skill::description();
+    }
+
+    private static function skillBody(string|RuntimeSkillDefinition $skill): string
+    {
+        return $skill instanceof RuntimeSkillDefinition ? $skill->body : $skill::skill();
+    }
+
+    private static function toolName(string|RuntimeToolDefinition $tool): string
+    {
+        return $tool instanceof RuntimeToolDefinition ? $tool->name : $tool::getName();
+    }
+
+    private static function toolDescription(string|RuntimeToolDefinition $tool): string
+    {
+        return $tool instanceof RuntimeToolDefinition ? $tool->description : $tool::getDescription();
     }
 
     /**

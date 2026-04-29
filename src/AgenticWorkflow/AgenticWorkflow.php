@@ -7,12 +7,14 @@ namespace Bot\AgenticWorkflow;
 use Bot\Activity\TelegramActivity;
 use Bot\Agent\OpenaiMessageTransformer;
 use Bot\Llm\Tools\Decision\RespondDecision;
+use Bot\Llm\Tools\Runtime\UpsertRuntimeSkill;
 use Bot\Llm\Tools\Telegram\TelegramApiCall;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
 use Carbon\CarbonInterval;
 use Generator;
 use Shanginn\Openai\ChatCompletion\ErrorResponse;
 use Shanginn\Openai\ChatCompletion\Message\Assistant\KnownFunctionCall;
+use Shanginn\Openai\ChatCompletion\Message\Assistant\UnknownFunctionCall;
 use Shanginn\Openai\ChatCompletion\Message\AssistantMessage;
 use Shanginn\Openai\ChatCompletion\Message\ToolMessage;
 use Shanginn\Openai\ChatCompletion\Message\UserMessage;
@@ -242,6 +244,7 @@ class AgenticWorkflow
                 memory: $responseMemory,
                 tools: AgenticToolset::RESPONSE_TOOLS,
                 skills: AgenticToolset::RESPONSE_SKILLS,
+                chatId: $this->input->chatId,
             );
 
             if ($response instanceof ErrorResponse) {
@@ -279,34 +282,46 @@ class AgenticWorkflow
                 return;
             }
 
-            $knownToolCalls = array_values(array_filter(
+            $executableToolCalls = array_values(array_filter(
                 $toolCalls,
-                static fn (object $toolCall): bool => $toolCall instanceof KnownFunctionCall,
+                static fn (object $toolCall): bool => $toolCall instanceof KnownFunctionCall
+                    || $toolCall instanceof UnknownFunctionCall,
             ));
 
-            if ($knownToolCalls === []) {
+            if ($executableToolCalls === []) {
                 continue;
             }
 
-            $assistantToolMessage = count($knownToolCalls) === count($toolCalls)
+            $assistantToolMessage = count($executableToolCalls) === count($toolCalls)
                 ? $assistantMessage
-                : AssistantMessage::withToolCalls($assistantMessage, $knownToolCalls);
+                : AssistantMessage::withToolCalls($assistantMessage, $executableToolCalls);
 
             $responseMemory[] = $assistantToolMessage;
             $this->workingMemory->add($assistantToolMessage);
-            $hasTerminalTelegramApiCall = false;
+            $hasTerminalUserNotification = false;
 
-            foreach ($knownToolCalls as $toolCall) {
-                $toolResult = yield $this->executeTool(
-                    toolName: $toolCall->tool,
-                    arguments: $toolCall->arguments,
-                );
+            foreach ($executableToolCalls as $toolCall) {
+                if ($toolCall instanceof KnownFunctionCall) {
+                    $toolResult = yield $this->executeTool(
+                        toolName: $toolCall->tool,
+                        arguments: $toolCall->arguments,
+                    );
 
-                if (
-                    $toolCall->arguments instanceof TelegramApiCall
-                    && TelegramApiCallExecutor::isTerminalMethod($toolCall->arguments->method)
-                ) {
-                    $hasTerminalTelegramApiCall = true;
+                    if (
+                        $toolCall->arguments instanceof TelegramApiCall
+                        && TelegramApiCallExecutor::isTerminalMethod($toolCall->arguments->method)
+                    ) {
+                        $hasTerminalUserNotification = true;
+                    }
+
+                    if ($toolCall->arguments instanceof UpsertRuntimeSkill) {
+                        $hasTerminalUserNotification = true;
+                    }
+                } else {
+                    $toolResult = yield $this->executeRuntimeTool(
+                        toolName: $toolCall->name,
+                        argumentsJson: $toolCall->arguments,
+                    );
                 }
 
                 $toolMessage = new ToolMessage(
@@ -324,7 +339,7 @@ class AgenticWorkflow
                 );
             }
 
-            if ($hasTerminalTelegramApiCall) {
+            if ($hasTerminalUserNotification) {
                 return;
             }
         }
@@ -498,6 +513,19 @@ class AgenticWorkflow
         return yield Workflow::executeActivity(
             $shortClassName . 'Executor.execute',
             [$this->input->chatId, $arguments],
+            options: ActivityOptions::new()
+                ->withStartToCloseTimeout(CarbonInterval::minute())
+                ->withRetryOptions(
+                    RetryOptions::new()->withNonRetryableExceptions([])
+                )
+        );
+    }
+
+    private function executeRuntimeTool(string $toolName, string $argumentsJson): Generator
+    {
+        return yield Workflow::executeActivity(
+            'RuntimeToolExecutor.execute',
+            [$this->input->chatId, $toolName, $argumentsJson],
             options: ActivityOptions::new()
                 ->withStartToCloseTimeout(CarbonInterval::minute())
                 ->withRetryOptions(

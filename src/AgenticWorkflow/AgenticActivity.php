@@ -10,6 +10,7 @@ use Bot\Entity\LlmProviderResponse\LlmProviderResponseRepository;
 use Bot\Entity\ParticipantMemory;
 use Bot\Entity\UpdateRecord;
 use Bot\Entity\UpdateRecord\UpdateRecordRepository;
+use Bot\Llm\Runtime\RuntimeCapabilityRegistry;
 use Bot\Llm\Skills\RelevantMemoriesSkill;
 use Bot\Llm\ProviderHistory\LlmProviderType;
 use Bot\Llm\Skills\SkillInterface;
@@ -48,6 +49,7 @@ class AgenticActivity
     private readonly DecisionAgent $decisionAgent;
     private readonly RelevantMemoriesAgent $relevantMemoriesAgent;
     private readonly ResponseAgent $responseAgent;
+    private readonly RuntimeCapabilityRegistry $runtimeCapabilities;
     private readonly SerializerInterface $telegramSerializer;
     private readonly OpenaiSerializerInterface $openaiSerializer;
 
@@ -76,6 +78,7 @@ class AgenticActivity
             $updateTransformer,
         );
         $this->responseAgent = new ResponseAgent($openai, $updateViewFactory, $updateTransformer);
+        $this->runtimeCapabilities = new RuntimeCapabilityRegistry($orm);
         $this->telegramSerializer = $telegramSerializer ?? new Serializer(new Factory());
         $this->openaiSerializer = $openaiSerializer ?? new CompatibleOpenaiSerializer();
     }
@@ -172,7 +175,13 @@ class AgenticActivity
         array $memory,
         array $tools = [],
         array $skills = [],
+        ?int $chatId = null,
     ): ErrorResponse|CompletionResponse {
+        if ($chatId !== null) {
+            $tools = $this->runtimeCapabilities->responseToolsForChat($chatId, $tools);
+            $skills = $this->runtimeCapabilities->responseSkillsForChat($chatId, $skills);
+        }
+
         return $this->responseAgent->respond(
             history: $memory,
             tools: $tools,

@@ -17,6 +17,10 @@ use Bot\Llm\Tools\Memory\ForgetMemory;
 use Bot\Llm\Tools\Memory\RecallMemory;
 use Bot\Llm\Tools\Memory\SaveMemory;
 use Bot\Llm\Tools\Memory\UpdateMemory;
+use Bot\Llm\Tools\Runtime\ListRuntimeCapabilities;
+use Bot\Llm\Tools\Runtime\SetRuntimeCapabilityStatus;
+use Bot\Llm\Tools\Runtime\UpsertRuntimeSkill;
+use Bot\Llm\Tools\Runtime\UpsertRuntimeTool;
 use Bot\Llm\Tools\Telegram\TelegramApiCall;
 use Bot\Llm\Tools\Telegram\TelegramApiSchema;
 
@@ -34,6 +38,10 @@ final class AgenticToolset
         GetCurrentTime::class,
         TelegramApiSchema::class,
         TelegramApiCall::class,
+        ListRuntimeCapabilities::class,
+        UpsertRuntimeSkill::class,
+        UpsertRuntimeTool::class,
+        SetRuntimeCapabilityStatus::class,
     ];
 
     /** @var array<class-string> */
@@ -69,6 +77,10 @@ final class AgenticToolset
         GetCurrentTime::class,
         TelegramApiSchema::class,
         TelegramApiCall::class,
+        ListRuntimeCapabilities::class,
+        UpsertRuntimeSkill::class,
+        UpsertRuntimeTool::class,
+        SetRuntimeCapabilityStatus::class,
     ];
 
     /** @var array<class-string> */

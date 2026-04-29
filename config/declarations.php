@@ -18,6 +18,11 @@ use Bot\Llm\Tools\Memory\ForgetMemoryExecutor;
 use Bot\Llm\Tools\Memory\RecallMemoryExecutor;
 use Bot\Llm\Tools\Memory\SaveMemoryExecutor;
 use Bot\Llm\Tools\Memory\UpdateMemoryExecutor;
+use Bot\Llm\Tools\Runtime\ListRuntimeCapabilitiesExecutor;
+use Bot\Llm\Tools\Runtime\RuntimeToolExecutor;
+use Bot\Llm\Tools\Runtime\SetRuntimeCapabilityStatusExecutor;
+use Bot\Llm\Tools\Runtime\UpsertRuntimeSkillExecutor;
+use Bot\Llm\Tools\Runtime\UpsertRuntimeToolExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiSchemaExecutor;
 use Bot\Memory\ParticipantMemoryStore;
@@ -125,6 +130,23 @@ return [
             TelegramApiCallExecutor::class => fn () => new TelegramApiCallExecutor(
                 client: $telegramClient,
                 serializer: $telegramSerializer,
+            ),
+            ListRuntimeCapabilitiesExecutor::class => fn () => new ListRuntimeCapabilitiesExecutor(
+                orm: $orm,
+            ),
+            UpsertRuntimeSkillExecutor::class => fn () => new UpsertRuntimeSkillExecutor(
+                orm: $orm,
+                api: $telegramApi,
+            ),
+            UpsertRuntimeToolExecutor::class => fn () => new UpsertRuntimeToolExecutor(
+                orm: $orm,
+            ),
+            SetRuntimeCapabilityStatusExecutor::class => fn () => new SetRuntimeCapabilityStatusExecutor(
+                orm: $orm,
+            ),
+            RuntimeToolExecutor::class => fn () => new RuntimeToolExecutor(
+                orm: $orm,
+                openai: $answerGenerationModel,
             ),
             ImageSkillActivity::class => fn () => new ImageSkillActivity($telegramApi),
         ],

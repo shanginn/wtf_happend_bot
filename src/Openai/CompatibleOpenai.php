@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Bot\Openai;
 
+use Bot\Llm\Runtime\RuntimeToolDefinition;
 use Shanginn\Openai\ChatCompletion\CompletionRequest;
 use Shanginn\Openai\ChatCompletion\CompletionRequest\ResponseFormat;
 use Shanginn\Openai\ChatCompletion\CompletionRequest\ResponseFormatEnum;
@@ -40,7 +41,7 @@ final class CompatibleOpenai extends BaseOpenai
      * @param ?int                                    $maxCompletionTokens
      * @param ?float                                  $frequencyPenalty
      * @param ToolChoice|null                         $toolChoice
-     * @param array<class-string<ToolInterface>>|null $tools
+     * @param array<class-string<ToolInterface>|RuntimeToolDefinition|array<string, mixed>>|null $tools
      * @param ?ResponseFormat                         $responseFormat
      * @param ?float                                  $topP
      * @param ?int                                    $seed
@@ -66,6 +67,8 @@ final class CompatibleOpenai extends BaseOpenai
             array_unshift($messages, new SystemMessage($system));
         }
 
+        $toolSet = $this->splitTools($tools);
+
         $request = new CompletionRequest(
             model: $this->model,
             messages: $messages,
@@ -77,11 +80,12 @@ final class CompatibleOpenai extends BaseOpenai
             responseFormat: $responseFormat,
             seed: $seed,
             topP: $topP,
-            tools: $tools,
+            tools: $toolSet['static'] === [] ? null : $toolSet['static'],
             toolChoice: $toolChoice,
         );
 
         $body = $this->serializer->serialize($request);
+        $body = $this->appendRawTools($body, $toolSet['raw']);
         if ($extraBody !== null && $extraBody !== []) {
             $bodyData = json_decode($body, associative: true, flags: \JSON_THROW_ON_ERROR);
             $body = json_encode(array_replace($bodyData, $extraBody), \JSON_THROW_ON_ERROR);
@@ -107,7 +111,11 @@ final class CompatibleOpenai extends BaseOpenai
         }
 
         /** @var CompletionResponse $response */
-        $response = $this->serializer->deserialize($responseJson, CompletionResponse::class, $tools);
+        $response = $this->serializer->deserialize(
+            $responseJson,
+            CompletionResponse::class,
+            $toolSet['static'] === [] ? null : $toolSet['static'],
+        );
 
         foreach ($response->choices as $index => $choice) {
             if (!$choice->message instanceof AssistantMessage) {
@@ -134,5 +142,69 @@ final class CompatibleOpenai extends BaseOpenai
         }
 
         return $response;
+    }
+
+    /**
+     * @param array<class-string<ToolInterface>|RuntimeToolDefinition|array<string, mixed>>|null $tools
+     * @return array{static: array<class-string<ToolInterface>>, raw: array<array<string, mixed>>}
+     */
+    private function splitTools(?array $tools): array
+    {
+        $staticTools = [];
+        $rawTools = [];
+
+        foreach ($tools ?? [] as $tool) {
+            if (is_string($tool) && is_a($tool, ToolInterface::class, true)) {
+                $staticTools[] = $tool;
+                continue;
+            }
+
+            if ($tool instanceof RuntimeToolDefinition) {
+                $rawTools[] = $tool->toOpenaiTool();
+                continue;
+            }
+
+            if (is_array($tool)) {
+                $rawTools[] = $tool;
+                continue;
+            }
+
+            throw new \InvalidArgumentException('Tool must be a ToolInterface class-string, RuntimeToolDefinition, or raw OpenAI tool schema array.');
+        }
+
+        if ((count($staticTools) + count($rawTools)) > 128) {
+            throw new \InvalidArgumentException('A max of 128 tools are supported.');
+        }
+
+        return [
+            'static' => $staticTools,
+            'raw' => $rawTools,
+        ];
+    }
+
+    /**
+     * @param array<array<string, mixed>> $rawTools
+     */
+    private function appendRawTools(string $body, array $rawTools): string
+    {
+        if ($rawTools === []) {
+            return $body;
+        }
+
+        $bodyData = json_decode($body, associative: true, flags: \JSON_THROW_ON_ERROR);
+        $existingTools = $bodyData['tools'] ?? [];
+        if (!is_array($existingTools)) {
+            $existingTools = [];
+        }
+
+        $bodyData['tools'] = [
+            ...$existingTools,
+            ...$rawTools,
+        ];
+
+        return json_encode(
+            $bodyData,
+            \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE,
+        );
     }
 }
