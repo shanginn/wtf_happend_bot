@@ -67,6 +67,7 @@ final class ResponseAgent extends AbstractAgent
             messages: $history,
             system: self::responseSystemPrompt($tools, $skills),
             tools: $tools,
+            extraBody: ['thinking' => ['type' => 'disabled']],
         );
     }
 }

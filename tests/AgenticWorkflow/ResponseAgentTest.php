@@ -37,12 +37,18 @@ class ResponseAgentTest extends TestCase
                 ?float $frequencyPenalty = null,
                 mixed $toolChoice = null,
                 ?array $tools = null,
+                mixed $responseFormat = null,
+                ?float $topP = null,
+                ?int $seed = null,
+                ?string $reasoningEffort = null,
+                ?array $extraBody = null,
             ) use ($history, $expectedResponse) {
                 $this->assertSame($history, $messages);
                 $this->assertIsString($system);
                 $this->assertStringContainsString('response agent', $system);
                 $this->assertStringContainsString('already decided that the bot should respond', $system);
                 $this->assertSame([GetCurrentTime::class], $tools);
+                $this->assertSame(['thinking' => ['type' => 'disabled']], $extraBody);
 
                 return $expectedResponse;
             });
