@@ -44,6 +44,8 @@ final class CompatibleOpenai extends BaseOpenai
      * @param ?ResponseFormat                         $responseFormat
      * @param ?float                                  $topP
      * @param ?int                                    $seed
+     * @param ?string                                 $reasoningEffort
+     * @param array<string, mixed>|null               $extraBody
      */
     public function completion(
         array $messages,
@@ -57,6 +59,8 @@ final class CompatibleOpenai extends BaseOpenai
         ?ResponseFormat $responseFormat = null,
         ?float $topP = null,
         ?int $seed = null,
+        ?string $reasoningEffort = null,
+        ?array $extraBody = null,
     ): CompletionResponse|ErrorResponse {
         if ($system !== null) {
             array_unshift($messages, new SystemMessage($system));
@@ -68,6 +72,7 @@ final class CompatibleOpenai extends BaseOpenai
             temperature: $temperature,
             maxTokens: $maxTokens,
             maxCompletionTokens: $maxCompletionTokens,
+            reasoningEffort: $reasoningEffort,
             frequencyPenalty: $frequencyPenalty,
             responseFormat: $responseFormat,
             seed: $seed,
@@ -77,6 +82,11 @@ final class CompatibleOpenai extends BaseOpenai
         );
 
         $body = $this->serializer->serialize($request);
+        if ($extraBody !== null && $extraBody !== []) {
+            $bodyData = json_decode($body, associative: true, flags: \JSON_THROW_ON_ERROR);
+            $body = json_encode(array_replace($bodyData, $extraBody), \JSON_THROW_ON_ERROR);
+        }
+
         $responseJson = $this->client->sendRequest('/chat/completions', $body);
         $responseData = json_decode($responseJson, associative: true);
 

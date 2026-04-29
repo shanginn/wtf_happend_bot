@@ -262,4 +262,48 @@ final class CompatibleOpenaiSerializerTest extends TestCase
         self::assertInstanceOf(KnownFunctionCall::class, $toolCall);
         self::assertSame(50, $toolCall->arguments->limit);
     }
+
+    public function testCompatibleOpenaiPassesReasoningEffortAndExtraBody(): void
+    {
+        $client = new class implements OpenaiClientInterface
+        {
+            public ?array $body = null;
+
+            public function sendRequest(string $method, string $json): string
+            {
+                $this->body = json_decode($json, true, flags: \JSON_THROW_ON_ERROR);
+
+                return json_encode([
+                    'id' => 'gen-3',
+                    'choices' => [[
+                        'index' => 0,
+                        'message' => [
+                            'role' => 'assistant',
+                            'content' => 'ok',
+                        ],
+                        'finish_reason' => 'stop',
+                    ]],
+                    'model' => 'qwen/qwen3.5-plus-20260216',
+                    'usage' => [
+                        'completion_tokens' => 1,
+                        'prompt_tokens' => 1,
+                        'total_tokens' => 2,
+                    ],
+                    'object' => 'chat.completion',
+                    'created' => 1776020161,
+                ], \JSON_THROW_ON_ERROR);
+            }
+        };
+
+        $openai = new CompatibleOpenai($client, 'qwen/qwen3.5-plus-20260216');
+        $response = $openai->completion(
+            messages: [new UserMessage('think')],
+            reasoningEffort: 'low',
+            extraBody: ['thinking' => ['type' => 'disabled']],
+        );
+
+        self::assertInstanceOf(CompletionResponse::class, $response);
+        self::assertSame('low', $client->body['reasoning_effort'] ?? null);
+        self::assertSame(['type' => 'disabled'], $client->body['thinking'] ?? null);
+    }
 }
