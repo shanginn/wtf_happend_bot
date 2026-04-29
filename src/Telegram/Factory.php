@@ -24,7 +24,6 @@ use Phenogram\Bindings\Types\Interfaces\PollInterface;
 use Phenogram\Bindings\Types\Interfaces\PreCheckoutQueryInterface;
 use Phenogram\Bindings\Types\Interfaces\ShippingQueryInterface;
 use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
-use Phenogram\Bindings\Types\Update;
 
 class Factory extends BaseFactory
 {
