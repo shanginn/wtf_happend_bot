@@ -24,6 +24,7 @@ use Temporal\Activity\ActivityOptions;
 use Temporal\Common\RetryOptions;
 use Temporal\DataConverter\Type;
 use Temporal\Internal\Workflow\ActivityProxy;
+use Temporal\Workflow\ContinueAsNewOptions;
 use Temporal\Workflow;
 use Temporal\Workflow\ReturnType;
 use Temporal\Workflow\WorkflowInterface;
@@ -40,6 +41,8 @@ class AgenticWorkflow
     private const int MAX_COMPACTION_RETRY_AFTER_SECONDS = 3600;
     private const int MAX_COMPACTION_FAILURES_BEFORE_DROP = 5;
     private const int MAX_UPDATES_BEFORE_CONTINUE = 100;
+    private const int WORKFLOW_TASK_TIMEOUT_SECONDS = 60;
+    private const int USE_SUGGESTED_CONTINUE_AS_NEW_VERSION = 2;
     private const int MAX_DECISION_STEPS = 3;
     private const int MAX_RESPONSE_STEPS = 15;
     private const int PIPELINE_BATCH_WINDOW_SECONDS = 5;
@@ -57,6 +60,7 @@ class AgenticWorkflow
     private int $processedCount = 0;
     private int $processedSinceContinueAsNew = 0;
     private int $typingIndicatorGeneration = 0;
+    private int $continueAsNewPolicyVersion = self::USE_SUGGESTED_CONTINUE_AS_NEW_VERSION;
 
     private WorkingMemory $workingMemory;
 
@@ -79,15 +83,31 @@ class AgenticWorkflow
         $this->compactionRetryAfter = $input->compactionRetryAfter;
         $this->consecutiveCompactionFailures = $input->consecutiveCompactionFailures;
         $this->pipelinePendingSince = $input->pipelinePendingSince;
+        foreach ($input->pendingUpdates as $pendingUpdate) {
+            $this->updatesQueue->push($pendingUpdate);
+        }
         $this->workingMemory = new WorkingMemory(
             memories: $input->workingMemory,
             compactedContext: $input->compactedContext,
         );
         $this->initializeCompactionClock();
+        $this->continueAsNewPolicyVersion = yield Workflow::getVersion(
+            'agentic-use-temporal-continue-as-new-suggestion',
+            1,
+            self::USE_SUGGESTED_CONTINUE_AS_NEW_VERSION,
+        );
 
         do {
+            if ($this->shouldContinueAsNew()) {
+                return yield from $this->continueAsNew();
+            }
+
             if ($this->updatesQueue->has()) {
                 yield from $this->ingestQueuedUpdates();
+
+                if ($this->shouldContinueAsNew()) {
+                    return yield from $this->continueAsNew();
+                }
             }
 
             if ($this->shouldCompactNow()) {
@@ -99,10 +119,6 @@ class AgenticWorkflow
                 yield from $this->runAgentLoop();
                 $this->pipelinePendingSince = 0;
                 continue;
-            }
-
-            if (!$this->hasPendingPipeline() && $this->shouldContinueAsNew()) {
-                return yield from $this->continueAsNew();
             }
 
             yield from $this->waitForUpdatesOrWorkflowDeadline();
@@ -683,7 +699,15 @@ class AgenticWorkflow
 
     private function shouldContinueAsNew(): bool
     {
-        return $this->processedSinceContinueAsNew >= self::MAX_UPDATES_BEFORE_CONTINUE;
+        return $this->shouldContinueAsNewForSuggestion(Workflow::getInfo()->shouldContinueAsNew);
+    }
+
+    private function shouldContinueAsNewForSuggestion(bool $suggested): bool
+    {
+        return (
+            $this->continueAsNewPolicyVersion >= self::USE_SUGGESTED_CONTINUE_AS_NEW_VERSION
+            && $suggested
+        ) || $this->processedSinceContinueAsNew >= self::MAX_UPDATES_BEFORE_CONTINUE;
     }
 
     private function continueAsNew(): Generator
@@ -698,11 +722,13 @@ class AgenticWorkflow
             compactionRetryAfter: $this->compactionRetryAfter,
             consecutiveCompactionFailures: $this->consecutiveCompactionFailures,
             pipelinePendingSince: $this->pipelinePendingSince,
+            pendingUpdates: $this->updatesQueue->all(),
         );
 
         return yield Workflow::continueAsNew(
             self::WORKFLOW_TYPE,
             [$input],
+            ContinueAsNewOptions::new()->withWorkflowTaskTimeout(CarbonInterval::seconds(self::WORKFLOW_TASK_TIMEOUT_SECONDS)),
         );
     }
 

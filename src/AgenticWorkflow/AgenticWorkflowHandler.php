@@ -7,6 +7,7 @@ namespace Bot\AgenticWorkflow;
 use Bot\AgenticWorkflow\AgenticWorkflow;
 use Bot\AgenticWorkflow\AgenticWorkflowInput;
 use Bot\Telegram\Update;
+use Carbon\CarbonInterval;
 use Temporal\Client\WorkflowClientInterface;
 use Temporal\Client\WorkflowOptions;
 use Temporal\Common\IdReusePolicy;
@@ -32,6 +33,7 @@ class AgenticWorkflowHandler
             AgenticWorkflow::class,
             options: new WorkflowOptions()
                 ->withWorkflowId($workflowId)
+                ->withWorkflowTaskTimeout(CarbonInterval::minute())
                 ->withWorkflowIdReusePolicy(IdReusePolicy::AllowDuplicate)
         );
 

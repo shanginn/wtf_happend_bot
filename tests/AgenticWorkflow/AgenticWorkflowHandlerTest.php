@@ -7,6 +7,7 @@ namespace Tests\AgenticWorkflow;
 use Bot\AgenticWorkflow\AgenticWorkflowHandler;
 use Bot\AgenticWorkflow\AgenticWorkflowInput;
 use Bot\Telegram\Update;
+use Carbon\CarbonInterval;
 use Mockery;
 use Phenogram\Bindings\Factories\ChatFactory;
 use Phenogram\Bindings\Factories\MessageFactory;
@@ -64,6 +65,7 @@ class AgenticWorkflowHandlerTest extends TestCase
             ->withArgs(function (string $class, WorkflowOptions $options): bool {
                 return $class === \Bot\AgenticWorkflow\AgenticWorkflow::class
                     && $options->workflowId === 'Chat -100123456 [Root]'
+                    && (int) CarbonInterval::instance($options->workflowTaskTimeout)->totalSeconds === 60
                     && $options->workflowIdReusePolicy === IdReusePolicy::AllowDuplicate->value;
             })
             ->andReturn($workflowStub);

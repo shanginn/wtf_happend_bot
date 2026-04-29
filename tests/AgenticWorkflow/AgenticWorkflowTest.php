@@ -55,6 +55,43 @@ class AgenticWorkflowTest extends TestCase
         self::assertSame(3600, $method->invoke(null, 10));
     }
 
+    /**
+     * @return iterable<string, array{suggested: bool, processedSinceContinueAsNew: int, expected: bool}>
+     */
+    public static function continueAsNewCases(): iterable
+    {
+        yield 'not suggested and below local limit' => [false, 99, false];
+        yield 'local update limit reached' => [false, 100, true];
+        yield 'temporal suggests continue as new' => [true, 0, true];
+    }
+
+    #[DataProvider('continueAsNewCases')]
+    public function testContinueAsNewUsesTemporalSuggestion(
+        bool $suggested,
+        int $processedSinceContinueAsNew,
+        bool $expected,
+    ): void {
+        $reflection = new ReflectionClass(AgenticWorkflow::class);
+        $workflow = $reflection->newInstanceWithoutConstructor();
+        $reflection->getProperty('processedSinceContinueAsNew')->setValue($workflow, $processedSinceContinueAsNew);
+
+        $method = new ReflectionMethod(AgenticWorkflow::class, 'shouldContinueAsNewForSuggestion');
+
+        self::assertSame($expected, $method->invoke($workflow, $suggested));
+    }
+
+    public function testContinueAsNewSuggestionIsVersionedForExistingHistories(): void
+    {
+        $reflection = new ReflectionClass(AgenticWorkflow::class);
+        $workflow = $reflection->newInstanceWithoutConstructor();
+        $reflection->getProperty('processedSinceContinueAsNew')->setValue($workflow, 0);
+        $reflection->getProperty('continueAsNewPolicyVersion')->setValue($workflow, 1);
+
+        $method = new ReflectionMethod(AgenticWorkflow::class, 'shouldContinueAsNewForSuggestion');
+
+        self::assertFalse($method->invoke($workflow, true));
+    }
+
     public function testDecisionMemoryToolResultsAreRememberedWithoutRespondDecision(): void
     {
         $reflection = new ReflectionClass(AgenticWorkflow::class);
