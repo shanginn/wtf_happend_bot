@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "46f3d9db1a5bd0d4c4029aa2a1b0b835",
+    "content-hash": "bf1e08cd01beaab3b8d334a98971ec5e",
     "packages": [
         {
             "name": "amphp/amp",
@@ -3171,16 +3171,16 @@
         },
         {
             "name": "phenogram/bindings",
-            "version": "6.3.0",
+            "version": "7.0.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phenogram/bindings.git",
-                "reference": "d00baf28e6ced09cb740eb4d7e0bc6cd66c46e9a"
+                "reference": "d00b83576fa6b4aba4ee8240bb8fe605c70c075c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phenogram/bindings/zipball/d00baf28e6ced09cb740eb4d7e0bc6cd66c46e9a",
-                "reference": "d00baf28e6ced09cb740eb4d7e0bc6cd66c46e9a",
+                "url": "https://api.github.com/repos/phenogram/bindings/zipball/d00b83576fa6b4aba4ee8240bb8fe605c70c075c",
+                "reference": "d00b83576fa6b4aba4ee8240bb8fe605c70c075c",
                 "shasum": ""
             },
             "require": {
@@ -3213,29 +3213,29 @@
             "description": "Zero deps low level type-safe PHP bindings for the Telegram Bot API",
             "support": {
                 "issues": "https://github.com/phenogram/bindings/issues",
-                "source": "https://github.com/phenogram/bindings/tree/6.3.0"
+                "source": "https://github.com/phenogram/bindings/tree/7.0.0"
             },
-            "time": "2026-04-27T17:31:36+00:00"
+            "time": "2026-04-29T06:04:39+00:00"
         },
         {
             "name": "phenogram/framework",
-            "version": "5.4.0",
+            "version": "6.0.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phenogram/framework.git",
-                "reference": "d00b03c8d8c9c9397fb8b866d59d9b1bf3fd145d"
+                "reference": "d00bf56e649590a01e8fa88acf002ce91b6dec3e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phenogram/framework/zipball/d00b03c8d8c9c9397fb8b866d59d9b1bf3fd145d",
-                "reference": "d00b03c8d8c9c9397fb8b866d59d9b1bf3fd145d",
+                "url": "https://api.github.com/repos/phenogram/framework/zipball/d00bf56e649590a01e8fa88acf002ce91b6dec3e",
+                "reference": "d00bf56e649590a01e8fa88acf002ce91b6dec3e",
                 "shasum": ""
             },
             "require": {
                 "amphp/amp": "^3.0",
                 "amphp/file": "^3.1",
                 "amphp/http-client": "^5.1",
-                "phenogram/bindings": "^6",
+                "phenogram/bindings": "^7",
                 "php": "^8.4",
                 "psr-discovery/log-implementations": "^1.0",
                 "psr/container": "^2.0",
@@ -3269,9 +3269,9 @@
             "description": "Telegram bot API framework",
             "support": {
                 "issues": "https://github.com/phenogram/framework/issues",
-                "source": "https://github.com/phenogram/framework/tree/5.4.0"
+                "source": "https://github.com/phenogram/framework/tree/6.0.0"
             },
-            "time": "2026-02-11T14:53:18+00:00"
+            "time": "2026-04-29T06:08:33+00:00"
         },
         {
             "name": "phpdocumentor/reflection-common",

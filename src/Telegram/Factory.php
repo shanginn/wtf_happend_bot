@@ -14,6 +14,7 @@ use Phenogram\Bindings\Types\Interfaces\ChatJoinRequestInterface;
 use Phenogram\Bindings\Types\Interfaces\ChatMemberUpdatedInterface;
 use Phenogram\Bindings\Types\Interfaces\ChosenInlineResultInterface;
 use Phenogram\Bindings\Types\Interfaces\InlineQueryInterface;
+use Phenogram\Bindings\Types\Interfaces\ManagedBotUpdatedInterface;
 use Phenogram\Bindings\Types\Interfaces\MessageInterface;
 use Phenogram\Bindings\Types\Interfaces\MessageReactionCountUpdatedInterface;
 use Phenogram\Bindings\Types\Interfaces\MessageReactionUpdatedInterface;
@@ -23,6 +24,7 @@ use Phenogram\Bindings\Types\Interfaces\PollInterface;
 use Phenogram\Bindings\Types\Interfaces\PreCheckoutQueryInterface;
 use Phenogram\Bindings\Types\Interfaces\ShippingQueryInterface;
 use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
+use Phenogram\Bindings\Types\Update;
 
 class Factory extends BaseFactory
 {
@@ -51,6 +53,7 @@ class Factory extends BaseFactory
         ?ChatJoinRequestInterface $chatJoinRequest,
         ?ChatBoostUpdatedInterface $chatBoost,
         ?ChatBoostRemovedInterface $removedChatBoost,
+        ?ManagedBotUpdatedInterface $managedBot,
     ): UpdateInterface {
         return new Update(
             updateId: $updateId,
@@ -77,6 +80,7 @@ class Factory extends BaseFactory
             chatJoinRequest: $chatJoinRequest,
             chatBoost: $chatBoost,
             removedChatBoost: $removedChatBoost,
+            managedBot: $managedBot,
         );
     }
 }
