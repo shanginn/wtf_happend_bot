@@ -4479,16 +4479,16 @@
         },
         {
             "name": "shanginn/openai-sdk",
-            "version": "2.0.1-beta",
+            "version": "2.0.2-beta",
             "source": {
                 "type": "git",
                 "url": "https://github.com/shanginn/openai-sdk-php.git",
-                "reference": "d00b7293df1c9a3a7be24507e94ebc158cfdecd9"
+                "reference": "d00b7fe685572caf1d23964aa26f7cd535e20f72"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/shanginn/openai-sdk-php/zipball/d00b7293df1c9a3a7be24507e94ebc158cfdecd9",
-                "reference": "d00b7293df1c9a3a7be24507e94ebc158cfdecd9",
+                "url": "https://api.github.com/repos/shanginn/openai-sdk-php/zipball/d00b7fe685572caf1d23964aa26f7cd535e20f72",
+                "reference": "d00b7fe685572caf1d23964aa26f7cd535e20f72",
                 "shasum": ""
             },
             "require": {
@@ -4524,9 +4524,9 @@
             ],
             "support": {
                 "issues": "https://github.com/shanginn/openai-sdk-php/issues",
-                "source": "https://github.com/shanginn/openai-sdk-php/tree/2.0.1-beta"
+                "source": "https://github.com/shanginn/openai-sdk-php/tree/2.0.2-beta"
             },
-            "time": "2026-04-29T05:53:28+00:00"
+            "time": "2026-04-29T06:27:16+00:00"
         },
         {
             "name": "spiral/attributes",

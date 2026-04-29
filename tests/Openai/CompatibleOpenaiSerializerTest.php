@@ -169,6 +169,45 @@ final class CompatibleOpenaiSerializerTest extends TestCase
         self::assertSame('{"foo":"bar"}', $toolCall->arguments);
     }
 
+    public function testDeserializeAndSerializePreservesReasoningContent(): void
+    {
+        $serializer = new CompatibleOpenaiSerializer();
+
+        $response = $serializer->deserialize(
+            serialized: json_encode([
+                'id' => 'gen-thinking-1',
+                'choices' => [[
+                    'index' => 0,
+                    'message' => [
+                        'role' => 'assistant',
+                        'content' => 'Visible answer',
+                        'reasoning_content' => 'Thinking state required for replay',
+                    ],
+                    'finish_reason' => 'stop',
+                ]],
+                'model' => 'qwen/qwen3.5-plus-20260216',
+                'usage' => [
+                    'completion_tokens' => 90,
+                    'prompt_tokens' => 8617,
+                    'total_tokens' => 8707,
+                ],
+                'object' => 'chat.completion',
+                'created' => 1776020161,
+            ], \JSON_THROW_ON_ERROR),
+            to: CompletionResponse::class,
+        );
+
+        $message = $response->choices[0]->message;
+
+        self::assertInstanceOf(AssistantMessage::class, $message);
+        self::assertSame('Thinking state required for replay', $message->reasoningContent);
+
+        $serialized = $serializer->serialize($message);
+        $decoded = json_decode($serialized, true, flags: \JSON_THROW_ON_ERROR);
+
+        self::assertSame('Thinking state required for replay', $decoded['reasoning_content'] ?? null);
+    }
+
     public function testDeserializeToolCallAcceptsSnakeCaseArgumentAliases(): void
     {
         $serializer = new CompatibleOpenaiSerializer();
