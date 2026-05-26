@@ -87,7 +87,7 @@ class AgenticWorkflow
             $this->updatesQueue->push($pendingUpdate);
         }
         $this->workingMemory = new WorkingMemory(
-            memories: $input->workingMemory,
+            memories: $input->getWorkingMemory(),
             compactedContext: $input->compactedContext,
         );
         $this->initializeCompactionClock();
@@ -715,7 +715,7 @@ class AgenticWorkflow
         $input = new AgenticWorkflowInput(
             chatId: $this->input->chatId,
             processedCount: $this->processedCount,
-            workingMemory: $this->workingMemory->get(),
+            workingMemory: AgenticWorkflowInput::serializeWorkingMemory($this->workingMemory->get()),
             compactedContext: $this->workingMemory->getCompactedContext(),
             lastActivityAt: $this->lastActivityAt,
             lastCompactionAt: $this->lastCompactionAt,

@@ -17,6 +17,9 @@ use Shanginn\Openai\ChatCompletion\Message\Assistant\KnownFunctionCall;
 use Shanginn\Openai\ChatCompletion\Message\AssistantMessage;
 use Shanginn\Openai\ChatCompletion\Message\ToolMessage;
 use Shanginn\Openai\ChatCompletion\Message\UserMessage;
+use Temporal\Api\Common\V1\Payload;
+use Temporal\DataConverter\DataConverter;
+use Temporal\DataConverter\EncodingKeys;
 use Tests\TestCase;
 
 class AgenticWorkflowTest extends TestCase
@@ -99,6 +102,113 @@ class AgenticWorkflowTest extends TestCase
         unset($input->pendingUpdates);
 
         self::assertSame([], $input->getPendingUpdates());
+    }
+
+    public function testWorkingMemorySurvivesTemporalJsonRoundTrip(): void
+    {
+        $toolCall = new KnownFunctionCall(
+            id: 'call_decision',
+            tool: RespondDecision::class,
+            arguments: new RespondDecision(
+                overview: 'The bot should answer.',
+                shouldRespond: true,
+            ),
+        );
+        $input = new AgenticWorkflowInput(
+            chatId: -100123,
+            workingMemory: [
+                new UserMessage('бот, что случилось?'),
+                new AssistantMessage(toolCalls: [$toolCall]),
+                new ToolMessage('Should respond.', 'call_decision'),
+            ],
+        );
+
+        $converter = DataConverter::createDefault();
+        $roundTripped = $converter->fromPayload(
+            $converter->toPayload($input),
+            AgenticWorkflowInput::class,
+        );
+
+        self::assertInstanceOf(AgenticWorkflowInput::class, $roundTripped);
+        $memory = $roundTripped->getWorkingMemory();
+
+        self::assertCount(3, $memory);
+        self::assertInstanceOf(UserMessage::class, $memory[0]);
+        self::assertInstanceOf(AssistantMessage::class, $memory[1]);
+        self::assertInstanceOf(ToolMessage::class, $memory[2]);
+        self::assertInstanceOf(KnownFunctionCall::class, $memory[1]->toolCalls[0]);
+        self::assertInstanceOf(RespondDecision::class, $memory[1]->toolCalls[0]->arguments);
+        self::assertTrue($memory[1]->toolCalls[0]->arguments->shouldRespond);
+        self::assertSame('call_decision', $memory[2]->toolCallId);
+    }
+
+    public function testLegacyTemporalWorkingMemoryPayloadIsHydrated(): void
+    {
+        $payload = new Payload();
+        $payload->setMetadata([
+            EncodingKeys::METADATA_ENCODING_KEY => EncodingKeys::METADATA_ENCODING_JSON,
+        ]);
+        $payload->setData(json_encode([
+            'chatId' => -100123,
+            'processedCount' => 3,
+            'workingMemory' => [
+                [
+                    'role' => 'user',
+                    'content' => 'hello',
+                    'name' => null,
+                ],
+                [
+                    'role' => [
+                        'name' => 'ASSISTANT',
+                        'value' => 'assistant',
+                    ],
+                    'content' => null,
+                    'name' => null,
+                    'refusal' => null,
+                    'reasoningContent' => null,
+                    'toolCalls' => [
+                        [
+                            'type' => 'function',
+                            'id' => 'call_decision',
+                            'tool' => RespondDecision::class,
+                            'arguments' => [
+                                'overview' => 'The bot should answer.',
+                                'shouldRespond' => true,
+                            ],
+                        ],
+                    ],
+                ],
+                [
+                    'role' => [
+                        'name' => 'TOOL',
+                        'value' => 'tool',
+                    ],
+                    'content' => 'Should respond.',
+                    'toolCallId' => 'call_decision',
+                ],
+            ],
+            'compactedContext' => '',
+            'lastActivityAt' => 0,
+            'lastCompactionAt' => 0,
+            'compactionRetryAfter' => 0,
+            'consecutiveCompactionFailures' => 0,
+            'pipelinePendingSince' => 0,
+            'pendingUpdates' => [],
+        ], \JSON_THROW_ON_ERROR));
+
+        $input = DataConverter::createDefault()->fromPayload($payload, AgenticWorkflowInput::class);
+
+        self::assertInstanceOf(AgenticWorkflowInput::class, $input);
+        $memory = $input->getWorkingMemory();
+
+        self::assertCount(3, $memory);
+        self::assertInstanceOf(UserMessage::class, $memory[0]);
+        self::assertInstanceOf(AssistantMessage::class, $memory[1]);
+        self::assertInstanceOf(ToolMessage::class, $memory[2]);
+        self::assertInstanceOf(KnownFunctionCall::class, $memory[1]->toolCalls[0]);
+        self::assertInstanceOf(RespondDecision::class, $memory[1]->toolCalls[0]->arguments);
+        self::assertTrue($memory[1]->toolCalls[0]->arguments->shouldRespond);
+        self::assertSame('call_decision', $memory[2]->toolCallId);
     }
 
     public function testDecisionMemoryToolResultsAreRememberedWithoutRespondDecision(): void
