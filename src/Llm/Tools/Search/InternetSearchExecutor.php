@@ -18,12 +18,12 @@ class InternetSearchExecutor
     public function __construct(
         ?SearxngSearchClient $client = null,
         ?string $baseUrl = null,
-        int $timeoutSeconds = 10,
+        ?int $timeoutSeconds = null,
     ) {
         $baseUrl ??= getenv('SEARCH_BASE_URL') ?: self::DEFAULT_BASE_URL;
         $this->client = $client ?? new SearxngSearchClient(
             baseUrl: $baseUrl,
-            timeoutSeconds: $timeoutSeconds,
+            timeoutSeconds: $timeoutSeconds ?? 10,
         );
     }
 

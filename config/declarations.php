@@ -127,8 +127,8 @@ return [
                 orm: $orm,
             ),
             InternetSearchExecutor::class => fn () => new InternetSearchExecutor(
-                baseUrl: $config->searchBaseUrl,
-                timeoutSeconds: $config->searchTimeoutSeconds,
+                baseUrl: $config->searchBaseUrl ?? null,
+                timeoutSeconds: $config->searchTimeoutSeconds ?? null,
             ),
             GetCurrentTimeExecutor::class => fn () => new GetCurrentTimeExecutor(),
             TelegramApiSchemaExecutor::class => fn () => new TelegramApiSchemaExecutor(),

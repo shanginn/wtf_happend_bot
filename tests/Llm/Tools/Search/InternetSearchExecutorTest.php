@@ -90,6 +90,21 @@ class InternetSearchExecutorTest extends TestCase
 
         self::assertSame('Internet search failed: SearXNG returned HTTP 403.', $result);
     }
+
+    public function testExecutorDefaultsNullTimeout(): void
+    {
+        $executor = new InternetSearchExecutor(
+            client: null,
+            baseUrl: 'http://searxng.test',
+            timeoutSeconds: null,
+        );
+
+        $reflection = new \ReflectionClass($executor);
+        $client = $reflection->getProperty('client')->getValue($executor);
+        $clientReflection = new \ReflectionClass($client);
+
+        self::assertSame(10, $clientReflection->getProperty('timeoutSeconds')->getValue($client));
+    }
 }
 
 final class FakeSearxngHttpClient implements SearxngHttpClientInterface
