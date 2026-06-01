@@ -9,8 +9,11 @@ services:
       - .:/app
     depends_on:
       - db
+      - searxng
     environment:
       - TEMPORAL_CLI_ADDRESS=host.docker.internal:7233
+      - SEARCH_BASE_URL=${SEARCH_BASE_URL:-http://searxng:8080}
+      - SEARCH_TIMEOUT_SECONDS=${SEARCH_TIMEOUT_SECONDS:-10}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     entrypoint: ["php", "src/bot.php"]
@@ -25,11 +28,14 @@ services:
       - .:/app
     depends_on:
       - db
+      - searxng
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
       - SKIP_MIGRATIONS=true
       - TEMPORAL_CLI_ADDRESS=host.docker.internal:7233
+      - SEARCH_BASE_URL=${SEARCH_BASE_URL:-http://searxng:8080}
+      - SEARCH_TIMEOUT_SECONDS=${SEARCH_TIMEOUT_SECONDS:-10}
     entrypoint: ["/usr/local/bin/rr", "serve", "-c", "/app/.rr.yaml", "-w", "/app"]
 
   db:
@@ -49,6 +55,18 @@ services:
       test: [ 'CMD', 'pg_isready', '-q', '-d', '${DB_DATABASE}', '-U', '${DB_USERNAME}' ]
       retries: 3
       timeout: 5s
+
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
+    ports:
+      - "38080:8080"
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:38080/
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-local-searxng-secret-change-me}
+      - FORCE_OWNERSHIP=false
+    volumes:
+      - ./config/searxng:/etc/searxng:ro
 
 volumes:
   wtfhappendbot-pgsql:

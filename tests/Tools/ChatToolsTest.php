@@ -7,6 +7,7 @@ namespace Tests\Tools;
 use Bot\Llm\Tools\Chat\CreatePoll;
 use Bot\Llm\Tools\Chat\GetCurrentTime;
 use Bot\Llm\Tools\Chat\SearchMessages;
+use Bot\Llm\Tools\Search\InternetSearch;
 use Tests\TestCase;
 
 class ChatToolsTest extends TestCase
@@ -39,6 +40,48 @@ class ChatToolsTest extends TestCase
     public function testSearchMessagesDescription(): void
     {
         self::assertStringContainsString('Search', SearchMessages::getDescription());
+    }
+
+    // --- InternetSearch ---
+
+    public function testInternetSearchConstruction(): void
+    {
+        $tool = new InternetSearch(
+            query: 'SearXNG JSON API',
+            limit: 3,
+            timeRange: 'month',
+            language: 'en',
+            categories: 'general,news',
+            safeSearch: 2,
+        );
+
+        self::assertSame('SearXNG JSON API', $tool->query);
+        self::assertSame(3, $tool->limit);
+        self::assertSame('month', $tool->timeRange);
+        self::assertSame('en', $tool->language);
+        self::assertSame('general,news', $tool->categories);
+        self::assertSame(2, $tool->safeSearch);
+    }
+
+    public function testInternetSearchDefaults(): void
+    {
+        $tool = new InternetSearch(query: 'latest php release');
+
+        self::assertSame(5, $tool->limit);
+        self::assertNull($tool->timeRange);
+        self::assertSame('auto', $tool->language);
+        self::assertSame('general', $tool->categories);
+        self::assertSame(1, $tool->safeSearch);
+    }
+
+    public function testInternetSearchToolName(): void
+    {
+        self::assertSame('internet_search', InternetSearch::getName());
+    }
+
+    public function testInternetSearchDescription(): void
+    {
+        self::assertStringContainsString('public internet', InternetSearch::getDescription());
     }
 
     // --- GetCurrentTime ---

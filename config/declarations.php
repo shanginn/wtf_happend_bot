@@ -23,6 +23,7 @@ use Bot\Llm\Tools\Runtime\RuntimeToolExecutor;
 use Bot\Llm\Tools\Runtime\SetRuntimeCapabilityStatusExecutor;
 use Bot\Llm\Tools\Runtime\UpsertRuntimeSkillExecutor;
 use Bot\Llm\Tools\Runtime\UpsertRuntimeToolExecutor;
+use Bot\Llm\Tools\Search\InternetSearchExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiSchemaExecutor;
 use Bot\Memory\ParticipantMemoryStore;
@@ -124,6 +125,10 @@ return [
             ),
             SearchMessagesExecutor::class => fn () => new SearchMessagesExecutor(
                 orm: $orm,
+            ),
+            InternetSearchExecutor::class => fn () => new InternetSearchExecutor(
+                baseUrl: $config->searchBaseUrl,
+                timeoutSeconds: $config->searchTimeoutSeconds,
             ),
             GetCurrentTimeExecutor::class => fn () => new GetCurrentTimeExecutor(),
             TelegramApiSchemaExecutor::class => fn () => new TelegramApiSchemaExecutor(),

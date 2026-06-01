@@ -53,13 +53,15 @@ src/
 
 ## Skills
 
-The bot has three main skill areas:
+The bot has four main skill areas:
 
 1. **Summarization Skill**: Generates concise summaries of chat conversations, identifying distinct threads and key points.
 
 2. **Question Answering Skill**: Answers specific questions about chat history with contextual insights.
 
 3. **Memory Management Skill**: Saves, recalls, corrects, and forgets durable participant memories using explicit memory tools.
+
+4. **Internet Search Tool**: Searches the public web through the bundled SearXNG JSON API tool when the bot needs current or external information.
 
 ## Setup
 
@@ -89,6 +91,11 @@ TELEGRAM_BOT_TOKEN=your_bot_token
 DEEPSEEK_API_KEY=your_deepseek_api_key
 TEMPORAL_CLI_ADDRESS=localhost:7233
 
+# Internet search
+SEARCH_BASE_URL=http://searxng:8080
+SEARCH_TIMEOUT_SECONDS=10
+SEARXNG_SECRET=change-me-local-searxng-secret
+
 # Database
 DB_HOST=db
 DB_PORT=5432
@@ -102,7 +109,7 @@ DB_PASSWORD=postgres
 #### Local Development (Docker Compose)
 
 ```bash
-# Start all services (bot, worker, temporal, db)
+# Start all services (bot, worker, db, searxng)
 docker compose up -d
 
 # View logs
@@ -139,6 +146,7 @@ Required GitHub secrets:
 - `TELEGRAM_BOT_TOKEN`
 - `DEEPSEEK_API_KEY`
 - `DB_PASSWORD`
+- `SEARXNG_SECRET`
 
 ```bash
 # Deploy using Helm
@@ -152,6 +160,13 @@ helm upgrade wtf-happend-bot --namespace=wtfhappendbot -f values.yaml .
 - Ask for summaries: "What happened in the chat?"
 - Ask questions: "What did @user say about X?"
 - Ask about saved memories, corrections, or deletion: "What do you remember about me?", "Update that", "Forget my editor preference"
+- Ask about current or external information: "Search the web for the latest PHP 8.4 release notes"
+
+## Internet Search
+
+Local Docker Compose starts a private `searxng` service and points the bot and worker at `SEARCH_BASE_URL=http://searxng:8080`. The SearXNG settings in `config/searxng/settings.yml` enable JSON output, which is required by the bot's `internet_search` tool.
+
+The SearXNG web UI is exposed locally at `http://localhost:38080` for manual checks. In Kubernetes, the Helm chart creates a separate SearXNG Deployment and ClusterIP Service, then points the bot and worker at that service.
 
 ## Migration from Deterministic Handlers
 

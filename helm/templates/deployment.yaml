@@ -44,6 +44,10 @@ spec:
                 configMapKeyRef:
                   name: {{ include "app.fullname" . }}-env
                   key: TEMPORAL_CLI_ADDRESS
+            {{- if .Values.searxng.enabled }}
+            - name: SEARCH_BASE_URL
+              value: "http://{{ include "app.searxngName" . }}:8080"
+            {{- end }}
           command: ["php", "src/bot.php"]
         - name: worker
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -68,6 +72,10 @@ spec:
                 configMapKeyRef:
                   name: {{ include "app.fullname" . }}-env
                   key: TEMPORAL_CLI_ADDRESS
+            {{- if .Values.searxng.enabled }}
+            - name: SEARCH_BASE_URL
+              value: "http://{{ include "app.searxngName" . }}:8080"
+            {{- end }}
           command: ["/usr/local/bin/rr", "serve", "-c", "/app/.rr.yaml", "-w", "/app"]
       volumes:
         - name: php-config

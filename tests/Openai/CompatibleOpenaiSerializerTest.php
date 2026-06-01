@@ -6,6 +6,7 @@ namespace Tests\Openai;
 
 use Bot\Llm\Tools\Chat\SearchMessages;
 use Bot\Llm\Tools\Memory\ForgetMemory;
+use Bot\Llm\Tools\Search\InternetSearch;
 use Bot\Llm\Tools\Telegram\TelegramApiCall;
 use Bot\Llm\Runtime\RuntimeToolDefinition;
 use Bot\Openai\CompatibleOpenai;
@@ -272,6 +273,51 @@ final class CompatibleOpenaiSerializerTest extends TestCase
         self::assertSame('@alice', $toolCall->arguments->userIdentifier);
         self::assertSame('deploys', $toolCall->arguments->query);
         self::assertTrue($toolCall->arguments->forgetAllForParticipant);
+    }
+
+    public function testDeserializeInternetSearchToolCallAcceptsSnakeCaseArguments(): void
+    {
+        $serializer = new CompatibleOpenaiSerializer();
+
+        $response = $serializer->deserialize(
+            serialized: json_encode([
+                'id' => 'gen-search-1',
+                'choices' => [[
+                    'index' => 0,
+                    'message' => [
+                        'role' => 'assistant',
+                        'tool_calls' => [[
+                            'id' => 'call_search_1',
+                            'type' => 'function',
+                            'function' => [
+                                'name' => 'internet_search',
+                                'arguments' => '{"query":"SearXNG JSON API","limit":"7","time_range":"month","safe_search":"2"}',
+                            ],
+                        ]],
+                    ],
+                    'finish_reason' => 'tool_calls',
+                ]],
+                'model' => 'qwen/qwen3.5-plus-20260216',
+                'usage' => [
+                    'completion_tokens' => 90,
+                    'prompt_tokens' => 8617,
+                    'total_tokens' => 8707,
+                ],
+                'object' => 'chat.completion',
+                'created' => 1776020161,
+            ], \JSON_THROW_ON_ERROR),
+            to: CompletionResponse::class,
+            tools: [InternetSearch::class],
+        );
+
+        $toolCall = $response->choices[0]->message->toolCalls[0] ?? null;
+
+        self::assertInstanceOf(KnownFunctionCall::class, $toolCall);
+        self::assertSame(InternetSearch::class, $toolCall->tool);
+        self::assertSame('SearXNG JSON API', $toolCall->arguments->query);
+        self::assertSame(7, $toolCall->arguments->limit);
+        self::assertSame('month', $toolCall->arguments->timeRange);
+        self::assertSame(2, $toolCall->arguments->safeSearch);
     }
 
     public function testCompatibleOpenaiReturnsKnownToolCallForStringifiedScalarArguments(): void

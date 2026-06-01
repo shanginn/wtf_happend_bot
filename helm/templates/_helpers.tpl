@@ -6,6 +6,13 @@ Expand the name of the chart.
 {{- end }}
 
 {{/*
+Create the SearXNG service/deployment name.
+*/}}
+{{- define "app.searxngName" -}}
+{{- printf "%s-searxng" (include "app.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
 Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 If release name contains chart name it will be used as a full name.

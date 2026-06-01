@@ -21,6 +21,7 @@ use Bot\Llm\Tools\Runtime\ListRuntimeCapabilities;
 use Bot\Llm\Tools\Runtime\SetRuntimeCapabilityStatus;
 use Bot\Llm\Tools\Runtime\UpsertRuntimeSkill;
 use Bot\Llm\Tools\Runtime\UpsertRuntimeTool;
+use Bot\Llm\Tools\Search\InternetSearch;
 use Bot\Llm\Tools\Telegram\TelegramApiCall;
 use Bot\Llm\Tools\Telegram\TelegramApiSchema;
 
@@ -34,6 +35,7 @@ final class AgenticToolset
         UpdateMemory::class,
         ForgetMemory::class,
         SearchMessages::class,
+        InternetSearch::class,
         CreatePoll::class,
         GetCurrentTime::class,
         TelegramApiSchema::class,
@@ -74,6 +76,7 @@ final class AgenticToolset
         UpdateMemory::class,
         ForgetMemory::class,
         SearchMessages::class,
+        InternetSearch::class,
         GetCurrentTime::class,
         TelegramApiSchema::class,
         TelegramApiCall::class,

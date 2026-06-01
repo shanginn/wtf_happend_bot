@@ -1,0 +1,64 @@
+{{- if .Values.searxng.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "app.searxngName" . }}
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+    service: searxng
+spec:
+  replicas: {{ .Values.searxng.replicas }}
+  selector:
+    matchLabels:
+      {{- include "app.selectorLabels" . | nindent 6 }}
+      service: searxng
+  template:
+    metadata:
+      labels:
+        {{- include "app.selectorLabels" . | nindent 8 }}
+        service: searxng
+    spec:
+      containers:
+        - name: searxng
+          image: "{{ .Values.searxng.image }}"
+          imagePullPolicy: {{ .Values.searxng.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: SEARXNG_BASE_URL
+              value: "http://{{ include "app.searxngName" . }}:8080/"
+            - name: SEARXNG_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "app.fullname" . }}-secret
+                  key: SEARXNG_SECRET
+            - name: FORCE_OWNERSHIP
+              value: "false"
+          volumeMounts:
+            - name: searxng-config
+              mountPath: /etc/searxng/settings.yml
+              subPath: settings.yml
+              readOnly: true
+      volumes:
+        - name: searxng-config
+          configMap:
+            name: {{ include "app.fullname" . }}-searxng-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "app.searxngName" . }}
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+    service: searxng
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+  selector:
+    {{- include "app.selectorLabels" . | nindent 4 }}
+    service: searxng
+{{- end }}
