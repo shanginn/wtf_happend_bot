@@ -43,8 +43,8 @@ class AgenticWorkflow
     private const int MAX_UPDATES_BEFORE_CONTINUE = 100;
     private const int WORKFLOW_TASK_TIMEOUT_SECONDS = 60;
     private const int USE_SUGGESTED_CONTINUE_AS_NEW_VERSION = 2;
-    private const int MAX_DECISION_STEPS = 3;
-    private const int MAX_RESPONSE_STEPS = 15;
+    private const int MAX_DECISION_STEPS = 5;
+    private const int MAX_RESPONSE_STEPS = 50;
     private const int PIPELINE_BATCH_WINDOW_SECONDS = 5;
     private const int TYPING_ACTION_REFRESH_INTERVAL_SECONDS = 4;
 
