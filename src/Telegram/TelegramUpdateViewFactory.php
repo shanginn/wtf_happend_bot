@@ -99,6 +99,18 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
             return $this->resolveUserReference($update->callbackQuery->from);
         }
 
+        if ($update->shippingQuery !== null) {
+            return $this->resolveUserReference($update->shippingQuery->from);
+        }
+
+        if ($update->preCheckoutQuery !== null) {
+            return $this->resolveUserReference($update->preCheckoutQuery->from);
+        }
+
+        if ($update->purchasedPaidMedia !== null) {
+            return $this->resolveUserReference($update->purchasedPaidMedia->from);
+        }
+
         return null;
     }
 
@@ -119,6 +131,33 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
 
             if ($update->callbackQuery->message !== null) {
                 $lines[] = 'Message id: ' . $update->callbackQuery->message->messageId;
+            }
+
+            return implode("\n", $lines);
+        }
+
+        if ($update->shippingQuery !== null) {
+            $query = $update->shippingQuery;
+            $lines[] = 'Kind: shipping query';
+            $lines[] = 'From: ' . $this->describeUser($query->from);
+            $lines[] = 'Query id: ' . $query->id;
+            $lines[] = 'Invoice payload: ' . $query->invoicePayload;
+            $lines[] = 'Shipping address: ' . $this->describeShippingAddress($query->shippingAddress);
+
+            return implode("\n", $lines);
+        }
+
+        if ($update->preCheckoutQuery !== null) {
+            $query = $update->preCheckoutQuery;
+            $lines[] = 'Kind: pre-checkout query';
+            $lines[] = 'From: ' . $this->describeUser($query->from);
+            $lines[] = 'Query id: ' . $query->id;
+            $lines[] = 'Currency: ' . $query->currency;
+            $lines[] = 'Total amount: ' . $query->totalAmount;
+            $lines[] = 'Invoice payload: ' . $query->invoicePayload;
+
+            if ($query->shippingOptionId !== null) {
+                $lines[] = 'Shipping option id: ' . $query->shippingOptionId;
             }
 
             return implode("\n", $lines);
@@ -228,6 +267,55 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
             if ($pollExplanation !== null) {
                 $blocks[] = ['label' => 'Poll explanation', 'value' => $pollExplanation];
             }
+        }
+
+        return [...$blocks, ...$this->collectPaymentBlocks($message)];
+    }
+
+    /**
+     * @return list<array{label: string, value: string}>
+     */
+    private function collectPaymentBlocks(MessageInterface $message): array
+    {
+        $blocks = [];
+
+        if ($message->invoice !== null) {
+            $blocks[] = [
+                'label' => 'Invoice',
+                'value' => implode("\n", [
+                    'Title: ' . $message->invoice->title,
+                    'Description: ' . $message->invoice->description,
+                    'Currency: ' . $message->invoice->currency,
+                    'Total amount: ' . $message->invoice->totalAmount,
+                    'Start parameter: ' . $message->invoice->startParameter,
+                ]),
+            ];
+        }
+
+        if ($message->successfulPayment !== null) {
+            $blocks[] = [
+                'label' => 'Successful payment',
+                'value' => implode("\n", [
+                    'Currency: ' . $message->successfulPayment->currency,
+                    'Total amount: ' . $message->successfulPayment->totalAmount,
+                    'Invoice payload: ' . $message->successfulPayment->invoicePayload,
+                    'Telegram charge id: ' . $message->successfulPayment->telegramPaymentChargeId,
+                    'Provider charge id: ' . $message->successfulPayment->providerPaymentChargeId,
+                ]),
+            ];
+        }
+
+        if ($message->refundedPayment !== null) {
+            $blocks[] = [
+                'label' => 'Refunded payment',
+                'value' => implode("\n", [
+                    'Currency: ' . $message->refundedPayment->currency,
+                    'Total amount: ' . $message->refundedPayment->totalAmount,
+                    'Invoice payload: ' . $message->refundedPayment->invoicePayload,
+                    'Telegram charge id: ' . $message->refundedPayment->telegramPaymentChargeId,
+                    'Provider charge id: ' . ($message->refundedPayment->providerPaymentChargeId ?? 'none'),
+                ]),
+            ];
         }
 
         return $blocks;
@@ -402,6 +490,18 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
             $events[] = 'pinned a message';
         }
 
+        if ($message->invoice !== null) {
+            $events[] = $verb . ' an invoice';
+        }
+
+        if ($message->successfulPayment !== null) {
+            $events[] = 'completed a successful payment';
+        }
+
+        if ($message->refundedPayment !== null) {
+            $events[] = 'recorded a refunded payment';
+        }
+
         if ($message->story !== null) {
             $events[] = $verb . ' a forwarded story';
         }
@@ -529,6 +629,18 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
         }
 
         return $identity . ' (' . implode(', ', $details) . ')';
+    }
+
+    private function describeShippingAddress(object $address): string
+    {
+        return implode(', ', array_filter([
+            $address->streetLine1 ?? null,
+            $address->streetLine2 ?? null,
+            $address->city ?? null,
+            $address->state ?? null,
+            $address->postCode ?? null,
+            $address->countryCode ?? null,
+        ], static fn (?string $part): bool => $part !== null && trim($part) !== ''));
     }
 
     /**

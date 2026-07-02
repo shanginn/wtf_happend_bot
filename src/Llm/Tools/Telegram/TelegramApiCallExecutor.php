@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Bot\Llm\Tools\Telegram;
 
+use Bot\Telegram\InvoiceWorkflowPayload;
 use Phenogram\Bindings\ClientInterface;
 use Phenogram\Bindings\Serializer;
 use Phenogram\Bindings\SerializerInterface;
@@ -98,6 +99,13 @@ class TelegramApiCallExecutor
             $parameters['chatId'] = $chatId;
         }
 
+        if ($this->isInvoiceCreationMethod($method->getName())) {
+            $parameters['payload'] = InvoiceWorkflowPayload::encode(
+                chatId: $chatId,
+                payload: is_scalar($parameters['payload'] ?? null) ? (string) $parameters['payload'] : '',
+            );
+        }
+
         $missing = [];
         foreach ($parameterMap as $name => $parameter) {
             if ($parameter->isDefaultValueAvailable() || $parameter->allowsNull()) {
@@ -119,6 +127,11 @@ class TelegramApiCallExecutor
         }
 
         return $parameters;
+    }
+
+    private function isInvoiceCreationMethod(string $method): bool
+    {
+        return $method === 'sendInvoice' || $method === 'createInvoiceLink';
     }
 
     private function formatResponse(string $method, ResponseInterface $response): string

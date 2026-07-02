@@ -68,7 +68,7 @@ $bot
 $bot
     ->addHandler(function (UpdateInterface $update, TelegramBot $bot) use ($agenticWorkflowHandler) {
         assert($update instanceof Update);
-        $agenticWorkflowHandler->handleUpdate($update);
+        $agenticWorkflowHandler->handleUpdate($update)?->send($bot->api);
     })
     ->supports(static fn (UpdateInterface $update): bool => !ClearCommandHandler::supports($update));
 

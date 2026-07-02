@@ -8,6 +8,7 @@ use Bot\Llm\Tools\Telegram\TelegramApiCall;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiSchema;
 use Bot\Llm\Tools\Telegram\TelegramApiSchemaExecutor;
+use Bot\Telegram\InvoiceWorkflowPayload;
 use Phenogram\Bindings\ClientInterface;
 use Phenogram\Bindings\Types\Response;
 use Phenogram\Bindings\Types\Interfaces\ResponseInterface;
@@ -80,6 +81,64 @@ class TelegramApiExecutorsTest extends TestCase
             'disable_notification' => true,
             'chat_id' => -100123,
         ], $client->data);
+    }
+
+    public function testCallExecutorRoutesSendInvoicePayloadToCurrentWorkflow(): void
+    {
+        $client = new RecordingTelegramClient(new Response(
+            ok: true,
+            result: ['message_id' => 400],
+        ));
+        $executor = new TelegramApiCallExecutor($client);
+
+        $executor->execute(
+            -100123,
+            new TelegramApiCall(
+                method: 'sendInvoice',
+                parameters: [
+                    'title' => 'Demo',
+                    'description' => 'On the fly invoice',
+                    'payload' => 'order-42',
+                    'currency' => 'XTR',
+                    'prices' => [['label' => 'Demo', 'amount' => 1]],
+                ],
+            ),
+        );
+
+        self::assertSame('sendInvoice', $client->method);
+        self::assertIsString($client->data['payload']);
+
+        $route = InvoiceWorkflowPayload::decode($client->data['payload']);
+
+        self::assertNotNull($route);
+        self::assertSame(-100123, $route->chatId);
+        self::assertSame('order-42', $route->originalPayload);
+        self::assertLessThanOrEqual(128, strlen($client->data['payload']));
+    }
+
+    public function testCallExecutorCanCreateInvoiceWithoutCallerProvidedPayload(): void
+    {
+        $client = new RecordingTelegramClient(new Response(
+            ok: true,
+            result: ['message_id' => 401],
+        ));
+        $executor = new TelegramApiCallExecutor($client);
+
+        $executor->execute(
+            -100123,
+            new TelegramApiCall(
+                method: 'sendInvoice',
+                parameters: [
+                    'title' => 'Demo',
+                    'description' => 'On the fly invoice',
+                    'currency' => 'XTR',
+                    'prices' => [['label' => 'Demo', 'amount' => 1]],
+                ],
+            ),
+        );
+
+        self::assertSame('sendInvoice', $client->method);
+        self::assertNotNull(InvoiceWorkflowPayload::decode($client->data['payload']));
     }
 
     public function testCallExecutorRejectsUnknownParameterBeforeNetworkCall(): void

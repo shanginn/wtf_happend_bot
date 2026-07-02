@@ -11,6 +11,8 @@ use Bot\Llm\Tools\Runtime\UpsertRuntimeSkill;
 use Bot\Llm\Tools\Runtime\UpsertRuntimeTool;
 use Bot\Llm\Tools\Telegram\TelegramApiCall;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
+use Bot\Telegram\PaymentQueryAnswer;
+use Bot\Telegram\Update;
 use Carbon\CarbonInterval;
 use Generator;
 use Shanginn\Openai\ChatCompletion\ErrorResponse;
@@ -27,6 +29,7 @@ use Temporal\Internal\Workflow\ActivityProxy;
 use Temporal\Workflow\ContinueAsNewOptions;
 use Temporal\Workflow;
 use Temporal\Workflow\ReturnType;
+use Temporal\Workflow\UpdateMethod;
 use Temporal\Workflow\WorkflowInterface;
 use Temporal\Workflow\WorkflowMethod;
 
@@ -34,6 +37,7 @@ use Temporal\Workflow\WorkflowMethod;
 class AgenticWorkflow
 {
     public const string WORKFLOW_TYPE = 'AgenticWorkflow';
+    public const string PAYMENT_UPDATE_NAME = 'handlePaymentUpdate';
 
     private const int COMPACTION_INTERVAL_SECONDS = 86400;
     private const int IDLE_COMPACTION_AFTER_SECONDS = 3600;
@@ -399,6 +403,7 @@ class AgenticWorkflow
             "Current Telegram API target context:\n"
             . "- current chat_id: {$this->input->chatId}\n"
             . "- When using telegram_api_call for this chat, omit chat_id/chatId and the tool will inject it.\n"
+            . "- When creating invoices with sendInvoice/createInvoiceLink, invoice payload routing is injected automatically so payment updates return to this workflow.\n"
             . "- Use telegram_api_schema if you need exact Telegram Bot API method signatures."
         );
 
@@ -780,6 +785,34 @@ class AgenticWorkflow
     public function addUpdate($update): void
     {
         $this->updatesQueue->push($update);
+    }
+
+    #[UpdateMethod(name: self::PAYMENT_UPDATE_NAME)]
+    #[ReturnType(Type::TYPE_ARRAY)]
+    public function handlePaymentUpdate(Update $update): array
+    {
+        $this->updatesQueue->push($update);
+
+        if ($update->preCheckoutQuery !== null) {
+            return [
+                'action' => PaymentQueryAnswer::ACTION_PRE_CHECKOUT,
+                'query_id' => $update->preCheckoutQuery->id,
+                'ok' => true,
+                'error_message' => null,
+            ];
+        }
+
+        if ($update->shippingQuery !== null) {
+            return [
+                'action' => PaymentQueryAnswer::ACTION_SHIPPING,
+                'query_id' => $update->shippingQuery->id,
+                'ok' => false,
+                'shipping_options' => null,
+                'error_message' => 'Для этого инвойса не настроены варианты доставки.',
+            ];
+        }
+
+        return ['action' => PaymentQueryAnswer::ACTION_NONE];
     }
 
     #[Workflow\QueryMethod]

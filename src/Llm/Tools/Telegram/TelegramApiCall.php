@@ -10,7 +10,7 @@ use Spiral\JsonSchemaGenerator\Attribute\Field;
 
 #[OpenaiToolSchema(
     name: 'telegram_api_call',
-    description: 'Call any Telegram Bot API method exposed by the installed Phenogram ApiInterface. Use telegram_api_schema first if you are unsure about a method signature. Parameters may be camelCase or snake_case; chat_id is injected for the current chat when the method accepts it and you omit it.',
+    description: 'Call any Telegram Bot API method exposed by the installed Phenogram ApiInterface. Use telegram_api_schema first if you are unsure about a method signature. Parameters may be camelCase or snake_case; chat_id is injected for the current chat when the method accepts it and you omit it. Invoice payloads for sendInvoice/createInvoiceLink are routed back to the current workflow automatically.',
 )]
 class TelegramApiCall extends AbstractTool
 {
@@ -23,7 +23,7 @@ class TelegramApiCall extends AbstractTool
 
         #[Field(
             title: 'parameters',
-            description: 'JSON object with method parameters. Use either Telegram snake_case keys or Phenogram camelCase keys. Omit chat_id/chatId to target the current chat when the method has a chatId parameter.'
+            description: 'JSON object with method parameters. Use either Telegram snake_case keys or Phenogram camelCase keys. Omit chat_id/chatId to target the current chat when the method has a chatId parameter. For sendInvoice/createInvoiceLink, payload may be omitted unless you need a short original payload preserved in the routing token.'
         )]
         public readonly array $parameters = [],
     ) {}

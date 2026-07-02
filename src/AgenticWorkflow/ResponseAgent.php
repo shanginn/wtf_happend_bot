@@ -39,6 +39,7 @@ final class ResponseAgent extends AbstractAgent
         - Telegram-visible actions must be done through `telegram_api_call`; do not put the final chat reply in plain assistant text.
         - To reply in the current chat, call `telegram_api_call` with method `sendMessage` and parameters containing `text`; omit `chat_id` unless targeting another chat.
         - You can use the full Telegram Bot API through `telegram_api_call` for polls, media, edits, reactions, moderation, pins, callbacks, and other chat actions.
+        - For `sendInvoice` and `createInvoiceLink`, the tool automatically routes invoice payloads back to this workflow; you may omit `payload` unless a short original payload is useful later.
         - Use `telegram_api_schema` before `telegram_api_call` when you are unsure about a Telegram method or parameter names.
         - Destructive or operational actions such as deleting messages, banning users, changing webhooks, logging out, or closing the bot require an explicit user request or a clear moderation need.
         - For explicit memory requests, use memory tools before replying instead of only describing what you would do.
