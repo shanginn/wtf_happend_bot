@@ -25,6 +25,13 @@ use Temporal\Activity\ActivityMethod;
 #[ActivityInterface(prefix: 'SearchMessagesExecutor.')]
 class SearchMessagesExecutor
 {
+    private const int MAX_RESULTS = 30;
+    private const int RECENT_WINDOW_MIN = 50;
+    private const int SEARCH_CANDIDATE_MULTIPLIER = 10;
+    private const int SEARCH_CANDIDATE_LIMIT_PER_SOURCE = 300;
+    private const int SNIPPET_RADIUS = 220;
+    private const int MAX_SNIPPET_CHARS = 520;
+
     private readonly SerializerInterface $telegramSerializer;
     private readonly TelegramUpdateViewFactoryInterface $updateViewFactory;
     private readonly OpenaiSerializerInterface $openaiSerializer;
@@ -48,15 +55,33 @@ class SearchMessagesExecutor
         /** @var \Bot\Entity\LlmProviderResponse\LlmProviderResponseRepository $responseRepo */
         $responseRepo = $this->orm->getRepository(LlmProviderResponse::class);
 
-        $limit = max(1, min($schema->limit, 300));
+        $limit = max(1, min($schema->limit, self::MAX_RESULTS));
         $query = mb_strtolower(trim($schema->query));
+        $queryTokens = self::queryTokens($query);
         $username = $schema->username === null ? null : ltrim(mb_strtolower(trim($schema->username)), '@');
-        $window = $query === '' ? max($limit, 50) : 300;
+        $window = max($limit, self::RECENT_WINDOW_MIN);
 
-        $items = [
-            ...$this->loadUpdateItems($updateRepo->findLastN($chatId, $window)),
-            ...$this->loadAssistantItems($responseRepo->findLastNByChat($chatId, LlmProviderType::Openai, $window)),
-        ];
+        if ($query === '') {
+            $items = [
+                ...$this->loadUpdateItems($updateRepo->findLastN($chatId, $window)),
+                ...$this->loadAssistantItems($responseRepo->findLastNByChat($chatId, LlmProviderType::Openai, $window)),
+            ];
+        } else {
+            $candidateLimit = min(
+                self::SEARCH_CANDIDATE_LIMIT_PER_SOURCE,
+                max($limit * self::SEARCH_CANDIDATE_MULTIPLIER, $limit),
+            );
+
+            $items = [
+                ...$this->loadUpdateItems($updateRepo->searchByPayloadText($chatId, $queryTokens, $candidateLimit)),
+                ...$this->loadAssistantItems($responseRepo->searchByPayloadText(
+                    $chatId,
+                    LlmProviderType::Openai,
+                    $queryTokens,
+                    $candidateLimit,
+                )),
+            ];
+        }
 
         usort(
             $items,
@@ -80,9 +105,17 @@ class SearchMessagesExecutor
                 . '.';
         }
 
-        $selected = array_column(array_slice($matches, -$limit), 'text');
+        $selectedItems = array_slice($matches, -$limit);
+        $selected = $query === ''
+            ? array_column($selectedItems, 'text')
+            : array_map(
+                fn (array $item): string => $this->formatSearchResult($item, $queryTokens),
+                $selectedItems,
+            );
 
-        $header = $query === '' ? 'Recent chat history' : 'Relevant chat history';
+        $header = $query === ''
+            ? 'Recent chat history'
+            : 'Relevant chat history (searched full persisted chat history; showing latest compact matches)';
 
         return $header . "\n\n" . implode("\n\n---\n\n", $selected);
     }
@@ -198,12 +231,88 @@ class SearchMessagesExecutor
             return true;
         }
 
-        foreach (preg_split('/\s+/', $query) ?: [] as $token) {
+        foreach (self::queryTokens($query) as $token) {
             if ($token !== '' && !str_contains($searchable, $token)) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function queryTokens(string $query): array
+    {
+        $tokens = preg_split('/\s+/', mb_strtolower(trim($query))) ?: [];
+
+        return array_values(array_filter(
+            $tokens,
+            static fn (string $token): bool => $token !== '',
+        ));
+    }
+
+    /**
+     * @param array{createdAt: int, participant: ?string, text: string} $item
+     * @param list<string> $queryTokens
+     */
+    private function formatSearchResult(array $item, array $queryTokens): string
+    {
+        $participant = $item['participant'];
+        if ($participant === null || $participant === '') {
+            $participant = 'unknown';
+        }
+
+        return sprintf(
+            "[%s] %s: %s",
+            date('Y-m-d H:i:s', $item['createdAt']),
+            $participant,
+            $this->snippet($item['text'], $queryTokens),
+        );
+    }
+
+    /**
+     * @param list<string> $queryTokens
+     */
+    private function snippet(string $text, array $queryTokens): string
+    {
+        $normalized = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+        if ($normalized === '') {
+            return '';
+        }
+
+        $position = null;
+        foreach ($queryTokens as $token) {
+            $tokenPosition = mb_stripos($normalized, $token);
+            if ($tokenPosition === false) {
+                continue;
+            }
+
+            $position = $position === null ? $tokenPosition : min($position, $tokenPosition);
+        }
+
+        if ($position === null) {
+            return $this->truncateAround($normalized, 0);
+        }
+
+        return $this->truncateAround($normalized, max(0, $position - self::SNIPPET_RADIUS));
+    }
+
+    private function truncateAround(string $text, int $start): string
+    {
+        $length = mb_strlen($text);
+        $start = min($start, max(0, $length - self::MAX_SNIPPET_CHARS));
+        $snippet = mb_substr($text, $start, self::MAX_SNIPPET_CHARS);
+
+        if ($start > 0) {
+            $snippet = '... ' . ltrim($snippet);
+        }
+
+        if ($start + self::MAX_SNIPPET_CHARS < $length) {
+            $snippet = rtrim($snippet) . ' ...';
+        }
+
+        return $snippet;
     }
 }

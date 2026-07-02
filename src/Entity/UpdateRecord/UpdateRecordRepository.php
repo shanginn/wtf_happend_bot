@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Bot\Entity\UpdateRecord;
 
 use Bot\Entity\UpdateRecord;
+use Cycle\Database\Injection\Fragment;
 use Cycle\ORM\EntityManagerInterface;
 use Cycle\ORM\Select;
 use Cycle\ORM\Select\Repository;
@@ -61,6 +62,31 @@ final class UpdateRecordRepository extends Repository
     {
         return $this->select()
             ->where('chatId', $chatId)
+            ->orderBy('createdAt', 'DESC')
+            ->orderBy('updateId', 'DESC')
+            ->limit($limit)
+            ->fetchAll();
+    }
+
+    /**
+     * Search all persisted Telegram updates in a chat and return only the newest DB-level candidates.
+     *
+     * @param list<string> $tokens
+     * @return array<UpdateRecord>
+     */
+    public function searchByPayloadText(int $chatId, array $tokens, int $limit): array
+    {
+        $query = $this->select()
+            ->where('chatId', $chatId);
+
+        foreach ($tokens as $token) {
+            $query = $query->where(new Fragment(
+                '("update")::jsonb::text ILIKE ? ESCAPE \'!\'',
+                self::likePattern($token),
+            ));
+        }
+
+        return $query
             ->orderBy('createdAt', 'DESC')
             ->orderBy('updateId', 'DESC')
             ->limit($limit)
@@ -126,5 +152,14 @@ final class UpdateRecordRepository extends Repository
     public function exists(int $updateId): bool
     {
         return $this->select()->wherePK($updateId)->count() > 0;
+    }
+
+    private static function likePattern(string $token): string
+    {
+        return '%' . strtr($token, [
+            '!' => '!!',
+            '%' => '!%',
+            '_' => '!_',
+        ]) . '%';
     }
 }

@@ -10,7 +10,7 @@ use Spiral\JsonSchemaGenerator\Attribute\Field;
 
 #[OpenaiToolSchema(
     name: 'search_messages',
-    description: 'Search through persisted chat history, including user messages and bot replies. Use a query to find specific older messages, or leave the query empty to load recent chat history. Use username "bot" or "assistant" to filter bot replies.',
+    description: 'Search all persisted chat history for a non-empty query, including user messages and bot replies, and return compact latest matches. Leave the query empty only to load recent chat history. Use username "bot" or "assistant" to filter bot replies.',
 )]
 class SearchMessages extends AbstractTool
 {

@@ -6,6 +6,7 @@ namespace Bot\Entity\LlmProviderResponse;
 
 use Bot\Entity\LlmProviderResponse;
 use Bot\Llm\ProviderHistory\LlmProviderType;
+use Cycle\Database\Injection\Fragment;
 use Cycle\ORM\EntityManagerInterface;
 use Cycle\ORM\Select;
 use Cycle\ORM\Select\Repository;
@@ -41,6 +42,34 @@ final class LlmProviderResponseRepository extends Repository
     }
 
     /**
+     * Search all persisted provider responses in a chat and return only the newest DB-level candidates.
+     *
+     * @param list<string> $tokens
+     * @return array<LlmProviderResponse>
+     */
+    public function searchByPayloadText(int $chatId, LlmProviderType $type, array $tokens, int $limit): array
+    {
+        $query = $this->select()
+            ->where('chatId', $chatId)
+            ->where('type', $type);
+
+        foreach ($tokens as $token) {
+            $query = $query->where(new Fragment(
+                '(payload)::jsonb::text ILIKE ? ESCAPE \'!\'',
+                self::likePattern($token),
+            ));
+        }
+
+        $records = $query
+            ->orderBy('createdAt', 'DESC')
+            ->orderBy('id', 'DESC')
+            ->limit($limit)
+            ->fetchAll();
+
+        return array_reverse($records);
+    }
+
+    /**
      * @return array<LlmProviderResponse>
      */
     public function findLastN(int $chatId, ?int $topicId, LlmProviderType $type, int $limit): array
@@ -67,5 +96,14 @@ final class LlmProviderResponseRepository extends Repository
         $this->em->persist($record);
 
         $run && $this->em->run();
+    }
+
+    private static function likePattern(string $token): string
+    {
+        return '%' . strtr($token, [
+            '!' => '!!',
+            '%' => '!%',
+            '_' => '!_',
+        ]) . '%';
     }
 }

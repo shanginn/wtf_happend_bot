@@ -65,7 +65,33 @@ class ChatExecutorsTest extends TestCase
 
             public function findLastN(int $chatId, int $limit): array
             {
-                return $this->records;
+                return array_slice($this->records, 0, $limit);
+            }
+
+            public function searchByPayloadText(int $chatId, array $tokens, int $limit): array
+            {
+                $records = array_values(array_filter(
+                    $this->records,
+                    static function (UpdateRecord $record) use ($tokens): bool {
+                        $payload = mb_strtolower($record->update);
+
+                        foreach ($tokens as $token) {
+                            if (!str_contains($payload, $token)) {
+                                return false;
+                            }
+                        }
+
+                        return true;
+                    },
+                ));
+
+                usort(
+                    $records,
+                    static fn (UpdateRecord $left, UpdateRecord $right): int => [$right->createdAt, $right->updateId]
+                        <=> [$left->createdAt, $left->updateId],
+                );
+
+                return array_slice($records, 0, $limit);
             }
 
             public function findByPK(mixed $id): ?object
@@ -124,7 +150,33 @@ class ChatExecutorsTest extends TestCase
 
             public function findLastNByChat(int $chatId, LlmProviderType $type, int $limit): array
             {
-                return $this->records;
+                return array_slice($this->records, 0, $limit);
+            }
+
+            public function searchByPayloadText(int $chatId, LlmProviderType $type, array $tokens, int $limit): array
+            {
+                $records = array_values(array_filter(
+                    $this->records,
+                    static function (LlmProviderResponse $record) use ($tokens): bool {
+                        $payload = mb_strtolower($record->payload);
+
+                        foreach ($tokens as $token) {
+                            if (!str_contains($payload, $token)) {
+                                return false;
+                            }
+                        }
+
+                        return true;
+                    },
+                ));
+
+                usort(
+                    $records,
+                    static fn (LlmProviderResponse $left, LlmProviderResponse $right): int => [$right->createdAt, $right->id]
+                        <=> [$left->createdAt, $left->id],
+                );
+
+                return array_reverse(array_slice($records, 0, $limit));
             }
 
             public function findByPK(mixed $id): ?object
@@ -193,6 +245,25 @@ class ChatExecutorsTest extends TestCase
         self::assertStringContainsString('deploy plan is ready', $result);
         self::assertStringNotContainsString('deploy failed on staging', $result);
         self::assertStringNotContainsString('random chat', $result);
+    }
+
+    public function testSearchMessagesExecutorSearchesBeyondRecentWindowWhenQueryIsPresent(): void
+    {
+        $chatId = -100123;
+        $records = [];
+
+        for ($i = 400; $i >= 101; --$i) {
+            $records[] = $this->makeUpdateRecord($i, $chatId, 'recent filler ' . $i, $i, 'alice');
+        }
+
+        $records[] = $this->makeUpdateRecord(1, $chatId, 'ancient deploy decision', 1, 'bob');
+
+        $executor = new SearchMessagesExecutor($this->makeOrm($this->makeUpdateRepo($records)));
+        $result = $executor->execute($chatId, new SearchMessages(query: 'ancient deploy', limit: 5));
+
+        self::assertStringContainsString('Relevant chat history', $result);
+        self::assertStringContainsString('ancient deploy decision', $result);
+        self::assertStringNotContainsString('recent filler', $result);
     }
 
     public function testSearchMessagesExecutorIgnoresTopicAndSearchesWholeChat(): void
