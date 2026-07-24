@@ -31,11 +31,17 @@ class AgenticWorkflowInput
         public int $pipelinePendingSince = 0,
         #[MarshalArray(of: Update::class)]
         public array $pendingUpdates = [],
+        public bool $paused = false,
     ) {}
 
     public function getPendingUpdates(): array
     {
         return isset($this->pendingUpdates) ? $this->pendingUpdates : [];
+    }
+
+    public function isPaused(): bool
+    {
+        return isset($this->paused) && $this->paused;
     }
 
     /**

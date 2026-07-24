@@ -3,8 +3,9 @@
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use Bot\Entity;
-use Bot\Handler\SaveUpdateHandler;
 use Bot\Handler\ClearCommandHandler;
+use Bot\Handler\SaveUpdateHandler;
+use Bot\Handler\WorkflowControlCommandHandler;
 use Bot\AgenticWorkflow\AgenticWorkflowHandler;
 use Bot\Telegram\Factory;
 use Bot\Telegram\Update;
@@ -60,17 +61,23 @@ $agenticWorkflowHandler = new AgenticWorkflowHandler(
 //    ->supports($saveUpdateHandler::supports(...));
 
 $clearCommandHandler = new ClearCommandHandler($workflowClient);
+$workflowControlCommandHandler = new WorkflowControlCommandHandler($workflowClient);
 
 $bot
     ->addHandler($clearCommandHandler)
     ->supports($clearCommandHandler::supports(...));
 
 $bot
+    ->addHandler($workflowControlCommandHandler)
+    ->supports($workflowControlCommandHandler::supports(...));
+
+$bot
     ->addHandler(function (UpdateInterface $update, TelegramBot $bot) use ($agenticWorkflowHandler) {
         assert($update instanceof Update);
         $agenticWorkflowHandler->handleUpdate($update)?->send($bot->api);
     })
-    ->supports(static fn (UpdateInterface $update): bool => !ClearCommandHandler::supports($update));
+    ->supports(static fn (UpdateInterface $update): bool => !ClearCommandHandler::supports($update)
+        && !WorkflowControlCommandHandler::supports($update));
 
 $pressedCtrlC = false;
 $gracefulShutdown = function (int $signal) use ($bot, &$pressedCtrlC, $em): void {

@@ -38,6 +38,8 @@ class AgenticWorkflow
 {
     public const string WORKFLOW_TYPE = 'AgenticWorkflow';
     public const string PAYMENT_UPDATE_NAME = 'handlePaymentUpdate';
+    public const string PAUSE_SIGNAL_NAME = 'pause';
+    public const string RESUME_SIGNAL_NAME = 'resume';
 
     private const int COMPACTION_INTERVAL_SECONDS = 86400;
     private const int IDLE_COMPACTION_AFTER_SECONDS = 3600;
@@ -65,6 +67,7 @@ class AgenticWorkflow
     private int $processedSinceContinueAsNew = 0;
     private int $typingIndicatorGeneration = 0;
     private int $continueAsNewPolicyVersion = self::USE_SUGGESTED_CONTINUE_AS_NEW_VERSION;
+    private bool $paused = false;
 
     private WorkingMemory $workingMemory;
 
@@ -87,6 +90,7 @@ class AgenticWorkflow
         $this->compactionRetryAfter = $input->compactionRetryAfter;
         $this->consecutiveCompactionFailures = $input->consecutiveCompactionFailures;
         $this->pipelinePendingSince = $input->pipelinePendingSince;
+        $this->paused = $input->isPaused();
         foreach ($input->getPendingUpdates() as $pendingUpdate) {
             $this->updatesQueue->push($pendingUpdate);
         }
@@ -102,6 +106,11 @@ class AgenticWorkflow
         );
 
         do {
+            if ($this->paused) {
+                yield Workflow::await(fn (): bool => !$this->paused);
+                continue;
+            }
+
             if ($this->shouldContinueAsNew()) {
                 return yield from $this->continueAsNew();
             }
@@ -599,7 +608,8 @@ class AgenticWorkflow
 
     private function shouldRunPipelineAt(int $now): bool
     {
-        return $this->hasPendingPipeline()
+        return !$this->paused
+            && $this->hasPendingPipeline()
             && ($now - $this->pipelinePendingSince) >= self::PIPELINE_BATCH_WINDOW_SECONDS;
     }
 
@@ -728,6 +738,7 @@ class AgenticWorkflow
             consecutiveCompactionFailures: $this->consecutiveCompactionFailures,
             pipelinePendingSince: $this->pipelinePendingSince,
             pendingUpdates: $this->updatesQueue->all(),
+            paused: $this->paused,
         );
 
         return yield Workflow::continueAsNew(
@@ -787,6 +798,18 @@ class AgenticWorkflow
         $this->updatesQueue->push($update);
     }
 
+    #[Workflow\SignalMethod(name: self::PAUSE_SIGNAL_NAME)]
+    public function pause(): void
+    {
+        $this->paused = true;
+    }
+
+    #[Workflow\SignalMethod(name: self::RESUME_SIGNAL_NAME)]
+    public function resume(): void
+    {
+        $this->paused = false;
+    }
+
     #[UpdateMethod(name: self::PAYMENT_UPDATE_NAME)]
     #[ReturnType(Type::TYPE_ARRAY)]
     public function handlePaymentUpdate(Update $update): array
@@ -825,6 +848,13 @@ class AgenticWorkflow
     public function getProcessedCount(): int
     {
         return $this->processedCount;
+    }
+
+    #[Workflow\QueryMethod]
+    #[ReturnType(Type::TYPE_BOOL)]
+    public function isPaused(): bool
+    {
+        return $this->paused;
     }
 
     #[Workflow\QueryMethod]

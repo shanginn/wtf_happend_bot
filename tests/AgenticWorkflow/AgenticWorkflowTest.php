@@ -104,6 +104,44 @@ class AgenticWorkflowTest extends TestCase
         self::assertSame([], $input->getPendingUpdates());
     }
 
+    public function testPausedDefaultsToFalseForOldSerializedInputs(): void
+    {
+        $input = new AgenticWorkflowInput(chatId: -100123);
+        unset($input->paused);
+
+        self::assertFalse($input->isPaused());
+    }
+
+    public function testPauseAndResumeControlPipelineProcessing(): void
+    {
+        $reflection = new ReflectionClass(AgenticWorkflow::class);
+        $workflow = $reflection->newInstanceWithoutConstructor();
+        $reflection->getProperty('pipelinePendingSince')->setValue($workflow, 100);
+        $shouldRunPipeline = new ReflectionMethod(AgenticWorkflow::class, 'shouldRunPipelineAt');
+
+        $workflow->pause();
+
+        self::assertTrue($workflow->isPaused());
+        self::assertFalse($shouldRunPipeline->invoke($workflow, 105));
+
+        $workflow->resume();
+
+        self::assertFalse($workflow->isPaused());
+        self::assertTrue($shouldRunPipeline->invoke($workflow, 105));
+    }
+
+    public function testPausedStateSurvivesTemporalJsonRoundTrip(): void
+    {
+        $converter = DataConverter::createDefault();
+        $input = $converter->fromPayload(
+            $converter->toPayload(new AgenticWorkflowInput(chatId: -100123, paused: true)),
+            AgenticWorkflowInput::class,
+        );
+
+        self::assertInstanceOf(AgenticWorkflowInput::class, $input);
+        self::assertTrue($input->isPaused());
+    }
+
     public function testWorkingMemorySurvivesTemporalJsonRoundTrip(): void
     {
         $toolCall = new KnownFunctionCall(

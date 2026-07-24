@@ -19,4 +19,13 @@ class WorkflowTypeTest extends TestCase
         self::assertSame(AgenticWorkflow::WORKFLOW_TYPE, $reader->fromClass(AgenticWorkflow::class)->getID());
         self::assertSame(RouterWorkflow::WORKFLOW_TYPE, $reader->fromClass(RouterWorkflow::class)->getID());
     }
+
+    public function testAgenticWorkflowRegistersPauseAndResumeSignals(): void
+    {
+        $workflow = (new WorkflowReader(new AttributeReader()))->fromClass(AgenticWorkflow::class);
+        $signals = $workflow->getSignalHandlers();
+
+        self::assertArrayHasKey(AgenticWorkflow::PAUSE_SIGNAL_NAME, $signals);
+        self::assertArrayHasKey(AgenticWorkflow::RESUME_SIGNAL_NAME, $signals);
+    }
 }
