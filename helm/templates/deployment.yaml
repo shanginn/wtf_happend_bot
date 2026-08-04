@@ -27,10 +27,10 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           volumeMounts:
             - name: php-config
-              mountPath: /usr/local/etc/php/php.ini
+              mountPath: /etc/php.ini
               subPath: php.ini
             - name: php-config
-              mountPath: /usr/local/etc/php/conf.d/opcache.ini
+              mountPath: /etc/php.d/opcache.ini
               subPath: opcache.ini
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           envFrom:
@@ -39,11 +39,11 @@ spec:
             - secretRef:
                 name: {{ include "app.fullname" . }}-secret
           env:
-            - name: TEMPORAL_CLI_ADDRESS
+            - name: TEMPORAL_ADDRESS
               valueFrom:
                 configMapKeyRef:
                   name: {{ include "app.fullname" . }}-env
-                  key: TEMPORAL_CLI_ADDRESS
+                  key: TEMPORAL_ADDRESS
             {{- if .Values.searxng.enabled }}
             - name: SEARCH_BASE_URL
               value: "http://{{ include "app.searxngName" . }}:8080"
@@ -53,10 +53,10 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           volumeMounts:
             - name: php-config
-              mountPath: /usr/local/etc/php/php.ini
+              mountPath: /etc/php.ini
               subPath: php.ini
             - name: php-config
-              mountPath: /usr/local/etc/php/conf.d/opcache.ini
+              mountPath: /etc/php.d/opcache.ini
               subPath: opcache.ini
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           envFrom:
@@ -67,16 +67,16 @@ spec:
           env:
             - name: SKIP_MIGRATIONS
               value: "true"
-            - name: TEMPORAL_CLI_ADDRESS
+            - name: TEMPORAL_ADDRESS
               valueFrom:
                 configMapKeyRef:
                   name: {{ include "app.fullname" . }}-env
-                  key: TEMPORAL_CLI_ADDRESS
+                  key: TEMPORAL_ADDRESS
             {{- if .Values.searxng.enabled }}
             - name: SEARCH_BASE_URL
               value: "http://{{ include "app.searxngName" . }}:8080"
             {{- end }}
-          command: ["/usr/local/bin/rr", "serve", "-c", "/app/.rr.yaml", "-w", "/app"]
+          command: ["php", "src/worker.php"]
       volumes:
         - name: php-config
           configMap:

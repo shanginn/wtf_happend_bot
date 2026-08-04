@@ -47,7 +47,7 @@ $container->bind(EntityManagerInterface::class, $em);
 $saveUpdateHandler = new SaveUpdateHandler($em);
 
 $workflowClient = new WorkflowClient(
-    serviceClient: ServiceClient::create($temporalConfig->temporalCliAddress),
+    serviceClient: ServiceClient::create($temporalConfig->temporalAddress),
     options: $temporalConfig->temporalClientOptions,
     converter: $temporalConfig->dataConverter
 );
@@ -112,5 +112,6 @@ $gracefulShutdown = function (int $signal) use ($bot, &$pressedCtrlC, $em): void
 
 pcntl_signal(SIGTERM, $gracefulShutdown);
 pcntl_signal(SIGINT, $gracefulShutdown);
+pcntl_async_signals(true);
 
 $bot->run();

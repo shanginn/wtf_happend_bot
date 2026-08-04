@@ -67,16 +67,21 @@ The bot has four main skill areas:
 
 ### Prerequisites
 
-- PHP 8.4+
+- PHP 8.6 TrueAsync (ZTS) with `true_async` and `temporal`
 - PostgreSQL database
 - Temporal Server (running on localhost:7233)
 
 ### Installation
 
 ```bash
-composer install
-./vendor/bin/rr get-binary --no-config
+composer install --ignore-platform-req=php+
 ```
+
+The lock file pins the TrueAsync branches of Phenogram, the OpenAI SDK, and
+the Temporal SDK. Use the project Docker image or another PHP 8.6 TrueAsync
+runtime when installing or running the application. The temporary
+`--ignore-platform-req=php+` exception only ignores stale PHP upper bounds in
+transitive packages; required extensions and lower bounds are still checked.
 
 ### Configuration
 
@@ -89,7 +94,7 @@ cp .env.sample .env
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token
 DEEPSEEK_API_KEY=your_deepseek_api_key
-TEMPORAL_CLI_ADDRESS=localhost:7233
+TEMPORAL_ADDRESS=localhost:7233
 
 # Internet search
 SEARCH_BASE_URL=http://searxng:8080
@@ -122,8 +127,8 @@ docker compose logs -f bot worker
 # 1. Start Temporal Server (in separate terminal)
 temporal server start-dev
 
-# 2. Start the Temporal worker (in separate terminal)
-./rr serve -c .rr.yaml
+# 2. Start the native Temporal worker (in separate terminal)
+php src/worker.php
 
 # 3. Start the Telegram bot (in separate terminal)
 php src/bot.php
@@ -160,7 +165,7 @@ helm upgrade wtf-happend-bot --namespace=wtfhappendbot -f values.yaml .
 - Ask for summaries: "What happened in the chat?"
 - Ask questions: "What did @user say about X?"
 - Ask about saved memories, corrections, or deletion: "What do you remember about me?", "Update that", "Forget my editor preference"
-- Ask about current or external information: "Search the web for the latest PHP 8.4 release notes"
+- Ask about current or external information: "Search the web for the latest PHP release notes"
 
 ## Internet Search
 
@@ -188,7 +193,7 @@ The bot was rewritten from deterministic handlers to the Temporal Agentic patter
 ### Running Tests
 
 ```bash
-./vendor/bin/phpunit
+php vendor/bin/phpunit
 ```
 
 ### Code Style

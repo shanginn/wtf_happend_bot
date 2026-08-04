@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
+use Bot\Infrastructure\CycleORM\CycleOrmScope;
+use Bot\Infrastructure\CycleORM\TrueAsyncPostgresDriver;
 use Cycle\Database;
 use Cycle\Database\Config;
 use Cycle\Schema\Generator\Migrations\GenerateMigrations;
@@ -17,12 +19,37 @@ use Cycle\Annotated\Locator\TokenizerEntityLocator;
 use Cycle\ORM;
 use Cycle\Migrations;
 
-$dbHost = getenv('DB_HOST') ?? 'db';
-$dbPort = getenv('DB_PORT') ?? '5432';
-$dbName = getenv('DB_DATABASE') ?? throw new InvalidArgumentException('DB_DATABASE is not set');
-$dbUser = getenv('DB_USERNAME') ?? throw new InvalidArgumentException('DB_USERNAME is not set');
-$dbPassword = getenv('DB_PASSWORD') ?? throw new InvalidArgumentException('DB_PASSWORD is not set');
+$dbHost = getenv('DB_HOST') ?: 'db';
+$dbPort = getenv('DB_PORT') ?: '5432';
+$dbName = getenv('DB_DATABASE') ?: throw new InvalidArgumentException('DB_DATABASE is not set');
+$dbUser = getenv('DB_USERNAME') ?: throw new InvalidArgumentException('DB_USERNAME is not set');
+$dbPassword = getenv('DB_PASSWORD') ?: throw new InvalidArgumentException('DB_PASSWORD is not set');
 
+$poolEnabled = extension_loaded('true_async')
+    && (bool) filter_var(getenv('DB_POOL_ENABLED') ?: true, FILTER_VALIDATE_BOOL)
+    && defined('PDO::ATTR_POOL_ENABLED')
+    && defined('PDO::ATTR_POOL_MIN')
+    && defined('PDO::ATTR_POOL_MAX')
+    && defined('PDO::ATTR_POOL_HEALTHCHECK_INTERVAL')
+    && defined('PDO::ATTR_POOL_STMT_CACHE_SIZE');
+
+$poolMax = max(1, (int) (getenv('DB_POOL_MAX') ?: 3));
+$poolMin = min($poolMax, max(0, (int) (getenv('DB_POOL_MIN') ?: 0)));
+$pdoOptions = $poolEnabled
+    ? [
+        constant('PDO::ATTR_POOL_ENABLED') => true,
+        constant('PDO::ATTR_POOL_MIN') => $poolMin,
+        constant('PDO::ATTR_POOL_MAX') => $poolMax,
+        constant('PDO::ATTR_POOL_HEALTHCHECK_INTERVAL') => max(
+            0,
+            (int) (getenv('DB_POOL_HEALTHCHECK_INTERVAL_MS') ?: 30_000),
+        ),
+        constant('PDO::ATTR_POOL_STMT_CACHE_SIZE') => max(
+            0,
+            (int) (getenv('DB_POOL_STMT_CACHE_SIZE') ?: 32),
+        ),
+    ]
+    : [];
 
 $dbal = new Database\DatabaseManager(
     new Config\DatabaseConfig([
@@ -37,9 +64,12 @@ $dbal = new Database\DatabaseManager(
                     host: $dbHost,
                     port: (int)$dbPort,
                     user: $dbUser,
-                    password: $dbPassword
+                    password: $dbPassword,
+                    options: $pdoOptions,
                 ),
-                queryCache: true,
+                driver: TrueAsyncPostgresDriver::class,
+                reconnect: !$poolEnabled,
+                queryCache: false,
             ),
         ]
     ])
@@ -51,10 +81,8 @@ $config = new Migrations\Config\MigrationConfig([
     'safe'      => true                         // When set to true no confirmation will be requested on migration run.
 ]);
 
+$skipMigrations = getenv('SKIP_MIGRATIONS') === 'true';
 $migrator = new Migrations\Migrator($config, $dbal, new Migrations\FileRepository($config));
-
-// Init migration table
-$migrator->configure();
 
 $migrate = function () use ($migrator) {
     while(($migrated = $migrator->run()) !== null) {
@@ -69,7 +97,8 @@ $migrate = function () use ($migrator) {
     }
 };
 
-if (getenv('SKIP_MIGRATIONS') !== 'true') {
+if (!$skipMigrations) {
+    $migrator->configure();
     $migrate();
 }
 
@@ -78,8 +107,6 @@ $classLocator = new ClassLocator($finder);
 
 $embeddingLocator = new TokenizerEmbeddingLocator($classLocator);
 $entityLocator = new TokenizerEntityLocator($classLocator);
-
-$skipMigrations = getenv('SKIP_MIGRATIONS') === 'true';
 
 $generators = [
     new Schema\Generator\ResetTables(),
@@ -105,12 +132,13 @@ $generators[] = new Schema\Generator\GenerateTypecast();
 
 $schema = (new Schema\Compiler())->compile(new Schema\Registry($dbal), $generators);
 
-$container = new Container();
+$ormScope = new CycleOrmScope($dbal, new ORM\Schema($schema));
+$ormContext = $ormScope->current();
+$container = $ormContext->container;
+$orm = $ormContext->orm;
 
-$orm = new ORM\ORM(new ORM\Factory($dbal, factory: $container), new ORM\Schema($schema));
-
-if (getenv('SKIP_MIGRATIONS') !== 'true') {
+if (!$skipMigrations) {
     $migrate();
 }
 
-return [$container, $orm];
+return [$container, $orm, $ormScope];

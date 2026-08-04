@@ -19,11 +19,16 @@ env:
   DB_PORT: 5432
   DB_DATABASE: wtf_happend_bot
   DB_USERNAME: wtf_happend_bot
+  DB_POOL_ENABLED: true
+  DB_POOL_MIN: 0
+  DB_POOL_MAX: 3
+  DB_POOL_HEALTHCHECK_INTERVAL_MS: 30000
+  DB_POOL_STMT_CACHE_SIZE: 32
   # When searxng.enabled is true, the chart injects SEARCH_BASE_URL to the in-cluster SearXNG service.
   # Set SEARCH_BASE_URL here only when using an external SearXNG instance with searxng.enabled=false.
   SEARCH_TIMEOUT_SECONDS: 10
   TELEGRAM_BOT_USERNAME: wtf_happend_bot
-  TEMPORAL_CLI_ADDRESS: temporal-frontend.temporal:7233
+  TEMPORAL_ADDRESS: temporal-frontend.temporal:7233
   TEMPORAL_NAMESPACE: wtf-happend-bot
 
 envSecrets:

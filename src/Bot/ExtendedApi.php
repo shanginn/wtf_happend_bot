@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace Bot\Bot;
 
-use function Amp\async;
-use function Amp\delay;
+use function Async\delay;
 
 use Phenogram\Bindings\Api;
 use Phenogram\Bindings\Types\Message;
@@ -88,7 +87,7 @@ class ExtendedApi extends Api
                 }
 
                 try {
-                    async(fn () => delay(2 ** $currentRetry))->await();
+                    delay((2 ** $currentRetry) * 1_000);
                 } catch (Throwable $delayError) {
                     dump('Error during retry delay: ' . $delayError->getMessage());
 

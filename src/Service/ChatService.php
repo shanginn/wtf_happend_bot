@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Bot\Service;
 
-use function Amp\delay;
+use function Async\delay;
 
 use Bot\Entity\Message;
 
@@ -318,7 +318,7 @@ class ChatService
                 if ($attempt >= $maxRetries) {
                     break; // Exit loop after max retries
                 }
-                delay($retryDelay);
+                delay($retryDelay * 1_000);
                 $retryDelay *= 2; // Exponential backoff
             }
         }

@@ -19,11 +19,23 @@
             "email": "shanginn@gmail.com"
         }
     ],
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/shanginn/openai-sdk-php"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/shanginn/sdk-php"
+        }
+    ],
     "require": {
-        "php": ">=8.4",
+        "php": "^8.6",
         "ext-pcntl": "*",
-        "shanginn/openai-sdk": "^2.0.0-beta",
-        "phenogram/framework": "^6",
+        "ext-temporal": "*",
+        "ext-true_async": "^0.8.2",
+        "shanginn/openai-sdk": "dev-feature/true-async",
+        "phenogram/framework": "dev-feature/true-async",
         "vlucas/phpdotenv": "^5.6",
         "cycle/orm": "^2.10",
         "cycle/migrations": "^4.2",
@@ -31,10 +43,10 @@
         "cycle/annotated": "^4.2",
         "symfony/var-dumper": "^8.0",
         "symfony/serializer": "^7.4",
-        "temporal/sdk": "^2.16",
-        "spiral/roadrunner-cli": "^2.7"
+        "temporal/sdk": "dev-true-async as 2.17.x-dev"
     },
-    "minimum-stability": "stable",
+    "minimum-stability": "dev",
+    "prefer-stable": true,
     "scripts": {
         "fix": "PHP_CS_FIXER_IGNORE_ENV=1 ./tools/vendor/bin/php-cs-fixer fix src --diff -vvv --config=.php-cs-fixer.php"
     },

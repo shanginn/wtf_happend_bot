@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Bot\Telegram;
 
 use Phenogram\Bindings\Factory as BaseFactory;
+use Phenogram\Bindings\Types\Interfaces\BotSubscriptionUpdatedInterface;
 use Phenogram\Bindings\Types\Interfaces\BusinessConnectionInterface;
 use Phenogram\Bindings\Types\Interfaces\BusinessMessagesDeletedInterface;
 use Phenogram\Bindings\Types\Interfaces\CallbackQueryInterface;
@@ -37,6 +38,7 @@ class Factory extends BaseFactory
         ?MessageInterface $businessMessage,
         ?MessageInterface $editedBusinessMessage,
         ?BusinessMessagesDeletedInterface $deletedBusinessMessages,
+        ?MessageInterface $guestMessage,
         ?MessageReactionUpdatedInterface $messageReaction,
         ?MessageReactionCountUpdatedInterface $messageReactionCount,
         ?InlineQueryInterface $inlineQuery,
@@ -53,6 +55,7 @@ class Factory extends BaseFactory
         ?ChatBoostUpdatedInterface $chatBoost,
         ?ChatBoostRemovedInterface $removedChatBoost,
         ?ManagedBotUpdatedInterface $managedBot,
+        ?BotSubscriptionUpdatedInterface $subscription,
     ): UpdateInterface {
         return new Update(
             updateId: $updateId,
@@ -64,6 +67,7 @@ class Factory extends BaseFactory
             businessMessage: $businessMessage,
             editedBusinessMessage: $editedBusinessMessage,
             deletedBusinessMessages: $deletedBusinessMessages,
+            guestMessage: $guestMessage,
             messageReaction: $messageReaction,
             messageReactionCount: $messageReactionCount,
             inlineQuery: $inlineQuery,
@@ -80,6 +84,7 @@ class Factory extends BaseFactory
             chatBoost: $chatBoost,
             removedChatBoost: $removedChatBoost,
             managedBot: $managedBot,
+            subscription: $subscription,
         );
     }
 }

@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use Async\Signal;
 use Temporal\WorkerFactory;
+use TrueAsync\Temporal\Core\Connection;
 
 ini_set('display_errors', 'stderr');
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -11,7 +13,9 @@ require_once __DIR__ . '/../vendor/autoload.php';
 $config = require __DIR__ . '/../config/temporal.php';
 
 $factory = WorkerFactory::create(
-    converter: $config->dataConverter
+    converter: $config->dataConverter,
+    connection: new Connection(address: $config->temporalAddress),
+    namespace: $config->temporalNamespace,
 );
 
 $worker = $factory->newWorker();
@@ -32,6 +36,25 @@ foreach ($declarations as $package => $declaration) {
             $worker->registerActivity($value);
         }
     }
+
+    if (($declaration['activityFinalizer'] ?? null) instanceof Closure) {
+        $worker->registerActivityFinalizer($declaration['activityFinalizer']);
+    }
 }
 
-$factory->run();
+$shutdownWatcher = \Async\spawn(static function () use ($factory): void {
+    \Async\await_any_or_fail([
+        \Async\signal(Signal::SIGINT),
+        \Async\signal(Signal::SIGTERM),
+    ]);
+
+    $factory->shutdown();
+});
+
+try {
+    $factory->run();
+} finally {
+    if (!$shutdownWatcher->isCompleted()) {
+        $shutdownWatcher->cancel();
+    }
+}

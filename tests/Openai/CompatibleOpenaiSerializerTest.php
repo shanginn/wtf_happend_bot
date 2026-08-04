@@ -353,6 +353,16 @@ final class CompatibleOpenaiSerializerTest extends TestCase
                     'created' => 1776020161,
                 ], \JSON_THROW_ON_ERROR);
             }
+
+            public function sendRequestAsync(string $method, string $json): \Async\Coroutine
+            {
+                return \Async\spawn(fn (): string => $this->sendRequest($method, $json));
+            }
+
+            public function streamRequest(string $method, string $json): iterable
+            {
+                return [];
+            }
         };
 
         $openai = new CompatibleOpenai($client, 'qwen/qwen3.5-plus-20260216');
@@ -398,6 +408,16 @@ final class CompatibleOpenaiSerializerTest extends TestCase
                     'object' => 'chat.completion',
                     'created' => 1776020161,
                 ], \JSON_THROW_ON_ERROR);
+            }
+
+            public function sendRequestAsync(string $method, string $json): \Async\Coroutine
+            {
+                return \Async\spawn(fn (): string => $this->sendRequest($method, $json));
+            }
+
+            public function streamRequest(string $method, string $json): iterable
+            {
+                return [];
             }
         };
 
@@ -462,6 +482,16 @@ final class CompatibleOpenaiSerializerTest extends TestCase
                     'object' => 'chat.completion',
                     'created' => 1,
                 ], \JSON_THROW_ON_ERROR);
+            }
+
+            public function sendRequestAsync(string $method, string $json): \Async\Coroutine
+            {
+                return \Async\spawn(fn (): string => $this->sendRequest($method, $json));
+            }
+
+            public function streamRequest(string $method, string $json): iterable
+            {
+                return [];
             }
         };
 

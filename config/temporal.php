@@ -29,7 +29,7 @@ assert(is_string($openrouterApiKey), 'OpenRouter API key must be a string');
 $deepseekApiKey = getenv('DEEPSEEK_API_KEY');
 assert(is_string($deepseekApiKey), 'DeepSeek API key must be a string');
 
-$temporalCliAddress = getenv('TEMPORAL_CLI_ADDRESS') ?: 'localhost:7233';
+$temporalAddress = getenv('TEMPORAL_ADDRESS') ?: getenv('TEMPORAL_CLI_ADDRESS') ?: 'localhost:7233';
 $temporalNamespace = getenv('TEMPORAL_NAMESPACE') ?: 'default';
 $searchBaseUrl = getenv('SEARCH_BASE_URL') ?: 'http://searxng:8080';
 $searchTimeoutSeconds = (int) (getenv('SEARCH_TIMEOUT_SECONDS') ?: 10);
@@ -42,7 +42,7 @@ if (!class_exists('Config')) {
             public readonly string $botToken,
             public readonly string $openrouterApiKey,
             public readonly string $deepseekApiKey,
-            public readonly string $temporalCliAddress,
+            public readonly string $temporalAddress,
             public readonly string $temporalNamespace,
             public readonly string $searchBaseUrl,
             public readonly int $searchTimeoutSeconds,
@@ -72,7 +72,7 @@ return new Config(
     botToken: $botToken,
     openrouterApiKey: $openrouterApiKey,
     deepseekApiKey: $deepseekApiKey,
-    temporalCliAddress: $temporalCliAddress,
+    temporalAddress: $temporalAddress,
     temporalNamespace: $temporalNamespace,
     searchBaseUrl: $searchBaseUrl,
     searchTimeoutSeconds: $searchTimeoutSeconds,

@@ -28,8 +28,10 @@ class Update extends \Phenogram\Bindings\Types\Update
                     ?? $this->messageReaction?->user
                     ?? $this->businessMessage?->from
                     ?? $this->editedBusinessMessage?->from
+                    ?? $this->guestMessage?->from
                     ?? $this->businessConnection?->user
-                    ?? $this->purchasedPaidMedia?->from;
+                    ?? $this->purchasedPaidMedia?->from
+                    ?? $this->subscription?->user;
             }
 
             return $this->effectiveUser;
@@ -45,7 +47,8 @@ class Update extends \Phenogram\Bindings\Types\Update
                     $this->channelPost ??
                     $this->editedChannelPost ??
                     $this->businessMessage ??
-                    $this->editedBusinessMessage
+                    $this->editedBusinessMessage ??
+                    $this->guestMessage
                 )?->senderChat
                 ?? $this->pollAnswer?->voterChat
                 ?? $this->messageReaction?->actorChat
@@ -74,6 +77,7 @@ class Update extends \Phenogram\Bindings\Types\Update
                     ?? $this->messageReactionCount?->chat
                     ?? $this->businessMessage?->chat
                     ?? $this->editedBusinessMessage?->chat
+                    ?? $this->guestMessage?->chat
                     ?? $this->deletedBusinessMessages?->chat
                     ?? null;
             }
@@ -91,6 +95,7 @@ class Update extends \Phenogram\Bindings\Types\Update
                     ?? $this->editedChannelPost
                     ?? $this->businessMessage
                     ?? $this->editedBusinessMessage
+                    ?? $this->guestMessage
                     ?? $this->callbackQuery?->message;
 
                 if ($message !== null && !$message instanceof InaccessibleMessage) {
