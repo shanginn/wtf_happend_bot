@@ -61,6 +61,11 @@ class TelegramApiCallExecutor
         return !$catalog->isReadOnly($resolved);
     }
 
+    public static function isSuccessfulResult(string $result): bool
+    {
+        return str_starts_with($result, 'Telegram API call succeeded:');
+    }
+
     /**
      * @return array<string, mixed>|string
      */

@@ -412,6 +412,7 @@ class AgenticWorkflow
             "Current Telegram API target context:\n"
             . "- current chat_id: {$this->input->chatId}\n"
             . "- When using telegram_api_call for this chat, omit chat_id/chatId and the tool will inject it.\n"
+            . "- A failed telegram_api_call is returned to you as a tool error, not as a user notification. Diagnose that error, use telegram_api_schema when useful, and make a corrected call until Telegram reports success.\n"
             . "- When creating invoices with sendInvoice/createInvoiceLink, invoice payload routing is injected automatically so payment updates return to this workflow.\n"
             . "- Use telegram_api_schema if you need exact Telegram Bot API method signatures."
         );
@@ -488,7 +489,19 @@ class AgenticWorkflow
                         $toolCall->arguments instanceof TelegramApiCall
                         && TelegramApiCallExecutor::isTerminalMethod($toolCall->arguments->method)
                     ) {
-                        $hasTerminalUserNotification = true;
+                        $isTerminalTelegramResult = TelegramApiCallExecutor::isSuccessfulResult($toolResult);
+
+                        if (!$isTerminalTelegramResult) {
+                            $failureFeedbackVersion = yield Workflow::getVersion(
+                                self::telegramFailureFeedbackChangeId($toolCall->id),
+                                Workflow::DEFAULT_VERSION,
+                                1,
+                            );
+
+                            $isTerminalTelegramResult = $failureFeedbackVersion === Workflow::DEFAULT_VERSION;
+                        }
+
+                        $hasTerminalUserNotification = $hasTerminalUserNotification || $isTerminalTelegramResult;
                     }
 
                     if ($toolCall->arguments instanceof UpsertRuntimeSkill || $toolCall->arguments instanceof UpsertRuntimeTool) {
@@ -522,6 +535,11 @@ class AgenticWorkflow
         }
 
         yield $this->sendMessage('Не удалось завершить ответ за допустимое число шагов.');
+    }
+
+    private static function telegramFailureFeedbackChangeId(string $toolCallId): string
+    {
+        return 'agentic-telegram-api-call-failure-feedback-' . hash('sha256', $toolCallId);
     }
 
     private function initializeCompactionClock(): void

@@ -56,6 +56,34 @@ class TelegramApiExecutorsTest extends TestCase
         self::assertStringContainsString('"message_id":321', $result);
     }
 
+    public function testCallExecutorReturnsReportedParameterErrorForModelRepair(): void
+    {
+        $client = new RecordingTelegramClient(new Response(
+            ok: true,
+            result: ['message_id' => 323],
+        ));
+        $executor = new TelegramApiCallExecutor($client);
+
+        $result = $executor->execute(
+            -100123,
+            new TelegramApiCall(
+                method: 'sendMessage',
+                parameters: [
+                    'text' => 'Synthetic reply',
+                    'reply_to_message_id' => 123,
+                ],
+            ),
+        );
+
+        self::assertNull($client->method);
+        self::assertStringContainsString(
+            'Unknown parameter(s) for sendMessage: reply_to_message_id',
+            $result,
+        );
+        self::assertStringContainsString('Use telegram_api_schema', $result);
+        self::assertFalse(TelegramApiCallExecutor::isSuccessfulResult($result));
+    }
+
     public function testCallExecutorAcceptsSnakeCaseMethodAndParameters(): void
     {
         $client = new RecordingTelegramClient(new Response(

@@ -96,6 +96,19 @@ class AgenticWorkflowTest extends TestCase
         self::assertFalse($method->invoke($workflow, true));
     }
 
+    public function testTelegramFailureFeedbackVersionIsScopedToTheToolCall(): void
+    {
+        $method = new ReflectionMethod(AgenticWorkflow::class, 'telegramFailureFeedbackChangeId');
+
+        $first = $method->invoke(null, 'call_failed_telegram_1');
+        $same = $method->invoke(null, 'call_failed_telegram_1');
+        $next = $method->invoke(null, 'call_failed_telegram_2');
+
+        self::assertSame($first, $same);
+        self::assertNotSame($first, $next);
+        self::assertStringStartsWith('agentic-telegram-api-call-failure-feedback-', $first);
+    }
+
     public function testPendingUpdatesDefaultsToEmptyForOldSerializedInputs(): void
     {
         $input = new AgenticWorkflowInput(chatId: -100123);
