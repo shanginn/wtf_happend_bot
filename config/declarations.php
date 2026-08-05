@@ -41,7 +41,7 @@ $config = require __DIR__ . '/temporal.php';
 $deepseek = new CompatibleOpenai(new OpenaiClient(
     apiKey: $config->deepseekApiKey,
     apiUrl: 'https://api.deepseek.com'
-), 'deepseek-v4-pro');
+), 'deepseek-v4-flash');
 
 $deepseekFlash = new CompatibleOpenai(new OpenaiClient(
     apiKey: $config->deepseekApiKey,
