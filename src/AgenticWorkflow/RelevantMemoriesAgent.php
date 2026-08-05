@@ -8,11 +8,15 @@ use Bot\Llm\Skills\RelevantMemoriesSkill;
 use Bot\Llm\Skills\SkillInterface;
 use Shanginn\Openai\ChatCompletion\CompletionResponse;
 use Shanginn\Openai\ChatCompletion\ErrorResponse;
+use Shanginn\Openai\ChatCompletion\Message\AssistantMessage;
 use Shanginn\Openai\ChatCompletion\Message\MessageInterface;
 use Shanginn\Openai\ChatCompletion\Message\UserMessage;
 
 final class RelevantMemoriesAgent extends AbstractAgent
 {
+    private const int HISTORY_LIMIT = 10;
+    private const string NO_RELEVANT_MEMORIES = 'No relevant memories.';
+
     /**
      * @param array<class-string<SkillInterface>> $skills
      */
@@ -43,6 +47,7 @@ final class RelevantMemoriesAgent extends AbstractAgent
         - If several memories overlap, keep only the strongest one that best supports
           the next reply.
         - Do not invent, merge, soften, or expand any memory beyond the stored text.
+        - Never answer the user, call a tool, imitate a tool call, or emit tool-call markup.
         - Never explain your selection process.
         </selection_rules>
 
@@ -70,9 +75,9 @@ final class RelevantMemoriesAgent extends AbstractAgent
             return $this->emptyHistoryError();
         }
 
-        return $this->openai->completion(
+        $result = $this->openai->completion(
             messages: [
-                ...$history,
+                ...self::selectionHistory($history),
                 new UserMessage(
                     <<<TEXT
                     Filter the saved participant memories below for the next reply.
@@ -90,5 +95,88 @@ final class RelevantMemoriesAgent extends AbstractAgent
             system: self::systemPrompt($skills),
             extraBody: ['thinking' => ['type' => 'disabled']]
         );
+
+        if ($result instanceof ErrorResponse) {
+            return $result;
+        }
+
+        $message = $result->choices[0]->message ?? null;
+        if ($message instanceof AssistantMessage) {
+            $message->content = self::validatedSelection($message->content, $allMemories);
+            $message->toolCalls = null;
+        }
+
+        return $result;
+    }
+
+    /**
+     * The selector only needs the participant-authored conversation. Assistant,
+     * tool, and compacted system messages teach it to imitate the response agent.
+     *
+     * @param array<MessageInterface> $history
+     * @return array<UserMessage>
+     */
+    private static function selectionHistory(array $history): array
+    {
+        $userMessages = array_values(array_filter(
+            $history,
+            static fn (MessageInterface $message): bool => $message instanceof UserMessage,
+        ));
+
+        return array_slice($userMessages, -self::HISTORY_LIMIT);
+    }
+
+    private static function validatedSelection(?string $content, string $allMemories): string
+    {
+        $selection = trim($content ?? '');
+        if ($selection === self::NO_RELEVANT_MEMORIES) {
+            return self::NO_RELEVANT_MEMORIES;
+        }
+
+        $allowedMemories = self::allowedMemories($allMemories);
+        if ($selection === '' || $allowedMemories === []) {
+            return self::NO_RELEVANT_MEMORIES;
+        }
+
+        $selectedMemories = [];
+
+        foreach (preg_split('/\R/u', $selection) ?: [] as $line) {
+            $line = trim($line);
+
+            if ($line === '' || !isset($allowedMemories[$line])) {
+                return self::NO_RELEVANT_MEMORIES;
+            }
+
+            $selectedMemories[$line] = true;
+        }
+
+        return $selectedMemories === []
+            ? self::NO_RELEVANT_MEMORIES
+            : implode("\n", array_keys($selectedMemories));
+    }
+
+    /**
+     * @return array<string, true>
+     */
+    private static function allowedMemories(string $allMemories): array
+    {
+        $allowedMemories = [];
+
+        foreach (preg_split('/\R/u', $allMemories) ?: [] as $line) {
+            $line = trim($line);
+
+            if (!str_starts_with($line, '- ')) {
+                continue;
+            }
+
+            $canonical = preg_replace('/ \| updated: \d{4}-\d{2}-\d{2}$/u', '', $line);
+            if (!is_string($canonical) || $canonical === '- ') {
+                continue;
+            }
+
+            $allowedMemories[$canonical] = true;
+        }
+
+        return $allowedMemories;
     }
 }
