@@ -14,20 +14,19 @@ use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
 use Bot\Telegram\PaymentQueryAnswer;
 use Bot\Telegram\Update;
 use Carbon\CarbonInterval;
-use Generator;
 use Shanginn\Openai\ChatCompletion\ErrorResponse;
 use Shanginn\Openai\ChatCompletion\Message\Assistant\KnownFunctionCall;
 use Shanginn\Openai\ChatCompletion\Message\Assistant\UnknownFunctionCall;
 use Shanginn\Openai\ChatCompletion\Message\AssistantMessage;
 use Shanginn\Openai\ChatCompletion\Message\ToolMessage;
 use Shanginn\Openai\ChatCompletion\Message\UserMessage;
-use Temporal\Exception\Failure\CanceledFailure;
 use Temporal\Activity\ActivityOptions;
 use Temporal\Common\RetryOptions;
 use Temporal\DataConverter\Type;
+use Temporal\Exception\Failure\CanceledFailure;
 use Temporal\Internal\Workflow\ActivityProxy;
-use Temporal\Workflow\ContinueAsNewOptions;
 use Temporal\Workflow;
+use Temporal\Workflow\ContinueAsNewOptions;
 use Temporal\Workflow\ReturnType;
 use Temporal\Workflow\UpdateMethod;
 use Temporal\Workflow\WorkflowInterface;
@@ -36,61 +35,61 @@ use Temporal\Workflow\WorkflowMethod;
 #[WorkflowInterface]
 class AgenticWorkflow
 {
-    public const string WORKFLOW_TYPE = 'AgenticWorkflow';
+    public const string WORKFLOW_TYPE       = 'AgenticWorkflow';
     public const string PAYMENT_UPDATE_NAME = 'handlePaymentUpdate';
-    public const string PAUSE_SIGNAL_NAME = 'pause';
-    public const string RESUME_SIGNAL_NAME = 'resume';
+    public const string PAUSE_SIGNAL_NAME   = 'pause';
+    public const string RESUME_SIGNAL_NAME  = 'resume';
 
-    private const int COMPACTION_INTERVAL_SECONDS = 86400;
-    private const int IDLE_COMPACTION_AFTER_SECONDS = 3600;
-    private const int COMPACTION_RETRY_AFTER_SECONDS = 300;
-    private const int MAX_COMPACTION_RETRY_AFTER_SECONDS = 3600;
-    private const int MAX_COMPACTION_FAILURES_BEFORE_DROP = 5;
-    private const int MAX_UPDATES_BEFORE_CONTINUE = 100;
-    private const int WORKFLOW_TASK_TIMEOUT_SECONDS = 60;
-    private const int USE_SUGGESTED_CONTINUE_AS_NEW_VERSION = 2;
-    private const int MAX_DECISION_STEPS = 5;
-    private const int MAX_RESPONSE_STEPS = 50;
-    private const int PIPELINE_BATCH_WINDOW_SECONDS = 5;
+    private const int COMPACTION_INTERVAL_SECONDS            = 86400;
+    private const int IDLE_COMPACTION_AFTER_SECONDS          = 3600;
+    private const int COMPACTION_RETRY_AFTER_SECONDS         = 300;
+    private const int MAX_COMPACTION_RETRY_AFTER_SECONDS     = 3600;
+    private const int MAX_COMPACTION_FAILURES_BEFORE_DROP    = 5;
+    private const int MAX_UPDATES_BEFORE_CONTINUE            = 100;
+    private const int WORKFLOW_TASK_TIMEOUT_SECONDS          = 60;
+    private const int USE_SUGGESTED_CONTINUE_AS_NEW_VERSION  = 2;
+    private const int MAX_DECISION_STEPS                     = 5;
+    private const int MAX_RESPONSE_STEPS                     = 50;
+    private const int PIPELINE_BATCH_WINDOW_SECONDS          = 5;
     private const int TYPING_ACTION_REFRESH_INTERVAL_SECONDS = 4;
 
-    private AgenticActivity|ActivityProxy $agenticActivity;
-    private TelegramActivity|ActivityProxy $telegramActivity;
+    private ActivityProxy|AgenticActivity $agenticActivity;
+    private ActivityProxy|TelegramActivity $telegramActivity;
     private MessageQueue $updatesQueue;
     private AgenticWorkflowInput $input;
-    private int $lastActivityAt = 0;
-    private int $lastCompactionAt = 0;
-    private int $compactionRetryAfter = 0;
+    private int $lastActivityAt                = 0;
+    private int $lastCompactionAt              = 0;
+    private int $compactionRetryAfter          = 0;
     private int $consecutiveCompactionFailures = 0;
-    private int $pipelinePendingSince = 0;
-    private int $processedCount = 0;
-    private int $processedSinceContinueAsNew = 0;
-    private int $typingIndicatorGeneration = 0;
-    private int $continueAsNewPolicyVersion = self::USE_SUGGESTED_CONTINUE_AS_NEW_VERSION;
-    private bool $paused = false;
+    private int $pipelinePendingSince          = 0;
+    private int $processedCount                = 0;
+    private int $processedSinceContinueAsNew   = 0;
+    private int $typingIndicatorGeneration     = 0;
+    private int $continueAsNewPolicyVersion    = self::USE_SUGGESTED_CONTINUE_AS_NEW_VERSION;
+    private bool $paused                       = false;
 
     private WorkingMemory $workingMemory;
 
     public function __construct()
     {
-        $this->agenticActivity = AgenticActivity::getDefinition();
+        $this->agenticActivity  = AgenticActivity::getDefinition();
         $this->telegramActivity = TelegramActivity::getDefinition();
-        $this->updatesQueue = new MessageQueue();
-        $this->workingMemory = new WorkingMemory();
+        $this->updatesQueue     = new MessageQueue();
+        $this->workingMemory    = new WorkingMemory();
     }
 
     #[WorkflowMethod(name: self::WORKFLOW_TYPE)]
     #[ReturnType(Type::TYPE_STRING)]
-    public function create(AgenticWorkflowInput $input): Generator
+    public function create(AgenticWorkflowInput $input): mixed
     {
-        $this->input = $input;
-        $this->processedCount = $input->processedCount;
-        $this->lastActivityAt = $input->lastActivityAt;
-        $this->lastCompactionAt = $input->lastCompactionAt;
-        $this->compactionRetryAfter = $input->compactionRetryAfter;
+        $this->input                         = $input;
+        $this->processedCount                = $input->processedCount;
+        $this->lastActivityAt                = $input->lastActivityAt;
+        $this->lastCompactionAt              = $input->lastCompactionAt;
+        $this->compactionRetryAfter          = $input->compactionRetryAfter;
         $this->consecutiveCompactionFailures = $input->consecutiveCompactionFailures;
-        $this->pipelinePendingSince = $input->pipelinePendingSince;
-        $this->paused = $input->isPaused();
+        $this->pipelinePendingSince          = $input->pipelinePendingSince;
+        $this->paused                        = $input->isPaused();
         foreach ($input->getPendingUpdates() as $pendingUpdate) {
             $this->updatesQueue->push($pendingUpdate);
         }
@@ -99,49 +98,171 @@ class AgenticWorkflow
             compactedContext: $input->compactedContext,
         );
         $this->initializeCompactionClock();
-        $this->continueAsNewPolicyVersion = yield Workflow::getVersion(
+        $this->continueAsNewPolicyVersion = Workflow::getVersion(
             'agentic-use-temporal-continue-as-new-suggestion',
             1,
             self::USE_SUGGESTED_CONTINUE_AS_NEW_VERSION,
         );
 
-        do {
+        while (true) {
             if ($this->paused) {
-                yield Workflow::await(fn (): bool => !$this->paused);
+                Workflow::await(fn (): bool => !$this->paused);
+
                 continue;
             }
 
             if ($this->shouldContinueAsNew()) {
-                return yield from $this->continueAsNew();
+                return $this->continueAsNew();
             }
 
             if ($this->updatesQueue->has()) {
-                yield from $this->ingestQueuedUpdates();
+                $this->ingestQueuedUpdates();
 
                 if ($this->shouldContinueAsNew()) {
-                    return yield from $this->continueAsNew();
+                    return $this->continueAsNew();
                 }
             }
 
             if ($this->shouldCompactNow()) {
-                yield from $this->compactWorkingMemory();
+                $this->compactWorkingMemory();
+
                 continue;
             }
 
             if ($this->shouldRunPipelineNow()) {
-                yield from $this->runAgentLoop();
+                $this->runAgentLoop();
                 $this->pipelinePendingSince = 0;
+
                 continue;
             }
 
-            yield from $this->waitForUpdatesOrWorkflowDeadline();
-        } while (true);
+            $this->waitForUpdatesOrWorkflowDeadline();
+        }
     }
 
-    private function ingestQueuedUpdates(): Generator
+    public function executeTool(string $toolName, object $arguments): mixed
     {
-        $updates = $this->updatesQueue->flush();
-        $now = $this->currentTimestamp();
+        $separatorPosition = strrpos($toolName, '\\');
+        $shortClassName    = $separatorPosition === false
+            ? $toolName
+            : substr($toolName, $separatorPosition + 1);
+
+        return $this->awaitChildScope(
+            fn (): mixed => Workflow::executeActivity(
+                $shortClassName . 'Executor.execute',
+                [$this->input->chatId, $arguments],
+                options: ActivityOptions::new()
+                    ->withStartToCloseTimeout(CarbonInterval::minute())
+                    ->withRetryOptions(
+                        RetryOptions::new()->withNonRetryableExceptions([])
+                    )
+            )
+        );
+    }
+
+    #[Workflow\SignalMethod]
+    public function addUpdate($update): void
+    {
+        $this->updatesQueue->push($update);
+    }
+
+    #[Workflow\SignalMethod(name: self::PAUSE_SIGNAL_NAME)]
+    public function pause(): void
+    {
+        $this->paused = true;
+    }
+
+    #[Workflow\SignalMethod(name: self::RESUME_SIGNAL_NAME)]
+    public function resume(): void
+    {
+        $this->paused = false;
+    }
+
+    #[UpdateMethod(name: self::PAYMENT_UPDATE_NAME)]
+    #[ReturnType(Type::TYPE_ARRAY)]
+    public function handlePaymentUpdate(Update $update): array
+    {
+        $this->updatesQueue->push($update);
+
+        if ($update->preCheckoutQuery !== null) {
+            return [
+                'action'        => PaymentQueryAnswer::ACTION_PRE_CHECKOUT,
+                'query_id'      => $update->preCheckoutQuery->id,
+                'ok'            => true,
+                'error_message' => null,
+            ];
+        }
+
+        if ($update->shippingQuery !== null) {
+            return [
+                'action'           => PaymentQueryAnswer::ACTION_SHIPPING,
+                'query_id'         => $update->shippingQuery->id,
+                'ok'               => false,
+                'shipping_options' => null,
+                'error_message'    => 'Для этого инвойса не настроены варианты доставки.',
+            ];
+        }
+
+        return ['action' => PaymentQueryAnswer::ACTION_NONE];
+    }
+
+    #[Workflow\QueryMethod]
+    public function getUpdatesQueue(): array
+    {
+        return $this->updatesQueue->all();
+    }
+
+    #[Workflow\QueryMethod]
+    public function getProcessedCount(): int
+    {
+        return $this->processedCount;
+    }
+
+    #[Workflow\QueryMethod]
+    #[ReturnType(Type::TYPE_BOOL)]
+    public function isPaused(): bool
+    {
+        return $this->paused;
+    }
+
+    #[Workflow\QueryMethod]
+    public function getMemory(): array
+    {
+        return $this->workingMemory->get();
+    }
+
+    #[Workflow\QueryMethod]
+    public function getCompactedContext(): string
+    {
+        return $this->workingMemory->getCompactedContext();
+    }
+
+    private static function stringifyUserContent(array|string $content): string
+    {
+        if (is_string($content)) {
+            return $content;
+        }
+
+        return json_encode($content, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) ?: '';
+    }
+
+    private static function telegramFailureFeedbackChangeId(string $toolCallId): string
+    {
+        return 'agentic-telegram-api-call-failure-feedback-' . hash('sha256', $toolCallId);
+    }
+
+    private static function compactionRetryDelaySeconds(int $failureCount): int
+    {
+        return min(
+            self::MAX_COMPACTION_RETRY_AFTER_SECONDS,
+            self::COMPACTION_RETRY_AFTER_SECONDS * (2 ** max(0, $failureCount - 1)),
+        );
+    }
+
+    private function ingestQueuedUpdates(): void
+    {
+        $updates              = $this->updatesQueue->flush();
+        $now                  = $this->currentTimestamp();
         $this->lastActivityAt = $now;
 
         if (!$this->hasPendingPipeline()) {
@@ -149,27 +270,27 @@ class AgenticWorkflow
         }
 
         foreach ($updates as $update) {
-            yield $this->telegramActivity->saveUpdates($update);
+            $this->telegramActivity->saveUpdates($update);
         }
 
         foreach ($updates as $update) {
-            $inputMessageView = yield $this->telegramActivity->updateToView($update);
-            $userMessageView = OpenaiMessageTransformer::toChatUserMessage($inputMessageView);
+            $inputMessageView = $this->telegramActivity->updateToView($update);
+            $userMessageView  = OpenaiMessageTransformer::toChatUserMessage($inputMessageView);
 
             $this->workingMemory->add($userMessageView);
         }
 
-        $this->processedCount += count($updates);
+        $this->processedCount              += count($updates);
         $this->processedSinceContinueAsNew += count($updates);
     }
 
-    private function runAgentLoop(): Generator
+    private function runAgentLoop(): void
     {
-        $decisionMemory = $this->workingMemory->getContext(recentLimit: 10);
+        $decisionMemory        = $this->workingMemory->getContext(recentLimit: 10);
         $initialDecisionMemory = $decisionMemory;
 
         for ($step = 0; $step < self::MAX_DECISION_STEPS; ++$step) {
-            $result = yield $this->agenticActivity->memoryComplete(
+            $result = $this->agenticActivity->memoryComplete(
                 memory: $decisionMemory,
                 tools: AgenticToolset::DECISION_TOOLS,
                 chatId: $this->input->chatId,
@@ -177,7 +298,7 @@ class AgenticWorkflow
 
             if ($result instanceof ErrorResponse) {
                 $errorMessage = $result->message ?? 'Unknown error.';
-                yield $this->sendMessage('Произошла ошибка: ' . $errorMessage);
+                $this->sendMessage('Произошла ошибка: ' . $errorMessage);
 
                 return;
             }
@@ -187,24 +308,25 @@ class AgenticWorkflow
                 return;
             }
 
-            yield $this->agenticActivity->saveResponseMessage(
+            $this->agenticActivity->saveResponseMessage(
                 chatId: $this->input->chatId,
                 topicId: null,
                 message: $choice->message,
                 rawResponse: $result,
             );
 
-            $assistantMessage = $choice->message;
-            $shouldRespond = null;
-            $decisionToolCalls = [];
+            $assistantMessage     = $choice->message;
+            $shouldRespond        = null;
+            $decisionToolCalls    = [];
             $decisionToolMessages = [];
-            $executedToolCalls = [];
+            $executedToolCalls    = [];
             $executedToolMessages = [];
 
             foreach ($assistantMessage->toolCalls ?? [] as $toolCall) {
                 if ($toolCall instanceof UnknownFunctionCall) {
-                    $decisionToolCalls[] = $toolCall;
+                    $decisionToolCalls[]    = $toolCall;
                     $decisionToolMessages[] = $this->decisionToolUnavailableMessage($toolCall->name, $toolCall->id);
+
                     continue;
                 }
 
@@ -214,16 +336,18 @@ class AgenticWorkflow
 
                 if ($toolCall->arguments instanceof RespondDecision) {
                     $shouldRespond = $toolCall->arguments->shouldRespond;
+
                     continue;
                 }
 
                 if (!$this->isExecutableDecisionToolCall($toolCall)) {
-                    $decisionToolCalls[] = $toolCall;
+                    $decisionToolCalls[]    = $toolCall;
                     $decisionToolMessages[] = $this->decisionToolUnavailableMessage($toolCall->tool, $toolCall->id);
+
                     continue;
                 }
 
-                $toolResult = yield $this->executeTool(
+                $toolResult = $this->executeTool(
                     toolName: $toolCall->tool,
                     arguments: $toolCall->arguments,
                 );
@@ -233,9 +357,9 @@ class AgenticWorkflow
                     toolCallId: $toolCall->id,
                 );
 
-                $decisionToolCalls[] = $toolCall;
+                $decisionToolCalls[]    = $toolCall;
                 $decisionToolMessages[] = $toolMessage;
-                $executedToolCalls[] = $toolCall;
+                $executedToolCalls[]    = $toolCall;
                 $executedToolMessages[] = $toolMessage;
             }
 
@@ -245,7 +369,7 @@ class AgenticWorkflow
                 foreach ($decisionToolMessages as $toolMessage) {
                     $decisionMemory[] = $toolMessage;
 
-                    yield $this->agenticActivity->saveResponseMessage(
+                    $this->agenticActivity->saveResponseMessage(
                         chatId: $this->input->chatId,
                         topicId: null,
                         message: $toolMessage,
@@ -257,7 +381,7 @@ class AgenticWorkflow
 
             if ($shouldRespond !== null) {
                 if ($shouldRespond) {
-                    yield from $this->respondWithTyping();
+                    $this->respondWithTyping();
                 }
 
                 return;
@@ -267,7 +391,7 @@ class AgenticWorkflow
         }
 
         if ($this->shouldFallbackRespond($initialDecisionMemory)) {
-            yield from $this->respondWithTyping();
+            $this->respondWithTyping();
         }
     }
 
@@ -308,6 +432,7 @@ class AgenticWorkflow
      *
      * @param array<KnownFunctionCall> $toolCalls
      * @param array<ToolMessage>       $toolMessages
+     * @param AssistantMessage         $assistantMessage
      */
     private function rememberDecisionToolResults(
         AssistantMessage $assistantMessage,
@@ -340,7 +465,7 @@ class AgenticWorkflow
                 continue;
             }
 
-            $content = self::stringifyUserContent($message->content);
+            $content    = self::stringifyUserContent($message->content);
             $normalized = mb_strtolower($content);
 
             if (
@@ -357,45 +482,36 @@ class AgenticWorkflow
         return false;
     }
 
-    private static function stringifyUserContent(array|string $content): string
+    private function respondWithTyping(): void
     {
-        if (is_string($content)) {
-            return $content;
-        }
-
-        return json_encode($content, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) ?: '';
-    }
-
-    private function respondWithTyping(): Generator
-    {
-        yield $this->sendTypingAction();
+        $this->sendTypingAction();
 
         $this->startTypingIndicator();
 
         try {
-            yield from $this->respond();
+            $this->respond();
         } finally {
             $this->stopTypingIndicator();
         }
     }
 
-    private function respond(): Generator
+    private function respond(): void
     {
-        $memorySelection = yield $this->agenticActivity->recollectRelevantMemories(
+        $memorySelection = $this->agenticActivity->recollectRelevantMemories(
             chatId: $this->input->chatId,
             history: $this->workingMemory->getContext(),
         );
 
         if ($memorySelection instanceof ErrorResponse) {
             $errorMessage = $memorySelection->message ?? 'Unknown error.';
-            yield $this->sendMessage('Произошла ошибка: ' . $errorMessage);
+            $this->sendMessage('Произошла ошибка: ' . $errorMessage);
 
             return;
         }
 
         $relevantMemories = 'No relevant memories.';
 
-        $memoryChoice = $memorySelection->choices[0] ?? null;
+        $memoryChoice  = $memorySelection->choices[0] ?? null;
         $memoryContent = $memoryChoice?->message->content === null
             ? ''
             : trim($memoryChoice->message->content);
@@ -404,7 +520,7 @@ class AgenticWorkflow
             $relevantMemories = $memoryContent;
         }
 
-        $responseMemory = $this->workingMemory->getContext();
+        $responseMemory   = $this->workingMemory->getContext();
         $responseMemory[] = new UserMessage(
             "Relevant participant memories for this reply:\n{$relevantMemories}",
         );
@@ -414,11 +530,11 @@ class AgenticWorkflow
             . "- When using telegram_api_call for this chat, omit chat_id/chatId and the tool will inject it.\n"
             . "- A failed telegram_api_call is returned to you as a tool error, not as a user notification. Diagnose that error, use telegram_api_schema when useful, and make a corrected call until Telegram reports success.\n"
             . "- When creating invoices with sendInvoice/createInvoiceLink, invoice payload routing is injected automatically so payment updates return to this workflow.\n"
-            . "- Use telegram_api_schema if you need exact Telegram Bot API method signatures."
+            . '- Use telegram_api_schema if you need exact Telegram Bot API method signatures.'
         );
 
         for ($step = 0; $step < self::MAX_RESPONSE_STEPS; ++$step) {
-            $response = yield $this->agenticActivity->respondFromMemory(
+            $response = $this->agenticActivity->respondFromMemory(
                 memory: $responseMemory,
                 tools: AgenticToolset::RESPONSE_TOOLS,
                 skills: AgenticToolset::RESPONSE_SKILLS,
@@ -427,7 +543,7 @@ class AgenticWorkflow
 
             if ($response instanceof ErrorResponse) {
                 $errorMessage = $response->message ?? 'Unknown error.';
-                yield $this->sendMessage('Произошла ошибка: ' . $errorMessage);
+                $this->sendMessage('Произошла ошибка: ' . $errorMessage);
 
                 return;
             }
@@ -437,7 +553,7 @@ class AgenticWorkflow
                 return;
             }
 
-            yield $this->agenticActivity->saveResponseMessage(
+            $this->agenticActivity->saveResponseMessage(
                 chatId: $this->input->chatId,
                 topicId: null,
                 message: $choice->message,
@@ -445,7 +561,7 @@ class AgenticWorkflow
             );
 
             $assistantMessage = $choice->message;
-            $toolCalls = $assistantMessage->toolCalls ?? [];
+            $toolCalls        = $assistantMessage->toolCalls ?? [];
 
             if ($toolCalls === []) {
                 $content = $assistantMessage->content === null ? '' : trim($assistantMessage->content);
@@ -455,7 +571,7 @@ class AgenticWorkflow
 
                 $this->workingMemory->add($assistantMessage);
 
-                yield $this->sendMessage($content);
+                $this->sendMessage($content);
 
                 return;
             }
@@ -480,7 +596,7 @@ class AgenticWorkflow
 
             foreach ($executableToolCalls as $toolCall) {
                 if ($toolCall instanceof KnownFunctionCall) {
-                    $toolResult = yield $this->executeTool(
+                    $toolResult = $this->executeTool(
                         toolName: $toolCall->tool,
                         arguments: $toolCall->arguments,
                     );
@@ -492,7 +608,7 @@ class AgenticWorkflow
                         $isTerminalTelegramResult = TelegramApiCallExecutor::isSuccessfulResult($toolResult);
 
                         if (!$isTerminalTelegramResult) {
-                            $failureFeedbackVersion = yield Workflow::getVersion(
+                            $failureFeedbackVersion = Workflow::getVersion(
                                 self::telegramFailureFeedbackChangeId($toolCall->id),
                                 Workflow::DEFAULT_VERSION,
                                 1,
@@ -508,7 +624,7 @@ class AgenticWorkflow
                         $hasTerminalUserNotification = true;
                     }
                 } else {
-                    $toolResult = yield $this->executeRuntimeTool(
+                    $toolResult = $this->executeRuntimeTool(
                         toolName: $toolCall->name,
                         argumentsJson: $toolCall->arguments,
                     );
@@ -522,7 +638,7 @@ class AgenticWorkflow
                 $responseMemory[] = $toolMessage;
                 $this->workingMemory->add($toolMessage);
 
-                yield $this->agenticActivity->saveResponseMessage(
+                $this->agenticActivity->saveResponseMessage(
                     chatId: $this->input->chatId,
                     topicId: null,
                     message: $toolMessage,
@@ -534,12 +650,7 @@ class AgenticWorkflow
             }
         }
 
-        yield $this->sendMessage('Не удалось завершить ответ за допустимое число шагов.');
-    }
-
-    private static function telegramFailureFeedbackChangeId(string $toolCallId): string
-    {
-        return 'agentic-telegram-api-call-failure-feedback-' . hash('sha256', $toolCallId);
+        $this->sendMessage('Не удалось завершить ответ за допустимое число шагов.');
     }
 
     private function initializeCompactionClock(): void
@@ -560,7 +671,7 @@ class AgenticWorkflow
         $now = $this->currentTimestamp();
 
         $periodicCompactionDue = ($now - $this->lastCompactionAt) >= self::COMPACTION_INTERVAL_SECONDS;
-        $idleCompactionDue = $this->lastActivityAt > $this->lastCompactionAt
+        $idleCompactionDue     = $this->lastActivityAt > $this->lastCompactionAt
             && ($now - $this->lastActivityAt) >= self::IDLE_COMPACTION_AFTER_SECONDS;
         $sizeCompactionDue = $this->workingMemory->shouldCompactBySize();
 
@@ -571,9 +682,9 @@ class AgenticWorkflow
         return $now >= $this->compactionRetryAfter;
     }
 
-    private function waitForUpdatesOrWorkflowDeadline(): Generator
+    private function waitForUpdatesOrWorkflowDeadline(): void
     {
-        yield Workflow::awaitWithTimeout(
+        Workflow::awaitWithTimeout(
             $this->secondsUntilNextWorkflowDeadline(),
             fn (): bool => $this->updatesQueue->has(),
         );
@@ -581,7 +692,7 @@ class AgenticWorkflow
 
     private function secondsUntilNextWorkflowDeadline(): int
     {
-        $now = $this->currentTimestamp();
+        $now       = $this->currentTimestamp();
         $deadlines = [$this->nextCompactionDeadline($now)];
 
         if ($this->hasPendingPipeline()) {
@@ -631,10 +742,11 @@ class AgenticWorkflow
             && ($now - $this->pipelinePendingSince) >= self::PIPELINE_BATCH_WINDOW_SECONDS;
     }
 
-    private function compactWorkingMemory(): Generator
+    private function compactWorkingMemory(): void
     {
         if (!$this->workingMemory->hasMessagesToCompact()) {
             $this->markCompactionSucceeded();
+
             return;
         }
 
@@ -643,16 +755,18 @@ class AgenticWorkflow
         if ($messagesToCompact === []) {
             $this->workingMemory->compact('No compacted context.');
             $this->markCompactionSucceeded();
+
             return;
         }
 
-        $compactedContext = yield $this->agenticActivity->compactWorkingMemory(
+        $compactedContext = $this->agenticActivity->compactWorkingMemory(
             existingCompactedContext: $this->workingMemory->getCompactedContext(),
             memory: $messagesToCompact,
         );
 
         if (!is_string($compactedContext)) {
             $this->markCompactionFailed();
+
             return;
         }
 
@@ -662,8 +776,8 @@ class AgenticWorkflow
 
     private function markCompactionSucceeded(): void
     {
-        $this->lastCompactionAt = $this->currentTimestamp();
-        $this->compactionRetryAfter = 0;
+        $this->lastCompactionAt              = $this->currentTimestamp();
+        $this->compactionRetryAfter          = 0;
         $this->consecutiveCompactionFailures = 0;
     }
 
@@ -676,9 +790,10 @@ class AgenticWorkflow
             && $this->workingMemory->shouldCompactBySize()
         ) {
             $this->workingMemory->dropMessagesToCompact();
-            $this->lastCompactionAt = $this->currentTimestamp();
-            $this->compactionRetryAfter = 0;
+            $this->lastCompactionAt              = $this->currentTimestamp();
+            $this->compactionRetryAfter          = 0;
             $this->consecutiveCompactionFailures = 0;
+
             return;
         }
 
@@ -686,47 +801,23 @@ class AgenticWorkflow
             + self::compactionRetryDelaySeconds($this->consecutiveCompactionFailures);
     }
 
-    private static function compactionRetryDelaySeconds(int $failureCount): int
-    {
-        return min(
-            self::MAX_COMPACTION_RETRY_AFTER_SECONDS,
-            self::COMPACTION_RETRY_AFTER_SECONDS * (2 ** max(0, $failureCount - 1)),
-        );
-    }
-
     private function currentTimestamp(): int
     {
         return Workflow::now()->getTimestamp();
     }
 
-    public function executeTool(string $toolName, object $arguments): Generator
+    private function executeRuntimeTool(string $toolName, string $argumentsJson): mixed
     {
-        $separatorPosition = strrpos($toolName, '\\');
-        $shortClassName = $separatorPosition === false
-            ? $toolName
-            : substr($toolName, $separatorPosition + 1);
-
-        return yield Workflow::executeActivity(
-            $shortClassName . 'Executor.execute',
-            [$this->input->chatId, $arguments],
-            options: ActivityOptions::new()
-                ->withStartToCloseTimeout(CarbonInterval::minute())
-                ->withRetryOptions(
-                    RetryOptions::new()->withNonRetryableExceptions([])
-                )
-        );
-    }
-
-    private function executeRuntimeTool(string $toolName, string $argumentsJson): Generator
-    {
-        return yield Workflow::executeActivity(
-            'RuntimeToolExecutor.execute',
-            [$this->input->chatId, $toolName, $argumentsJson],
-            options: ActivityOptions::new()
-                ->withStartToCloseTimeout(CarbonInterval::minute())
-                ->withRetryOptions(
-                    RetryOptions::new()->withNonRetryableExceptions([])
-                )
+        return $this->awaitChildScope(
+            fn (): mixed => Workflow::executeActivity(
+                'RuntimeToolExecutor.execute',
+                [$this->input->chatId, $toolName, $argumentsJson],
+                options: ActivityOptions::new()
+                    ->withStartToCloseTimeout(CarbonInterval::minute())
+                    ->withRetryOptions(
+                        RetryOptions::new()->withNonRetryableExceptions([])
+                    )
+            )
         );
     }
 
@@ -743,7 +834,7 @@ class AgenticWorkflow
         ) || $this->processedSinceContinueAsNew >= self::MAX_UPDATES_BEFORE_CONTINUE;
     }
 
-    private function continueAsNew(): Generator
+    private function continueAsNew(): mixed
     {
         $input = new AgenticWorkflowInput(
             chatId: $this->input->chatId,
@@ -759,45 +850,58 @@ class AgenticWorkflow
             paused: $this->paused,
         );
 
-        return yield Workflow::continueAsNew(
+        return Workflow::continueAsNew(
             self::WORKFLOW_TYPE,
             [$input],
             ContinueAsNewOptions::new()->withWorkflowTaskTimeout(CarbonInterval::seconds(self::WORKFLOW_TASK_TIMEOUT_SECONDS)),
         );
     }
 
-    private function sendMessage(string $text): Generator
+    private function sendMessage(string $text): int|string
     {
-        return yield $this->telegramActivity->sendMessage(
-            chatId: $this->input->chatId,
-            text: $text,
-            messageThreadId: null,
+        return $this->awaitChildScope(
+            fn (): int|string => $this->telegramActivity->sendMessage(
+                chatId: $this->input->chatId,
+                text: $text,
+                messageThreadId: null,
+            )
         );
     }
 
-    private function sendTypingAction(): Generator
+    private function sendTypingAction(): true
     {
-        return yield $this->telegramActivity->sendChatAction(
-            chatId: $this->input->chatId,
-            action: 'typing',
-            messageThreadId: null,
+        return $this->awaitChildScope(
+            fn (): true => $this->telegramActivity->sendChatAction(
+                chatId: $this->input->chatId,
+                action: 'typing',
+                messageThreadId: null,
+            )
         );
+    }
+
+    /**
+     * Preserve the child-scope boundary recorded by pre-Fiber workflow histories.
+     * Flattening these calls changes command ordering when concurrent scopes resume.
+     */
+    private function awaitChildScope(callable $operation): mixed
+    {
+        return Workflow::async($operation)->await();
     }
 
     private function startTypingIndicator(): void
     {
         $generation = ++$this->typingIndicatorGeneration;
 
-        Workflow::async(function () use ($generation): Generator {
+        Workflow::async(function () use ($generation): void {
             try {
                 while ($this->typingIndicatorGeneration === $generation) {
-                    yield Workflow::timer(self::TYPING_ACTION_REFRESH_INTERVAL_SECONDS);
+                    Workflow::timer(self::TYPING_ACTION_REFRESH_INTERVAL_SECONDS);
 
                     if ($this->typingIndicatorGeneration !== $generation) {
                         return;
                     }
 
-                    yield $this->sendTypingAction();
+                    $this->sendTypingAction();
                 }
             } catch (CanceledFailure) {
                 return;
@@ -808,82 +912,5 @@ class AgenticWorkflow
     private function stopTypingIndicator(): void
     {
         ++$this->typingIndicatorGeneration;
-    }
-
-    #[Workflow\SignalMethod]
-    public function addUpdate($update): void
-    {
-        $this->updatesQueue->push($update);
-    }
-
-    #[Workflow\SignalMethod(name: self::PAUSE_SIGNAL_NAME)]
-    public function pause(): void
-    {
-        $this->paused = true;
-    }
-
-    #[Workflow\SignalMethod(name: self::RESUME_SIGNAL_NAME)]
-    public function resume(): void
-    {
-        $this->paused = false;
-    }
-
-    #[UpdateMethod(name: self::PAYMENT_UPDATE_NAME)]
-    #[ReturnType(Type::TYPE_ARRAY)]
-    public function handlePaymentUpdate(Update $update): array
-    {
-        $this->updatesQueue->push($update);
-
-        if ($update->preCheckoutQuery !== null) {
-            return [
-                'action' => PaymentQueryAnswer::ACTION_PRE_CHECKOUT,
-                'query_id' => $update->preCheckoutQuery->id,
-                'ok' => true,
-                'error_message' => null,
-            ];
-        }
-
-        if ($update->shippingQuery !== null) {
-            return [
-                'action' => PaymentQueryAnswer::ACTION_SHIPPING,
-                'query_id' => $update->shippingQuery->id,
-                'ok' => false,
-                'shipping_options' => null,
-                'error_message' => 'Для этого инвойса не настроены варианты доставки.',
-            ];
-        }
-
-        return ['action' => PaymentQueryAnswer::ACTION_NONE];
-    }
-
-    #[Workflow\QueryMethod]
-    public function getUpdatesQueue(): array
-    {
-        return $this->updatesQueue->all();
-    }
-
-    #[Workflow\QueryMethod]
-    public function getProcessedCount(): int
-    {
-        return $this->processedCount;
-    }
-
-    #[Workflow\QueryMethod]
-    #[ReturnType(Type::TYPE_BOOL)]
-    public function isPaused(): bool
-    {
-        return $this->paused;
-    }
-
-    #[Workflow\QueryMethod]
-    public function getMemory(): array
-    {
-        return $this->workingMemory->get();
-    }
-
-    #[Workflow\QueryMethod]
-    public function getCompactedContext(): string
-    {
-        return $this->workingMemory->getCompactedContext();
     }
 }

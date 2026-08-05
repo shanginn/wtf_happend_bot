@@ -5603,12 +5603,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/shanginn/sdk-php.git",
-                "reference": "e8d0d1c06ce1ae250e202de5b7a8dafc32b01e7c"
+                "reference": "ba9c1ebcd1713f3a0caef898025ef55cfa22c134"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/shanginn/sdk-php/zipball/e8d0d1c06ce1ae250e202de5b7a8dafc32b01e7c",
-                "reference": "e8d0d1c06ce1ae250e202de5b7a8dafc32b01e7c",
+                "url": "https://api.github.com/repos/shanginn/sdk-php/zipball/ba9c1ebcd1713f3a0caef898025ef55cfa22c134",
+                "reference": "ba9c1ebcd1713f3a0caef898025ef55cfa22c134",
                 "shasum": ""
             },
             "require": {
@@ -5767,7 +5767,7 @@
                 "issues": "https://github.com/shanginn/sdk-php/issues",
                 "source": "https://github.com/shanginn/sdk-php"
             },
-            "time": "2026-08-03T13:13:01+00:00"
+            "time": "2026-08-04T20:49:12+00:00"
         },
         {
             "name": "vlucas/phpdotenv",

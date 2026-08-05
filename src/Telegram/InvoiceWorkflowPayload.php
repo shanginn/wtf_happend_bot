@@ -9,9 +9,9 @@ use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
 
 final class InvoiceWorkflowPayload
 {
-    private const string PREFIX = 'wtfh1';
+    private const string PREFIX                  = 'wtfh1';
     private const int MAX_TELEGRAM_PAYLOAD_BYTES = 128;
-    private const int HASH_BYTES = 12;
+    private const int HASH_BYTES                 = 12;
 
     public static function encode(int $chatId, string $payload): string
     {
@@ -21,7 +21,7 @@ final class InvoiceWorkflowPayload
         }
 
         $encodedPayload = self::base64UrlEncode($payload);
-        $candidate = self::format($chatId, 'p', $encodedPayload);
+        $candidate      = self::format($chatId, 'p', $encodedPayload);
 
         if (strlen($candidate) <= self::MAX_TELEGRAM_PAYLOAD_BYTES) {
             return $candidate;
@@ -107,23 +107,29 @@ final class InvoiceWorkflowPayload
 
     private static function base64UrlDecode(string $value): ?string
     {
-        $padded = str_pad($value, strlen($value) + ((4 - strlen($value) % 4) % 4), '=');
+        $padded  = str_pad($value, strlen($value) + ((4 - strlen($value) % 4) % 4), '=');
         $decoded = base64_decode(strtr($padded, '-_', '+/'), strict: true);
 
         return is_string($decoded) ? $decoded : null;
     }
 
     /**
-     * @return iterable<MessageInterface>
+     * @param UpdateInterface $update
+     *
+     * @return list<MessageInterface>
      */
-    private static function messageSources(UpdateInterface $update): iterable
+    private static function messageSources(UpdateInterface $update): array
     {
+        $messages = [];
+
         foreach (['message', 'editedMessage', 'channelPost', 'editedChannelPost', 'businessMessage', 'editedBusinessMessage'] as $field) {
             $message = $update->{$field};
 
             if ($message instanceof MessageInterface) {
-                yield $message;
+                $messages[] = $message;
             }
         }
+
+        return $messages;
     }
 }
