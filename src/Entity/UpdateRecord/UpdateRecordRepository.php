@@ -32,8 +32,8 @@ final class UpdateRecordRepository extends Repository
     /**
      * Finds all updates for a specific chat, ordered by update ID ascending.
      *
-     * @param int $chatId
-     * @param int|null $limit Maximum number of updates to retrieve
+     * @param int      $chatId
+     * @param int|null $limit  Maximum number of updates to retrieve
      *
      * @return array<UpdateRecord>
      */
@@ -72,6 +72,9 @@ final class UpdateRecordRepository extends Repository
      * Search all persisted Telegram updates in a chat and return only the newest DB-level candidates.
      *
      * @param list<string> $tokens
+     * @param int          $chatId
+     * @param int          $limit
+     *
      * @return array<UpdateRecord>
      */
     public function searchByPayloadText(int $chatId, array $tokens, int $limit): array
@@ -94,6 +97,10 @@ final class UpdateRecordRepository extends Repository
     }
 
     /**
+     * @param int  $chatId
+     * @param ?int $topicId
+     * @param int  $limit
+     *
      * @return array<UpdateRecord>
      */
     public function findLastNInTopic(int $chatId, ?int $topicId, int $limit): array
@@ -115,8 +122,8 @@ final class UpdateRecordRepository extends Repository
     /**
      * Finds updates after a specific update ID for a chat.
      *
-     * @param int $chatId
-     * @param int $afterUpdateId
+     * @param int      $chatId
+     * @param int      $afterUpdateId
      * @param int|null $limit
      *
      * @return array<UpdateRecord>

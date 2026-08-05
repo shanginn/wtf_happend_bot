@@ -1,203 +1,211 @@
-# WTF Happened Bot - Temporal Agentic Architecture
+# WTF Happened Bot
 
-A Telegram bot that summarizes chat messages and answers questions about chat history using the Temporal Agentic Loop pattern.
+An autonomous Telegram group-chat agent built on
+[PiPH](https://github.com/shanginn/pihp), TrueAsync, and Temporal.
+
+The bot decides whether a message needs a response, gathers context with tools,
+performs the requested work, and either acts through the Telegram Bot API or
+deliberately stays silent.
 
 ## Architecture
 
-This bot uses the **Temporal Agentic Loop** pattern:
+Each Telegram chat topic (including the root/general topic) has one long-lived
+`AgenticWorkflow`:
 
-- **RouterWorkflow**: Long-running workflow per chat that maintains conversation state
-- **RouterActivity**: Processes updates using LLM with skill-based prompts
-- **Skills**: Define how to handle different types of requests (summarization, Q&A)
-- **Activities**: Execute actions (send messages, LLM calls)
+1. The durable long-polling ingress reads Telegram updates in `update_id` order.
+   It advances the polling offset only after every matching handler has
+   completed successfully, so a failed handler is retried before later updates.
+2. Accepted updates arrive through `signalWithStart`.
+3. The workflow persists and batches updates for five seconds.
+4. A `PiPHP.DurableAgent` child workflow runs the PiPH agent loop.
+5. Model calls and tools execute only in Temporal activities.
+6. The child returns its portable Pi message snapshot to the topic workflow.
+7. The topic workflow continues as new after 100 ingested updates.
 
-### Continue-As-New Strategy
+The agent uses `deepseek/deepseek-v4-flash` by default. Its tool catalog is made
+from PiPH `Tool`, `DurableAgentTool`, and `ToolRegistry` primitives; there is no
+bot-specific OpenAI client, serializer, decision agent, response agent, or
+working-memory loop.
 
-To avoid Temporal's event history limits (50 MB / 51,200 events), the workflow implements:
-
-1. **Update Counter**: Tracks processed messages
-2. **Automatic Continue-As-New**: After 100 updates, the workflow continues as new with:
-   - Summarized conversation history
-   - Processed count preserved
-3. **History Trimming**: Keeps only last 50 messages in memory
-4. **Query Methods**: Monitor workflow health:
-   - `getProcessedCount()` - Total messages processed
-   - `getHistorySize()` - Current history length
-
-### Key Components
-
-```
-src/
-├── RouterWorkflow/           # Temporal workflow infrastructure
-│   ├── RouterWorkflow.php    # Main workflow (one per chat)
-│   ├── RouterActivity.php    # LLM processing logic
-│   ├── RouterWorkflowHandler.php  # Entry point for updates
-│   ├── RouterWorkflowInput.php    # Workflow input DTO
-│   └── MessageQueue.php      # Internal message queue
-├── Activity/                 # Temporal activities
-│   ├── TelegramActivity.php  # Telegram API calls
-│   └── LlmActivity.php       # LLM API calls
-├── Llm/Skills/              # Skill definitions
-│   ├── SkillInterface.php
-│   ├── SummarizationSkill.php
-│   └── QuestionAnsweringSkill.php
-├── Temporal/                # Data converters
-│   ├── TelegramDataConverter.php
-│   └── OpenaiDataConverter.php
-├── Telegram/                # Extended Telegram types
-│   ├── Factory.php
-│   └── Update.php
-├── Entity/                  # Database entities
-└── bot.php / worker.php     # Entry points
+```text
+Telegram update
+    -> AgenticWorkflow (one per chat topic)
+        -> PiPHP.DurableAgent (one child per batch)
+            -> model activity
+            -> durable tool activities
+        -> portable Pi message snapshot
 ```
 
-## Skills
+### Built-in tools
 
-The bot has four main skill areas:
+- Safe Telegram Bot API schema discovery and calls bound to the current topic
+- Persisted inbound Telegram-history search
+- SearXNG internet search
+- Current time by timezone
+- Participant memory save, recall, update, and deletion
+- Chat-scoped runtime skill and runtime tool management
+- Explicit `stay_silent` completion
 
-1. **Summarization Skill**: Generates concise summaries of chat conversations, identifying distinct threads and key points.
+Mutating tools are marked sequential in the durable workflow. Their stable PiPH
+idempotency keys are claimed in PostgreSQL before an external action, and
+completed results are reused on activity retry. A second terminal Telegram
+action in the same logical batch is suppressed by a separate durable batch
+claim, including parent fallbacks after a failed child workflow. Safe Telegram
+reads bypass the mutation ledger and can use normal Temporal retries.
 
-2. **Question Answering Skill**: Answers specific questions about chat history with contextual insights.
+The direct confirmation path for `/pause`, `/resume`, and `/clear` uses the
+same PostgreSQL ledger with separate command and reply claims derived from the
+full canonical Telegram update identity: `update_id`, action, chat, topic, and
+message. Authorization and the Temporal mutation are never repeated after an
+ambiguous command outcome. A Telegram reply whose request may have been
+accepted before the response was lost is likewise not sent again; the failed
+handler attempt is retried once, then the persisted ambiguous claim allows the
+ingress cursor to advance without risking a duplicate reply.
 
-3. **Memory Management Skill**: Saves, recalls, corrects, and forgets durable participant memories using explicit memory tools.
+Only one bot ingress process may long-poll a Telegram token. The shipped Helm
+Deployment hardcodes one replica and uses the `Recreate` strategy so old and new
+pollers cannot overlap during rollout. Concurrent long-poll bot processes are
+unsupported because an incomplete command or reply claim deliberately represents
+a conservative ambiguous external outcome.
 
-4. **Internet Search Tool**: Searches the public web through the bundled SearXNG JSON API tool when the bot needs current or external information.
+Model completions are cached after the provider result is stored. A provider
+call can still repeat if the worker dies after the provider succeeds but before
+that result reaches the database; Temporal cannot make a third-party API
+exactly-once.
+
+Idempotency rows must outlive every open workflow and the Temporal namespace's
+history-retention window. Operational cleanup may delete only completed tool
+rows and model-completion rows after the corresponding workflows are closed and
+older than that retention window. Incomplete tool claims require reconciliation
+and must not be removed by an automatic age-based job.
+
+### Data handling and guardrails
+
+Routed message text, captions, quoted fragments, participant identity, chat
+metadata, and relevant Telegram event metadata are sent to the configured
+external DeepSeek model. Structured contact, location, and venue details are
+withheld from model context. Telegram image attachments are described by
+metadata only; their private bytes are not forwarded to the model.
+
+Inbound updates accepted by the workflow are stored as serialized Telegram
+update JSON in PostgreSQL for durable ingestion and history search. That stored
+record can contain fields which are deliberately excluded from model context.
+Participant memories and chat-scoped runtime capabilities are also stored in
+PostgreSQL.
+
+The model-facing Telegram API tool is bound to the current chat and topic. Its
+allowlist excludes cross-chat targeting, moderation, webhook and bot
+configuration, payments and refunds, and message mutation. Shipping and
+pre-checkout queries are rejected because bot payments are disabled.
+
+`/pause`, `/resume`, `/clear`, and model-requested runtime capability mutations
+fail closed unless they come from the private-chat user or from identifiable,
+non-anonymous owners or administrators in a group, supergroup, or channel.
+
+### Runtime capabilities
+
+The agent may create durable, chat-specific:
+
+- **runtime skills**, which are injected into its system prompt; and
+- **runtime tools**, whose stored argument schema is validated by PiPH before a
+  separate model completion executes their instructions.
+
+Runtime capabilities cannot replace built-in PHP tools. Definitions are bounded
+to 20 skills and 20 tools per chat, 8 KB per body, instructions, or schema, and
+a 50 KB enabled-context budget. Runtime skills enter the main system prompt;
+runtime tools execute as separate, schema-validated model calls and cannot
+directly invoke built-in tools.
+
+## Requirements
+
+- PHP 8.6 ZTS
+- `ext-true_async` 0.8.2 or newer
+- `ext-temporal`
+- PostgreSQL
+- Temporal Server
+- a Telegram bot token
+- a DeepSeek API key
+
+The project uses the TrueAsync branches of Phenogram and the Temporal PHP SDK,
+plus the three independent PiPH packages:
+
+- [pihp](https://github.com/shanginn/pihp)
+- [pihp-agent-core](https://github.com/shanginn/pihp-agent-core)
+- [pihp-ai](https://github.com/shanginn/pihp-ai)
 
 ## Setup
 
-### Prerequisites
-
-- PHP 8.6 TrueAsync (ZTS) with `true_async` and `temporal`
-- PostgreSQL database
-- Temporal Server (running on localhost:7233)
-
-### Installation
-
 ```bash
+cp .env.sample .env
 composer install --ignore-platform-req=php+
 ```
 
-The lock file pins the TrueAsync branches of Phenogram, the OpenAI SDK, and
-the Temporal SDK. Use the project Docker image or another PHP 8.6 TrueAsync
-runtime when installing or running the application. The temporary
-`--ignore-platform-req=php+` exception only ignores stale PHP upper bounds in
-transitive packages; required extensions and lower bounds are still checked.
+The temporary `php+` override ignores only dependency upper bounds that have
+not yet declared PHP 8.6 support; minimum PHP and extension requirements remain
+enforced. The production image uses the same narrow override.
 
-### Configuration
+Configure at least:
 
-1. Copy `.env.sample` to `.env`:
-```bash
-cp .env.sample .env
-```
-
-2. Edit `.env` with your credentials:
-```env
-TELEGRAM_BOT_TOKEN=your_bot_token
-DEEPSEEK_API_KEY=your_deepseek_api_key
+```dotenv
+TELEGRAM_BOT_TOKEN=
+DEEPSEEK_API_KEY=
 TEMPORAL_ADDRESS=localhost:7233
+TEMPORAL_NAMESPACE=default
 
-# Internet search
-SEARCH_BASE_URL=http://searxng:8080
-SEARCH_TIMEOUT_SECONDS=10
-SEARXNG_SECRET=change-me-local-searxng-secret
-
-# Database
-DB_HOST=db
+DB_HOST=localhost
 DB_PORT=5432
 DB_DATABASE=wtf_happend_bot
 DB_USERNAME=postgres
 DB_PASSWORD=postgres
+
+SEARCH_BASE_URL=http://localhost:38080
+SEARCH_TIMEOUT_SECONDS=10
+SEARXNG_SECRET=replace-with-a-random-secret
 ```
 
-### Running
-
-#### Local Development (Docker Compose)
+With a Temporal development server already running on the host, start the bot,
+worker, PostgreSQL, and SearXNG containers:
 
 ```bash
-# Start all services (bot, worker, db, searxng)
 docker compose up -d
-
-# View logs
-docker compose logs -f bot worker
 ```
 
-#### Manual Start (for development)
+Or run the processes separately:
 
 ```bash
-# 1. Start Temporal Server (in separate terminal)
 temporal server start-dev
-
-# 2. Start the native Temporal worker (in separate terminal)
 php src/worker.php
-
-# 3. Start the Telegram bot (in separate terminal)
 php src/bot.php
 ```
 
-#### Production Deployment (Kubernetes)
+SearXNG is exposed at `http://localhost:38080` by Docker Compose.
 
-The bot uses Helm for Kubernetes deployment. Both bot and worker run in the same pod.
-Local development keeps using Temporal's `default` namespace unless you set `TEMPORAL_NAMESPACE` explicitly.
+## Temporal rollout
 
-Create the Temporal namespace once before the first production deploy:
+This rewrite intentionally does not preserve replay compatibility with workflow
+histories produced by the previous agent implementation. Before deploying it,
+terminate or reset every open legacy `AgenticWorkflow` execution, and terminate
+the retired `RouterWorkflow` executions. Do this before starting the new worker;
+the next accepted Telegram update starts a clean PiPH-backed workflow for its
+topic.
 
-```bash
-temporal operator namespace create \
-  --address temporal-frontend.temporal:7233 \
-  --namespace wtf-happend-bot
-```
+The production Helm chart expects the Temporal namespace configured by
+`TEMPORAL_NAMESPACE` to exist before deployment. Its default is
+`wtf-happend-bot`; local development defaults to `default`.
 
-Required GitHub secrets:
-- `TELEGRAM_BOT_TOKEN`
-- `DEEPSEEK_API_KEY`
-- `DB_PASSWORD`
-- `SEARXNG_SECRET`
+The workflow controls remain:
 
-```bash
-# Deploy using Helm
-cd helm
-helm upgrade wtf-happend-bot --namespace=wtfhappendbot -f values.yaml .
-```
-
-## Usage
-
-- Send any message to the bot - it will be processed by the LLM
-- Ask for summaries: "What happened in the chat?"
-- Ask questions: "What did @user say about X?"
-- Ask about saved memories, corrections, or deletion: "What do you remember about me?", "Update that", "Forget my editor preference"
-- Ask about current or external information: "Search the web for the latest PHP release notes"
-
-## Internet Search
-
-Local Docker Compose starts a private `searxng` service and points the bot and worker at `SEARCH_BASE_URL=http://searxng:8080`. The SearXNG settings in `config/searxng/settings.yml` enable JSON output, which is required by the bot's `internet_search` tool.
-
-The SearXNG web UI is exposed locally at `http://localhost:38080` for manual checks. In Kubernetes, the Helm chart creates a separate SearXNG Deployment and ClusterIP Service, then points the bot and worker at that service.
-
-## Migration from Deterministic Handlers
-
-The bot was rewritten from deterministic handlers to the Temporal Agentic pattern:
-
-**Before:**
-- `SummarizeCommandHandler`: Handled `/wtf` command deterministically
-- `SaveUpdateHandler`: Saved messages to database
-- `StartCommandHandler`: Simple greeting
-
-**After:**
-- Single `RouterWorkflow` per chat handles all messages
-- LLM decides how to respond based on skills
-- Conversation history maintained in workflow state
-- Async processing via Temporal signals
+- `/pause` pauses the current topic; updates received while paused are persisted
+  for history/search but are not processed retroactively;
+- `/resume` resumes new-message processing in the current topic; and
+- `/clear` terminates the current topic workflow.
 
 ## Development
 
-### Running Tests
-
 ```bash
 php vendor/bin/phpunit
-```
-
-### Code Style
-
-```bash
 composer fix
 ```
+
+The unit test command requires the PHP 8.6 TrueAsync runtime. Tests that exercise
+coroutines additionally require the `true_async` extension to be loaded.

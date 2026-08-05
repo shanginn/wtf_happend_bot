@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace Tests\Temporal;
 
 use Bot\AgenticWorkflow\AgenticWorkflow;
-use Bot\RouterWorkflow\RouterWorkflow;
+use PiPHP\Temporal\Workflow\DurableAgentWorkflow;
+use PiPHP\Temporal\Workflow\DurableAgentWorkflowInterface;
 use Spiral\Attributes\AttributeReader;
 use Temporal\Internal\Declaration\Reader\WorkflowReader;
 use Tests\TestCase;
@@ -17,7 +18,10 @@ class WorkflowTypeTest extends TestCase
         $reader = new WorkflowReader(new AttributeReader());
 
         self::assertSame(AgenticWorkflow::WORKFLOW_TYPE, $reader->fromClass(AgenticWorkflow::class)->getID());
-        self::assertSame(RouterWorkflow::WORKFLOW_TYPE, $reader->fromClass(RouterWorkflow::class)->getID());
+        self::assertSame(
+            DurableAgentWorkflowInterface::TYPE,
+            $reader->fromClass(DurableAgentWorkflow::class)->getID(),
+        );
     }
 
     public function testAgenticWorkflowRegistersPauseAndResumeSignals(): void
@@ -27,5 +31,16 @@ class WorkflowTypeTest extends TestCase
 
         self::assertArrayHasKey(AgenticWorkflow::PAUSE_SIGNAL_NAME, $signals);
         self::assertArrayHasKey(AgenticWorkflow::RESUME_SIGNAL_NAME, $signals);
+    }
+
+    public function testPiPHPDurableWorkflowRegistersAgentControlSignals(): void
+    {
+        $workflow = (new WorkflowReader(new AttributeReader()))->fromClass(DurableAgentWorkflow::class);
+        $signals = $workflow->getSignalHandlers();
+
+        self::assertArrayHasKey('steer', $signals);
+        self::assertArrayHasKey('followUp', $signals);
+        self::assertArrayHasKey('requestStop', $signals);
+        self::assertArrayHasKey('snapshot', $workflow->getQueryHandlers());
     }
 }

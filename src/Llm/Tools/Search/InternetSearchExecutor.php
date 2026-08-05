@@ -5,12 +5,9 @@ declare(strict_types=1);
 namespace Bot\Llm\Tools\Search;
 
 use InvalidArgumentException;
-use Temporal\Activity\ActivityInterface;
-use Temporal\Activity\ActivityMethod;
 use Throwable;
 
-#[ActivityInterface(prefix: 'InternetSearchExecutor.')]
-class InternetSearchExecutor
+final class InternetSearchExecutor
 {
     private const string DEFAULT_BASE_URL = 'http://searxng:8080';
     private readonly SearxngSearchClient $client;
@@ -27,18 +24,30 @@ class InternetSearchExecutor
         );
     }
 
-    #[ActivityMethod]
-    public function execute(int $chatId, InternetSearch $schema): string
-    {
+    public function execute(
+        string $query,
+        int $limit = 5,
+        ?string $timeRange = null,
+        string $language = 'auto',
+        string $categories = 'general',
+        int $safeSearch = 1,
+    ): string {
         try {
-            $search = $this->client->search($schema);
+            $search = $this->client->search(
+                query: $query,
+                limit: $limit,
+                timeRange: $timeRange,
+                language: $language,
+                categories: $categories,
+                safeSearch: $safeSearch,
+            );
         } catch (InvalidArgumentException $exception) {
             return $exception->getMessage();
         } catch (Throwable $exception) {
             return 'Internet search failed: ' . $exception->getMessage();
         }
 
-        $query = trim($schema->query);
+        $query = trim($query);
         $lines = [
             sprintf('Internet search results for "%s"', $query),
             'Use the URLs below as sources when answering from these results.',

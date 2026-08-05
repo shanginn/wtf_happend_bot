@@ -6,7 +6,9 @@ metadata:
     {{- include "app.labels" . | nindent 4 }}
     service: bot
 spec:
-  replicas: {{ .Values.deployment.replicas }}
+  replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "app.selectorLabels" . | nindent 6 }}

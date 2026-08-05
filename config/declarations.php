@@ -2,23 +2,18 @@
 
 declare(strict_types=1);
 
-/** @var Config $config */
-
-use Bot\Openai\CompatibleOpenai;
-use Bot\Activity\DatabaseActivity;
-use Bot\Activity\ImageSkillActivity;
-use Bot\Activity\LlmActivity;
 use Bot\Activity\TelegramActivity;
-use Bot\AgenticWorkflow\AgenticActivity;
+use Bot\AgenticWorkflow\AgentContextActivity;
 use Bot\AgenticWorkflow\AgenticWorkflow;
-use Bot\Entity\Message;
+use Bot\AgenticWorkflow\BotToolCatalog;
+use Bot\AgenticWorkflow\CycleModelCompletionResultStore;
+use Bot\AgenticWorkflow\IdempotentToolExecutionGateway;
+use Bot\AgenticWorkflow\RuntimeCapabilityAuthorizationGateway;
+use Bot\Config\TemporalConfig;
 use Bot\Infrastructure\CycleORM\CycleOrmScope;
+use Bot\Llm\Runtime\RuntimeCapabilityRegistry;
 use Bot\Llm\Tools\Chat\GetCurrentTimeExecutor;
 use Bot\Llm\Tools\Chat\SearchMessagesExecutor;
-use Bot\Llm\Tools\Memory\ForgetMemoryExecutor;
-use Bot\Llm\Tools\Memory\RecallMemoryExecutor;
-use Bot\Llm\Tools\Memory\SaveMemoryExecutor;
-use Bot\Llm\Tools\Memory\UpdateMemoryExecutor;
 use Bot\Llm\Tools\Runtime\ListRuntimeCapabilitiesExecutor;
 use Bot\Llm\Tools\Runtime\RuntimeToolExecutor;
 use Bot\Llm\Tools\Runtime\SetRuntimeCapabilityStatusExecutor;
@@ -28,44 +23,21 @@ use Bot\Llm\Tools\Search\InternetSearchExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiSchemaExecutor;
 use Bot\Memory\ParticipantMemoryStore;
-use Bot\RouterWorkflow\RouterActivity;
-use Bot\RouterWorkflow\RouterWorkflow;
+use Bot\Telegram\TelegramChatAuthorizationPolicy;
 use Phenogram\Bindings\Api;
 use Phenogram\Bindings\Serializer;
 use Phenogram\Framework\TelegramBotApiClient;
-use Shanginn\Openai\Openai\OpenaiClient;
-use Shanginn\Openai\OpenaiSimple;
+use PiPHP\AI\Models;
+use PiPHP\AI\Provider\OpenAICompatiblePreset;
+use PiPHP\AI\Provider\ProviderRegistry;
+use PiPHP\Temporal\Activity\DurableAgentActivities;
+use PiPHP\Temporal\Gateway\ModelsGateway;
+use PiPHP\Temporal\Gateway\ModelsModelResolver;
+use PiPHP\Temporal\Gateway\ToolRegistryGateway;
+use PiPHP\Temporal\Workflow\DurableAgentWorkflow;
 
+/** @var TemporalConfig $config */
 $config = require __DIR__ . '/temporal.php';
-
-$deepseek = new CompatibleOpenai(new OpenaiClient(
-    apiKey: $config->deepseekApiKey,
-    apiUrl: 'https://api.deepseek.com'
-), 'deepseek-v4-flash');
-
-$deepseekFlash = new CompatibleOpenai(new OpenaiClient(
-    apiKey: $config->deepseekApiKey,
-    apiUrl: 'https://api.deepseek.com'
-), 'deepseek-v4-flash');
-
-$minimax = new CompatibleOpenai(new OpenaiClient(
-    apiKey: $config->openrouterApiKey,
-    apiUrl: 'https://openrouter.ai/api/v1'
-), 'minimax/minimax-m2.7');
-
-$qwen = new CompatibleOpenai(new OpenaiClient(
-    apiKey: $config->openrouterApiKey,
-    apiUrl: 'https://openrouter.ai/api/v1'
-), 'qwen/qwen3.6-plus');
-
-$bytedanceSeed = new CompatibleOpenai(new OpenaiClient(
-    apiKey: $config->openrouterApiKey,
-    apiUrl: 'https://openrouter.ai/api/v1'
-), 'bytedance-seed/seed-2.0-mini');
-
-$decisionModel = $deepseekFlash;
-$memoryRecollectionModel = $deepseekFlash;
-$answerGenerationModel = $deepseek;
 
 $telegramClient = new TelegramBotApiClient($config->botToken);
 $telegramSerializer = new Serializer();
@@ -73,94 +45,77 @@ $telegramApi = new Api(
     client: $telegramClient,
     serializer: $telegramSerializer,
 );
+$telegramAuthorization = new TelegramChatAuthorizationPolicy($telegramApi);
 
 $ormData = require __DIR__ . '/orm.php';
 /** @var CycleOrmScope $ormScope */
 $ormScope = $ormData[2];
 
+$models = new Models(new ProviderRegistry([
+    OpenAICompatiblePreset::deepSeek()->provider(),
+]));
+$modelGateway = new ModelsGateway(
+    models: $models,
+    resolver: new ModelsModelResolver($models),
+    resultStore: new CycleModelCompletionResultStore($ormScope),
+);
+
+$toolCatalog = static function () use (
+    $config,
+    $modelGateway,
+    $ormScope,
+    $telegramClient,
+    $telegramSerializer,
+): BotToolCatalog {
+    $orm = $ormScope->current()->orm;
+
+    return new BotToolCatalog(
+        memoryStore: new ParticipantMemoryStore($orm),
+        searchMessages: new SearchMessagesExecutor($orm),
+        internetSearch: new InternetSearchExecutor(
+            baseUrl: $config->searchBaseUrl,
+            timeoutSeconds: $config->searchTimeoutSeconds,
+        ),
+        currentTime: new GetCurrentTimeExecutor(),
+        telegramSchema: new TelegramApiSchemaExecutor(),
+        telegramCall: new TelegramApiCallExecutor(
+            client: $telegramClient,
+            serializer: $telegramSerializer,
+        ),
+        listRuntimeCapabilities: new ListRuntimeCapabilitiesExecutor($orm),
+        upsertRuntimeSkill: new UpsertRuntimeSkillExecutor($orm),
+        upsertRuntimeTool: new UpsertRuntimeToolExecutor($orm),
+        setRuntimeCapabilityStatus: new SetRuntimeCapabilityStatusExecutor($orm),
+        runtimeTool: new RuntimeToolExecutor($orm, $modelGateway),
+    );
+};
+
 return [
     'default' => [
         'workflows' => [
-            RouterWorkflow::class,
             AgenticWorkflow::class,
+            DurableAgentWorkflow::class,
         ],
         'activities' => [
-            RouterActivity::class => fn () => new RouterActivity(
-                openai: $answerGenerationModel,
-                telegramSerializer: new Serializer(),
+            DurableAgentActivities::class => fn(): DurableAgentActivities => new DurableAgentActivities(
+                models: $modelGateway,
+                tools: new RuntimeCapabilityAuthorizationGateway(
+                    inner: new IdempotentToolExecutionGateway(
+                        inner: new ToolRegistryGateway($toolCatalog()->registry()),
+                        orm: $ormScope->current()->orm,
+                    ),
+                    authorization: $telegramAuthorization,
+                ),
             ),
-            AgenticActivity::class => function () use (
-                $answerGenerationModel,
-                $telegramApi,
-                $ormScope,
-                $decisionModel,
-                $memoryRecollectionModel,
-            ): AgenticActivity {
-                return new AgenticActivity(
-                    openai: $answerGenerationModel,
-                    api: $telegramApi,
-                    orm: $ormScope->current()->orm,
-                    decisionOpenai: $decisionModel,
-                    memoryRecollectionOpenai: $memoryRecollectionModel,
-                );
-            },
-            LlmActivity::class => fn () => new LlmActivity(
-                openai: $answerGenerationModel,
+            AgentContextActivity::class => fn(): AgentContextActivity => new AgentContextActivity(
+                new RuntimeCapabilityRegistry($ormScope->current()->orm),
             ),
-            TelegramActivity::class => function () use ($telegramApi, $ormScope): TelegramActivity {
+            TelegramActivity::class => function () use ($ormScope): TelegramActivity {
                 $context = $ormScope->current();
 
-                return new TelegramActivity($telegramApi, $context->orm, $context->entityManager);
+                return new TelegramActivity($context->orm, $context->entityManager);
             },
-            DatabaseActivity::class => fn () => new DatabaseActivity($ormScope->current()->orm),
-            SaveMemoryExecutor::class => fn () => new SaveMemoryExecutor(
-                memoryStore: new ParticipantMemoryStore($ormScope->current()->orm),
-                api: $telegramApi,
-            ),
-            RecallMemoryExecutor::class => fn () => new RecallMemoryExecutor(
-                memoryStore: new ParticipantMemoryStore($ormScope->current()->orm),
-            ),
-            UpdateMemoryExecutor::class => fn () => new UpdateMemoryExecutor(
-                memoryStore: new ParticipantMemoryStore($ormScope->current()->orm),
-                api: $telegramApi,
-            ),
-            ForgetMemoryExecutor::class => fn () => new ForgetMemoryExecutor(
-                memoryStore: new ParticipantMemoryStore($ormScope->current()->orm),
-                api: $telegramApi,
-            ),
-            SearchMessagesExecutor::class => fn () => new SearchMessagesExecutor(
-                orm: $ormScope->current()->orm,
-            ),
-            InternetSearchExecutor::class => fn () => new InternetSearchExecutor(
-                baseUrl: $config->searchBaseUrl ?? null,
-                timeoutSeconds: $config->searchTimeoutSeconds ?? null,
-            ),
-            GetCurrentTimeExecutor::class => fn () => new GetCurrentTimeExecutor(),
-            TelegramApiSchemaExecutor::class => fn () => new TelegramApiSchemaExecutor(),
-            TelegramApiCallExecutor::class => fn () => new TelegramApiCallExecutor(
-                client: $telegramClient,
-                serializer: $telegramSerializer,
-            ),
-            ListRuntimeCapabilitiesExecutor::class => fn () => new ListRuntimeCapabilitiesExecutor(
-                orm: $ormScope->current()->orm,
-            ),
-            UpsertRuntimeSkillExecutor::class => fn () => new UpsertRuntimeSkillExecutor(
-                orm: $ormScope->current()->orm,
-                api: $telegramApi,
-            ),
-            UpsertRuntimeToolExecutor::class => fn () => new UpsertRuntimeToolExecutor(
-                orm: $ormScope->current()->orm,
-                api: $telegramApi,
-            ),
-            SetRuntimeCapabilityStatusExecutor::class => fn () => new SetRuntimeCapabilityStatusExecutor(
-                orm: $ormScope->current()->orm,
-            ),
-            RuntimeToolExecutor::class => fn () => new RuntimeToolExecutor(
-                orm: $ormScope->current()->orm,
-                openai: $answerGenerationModel,
-            ),
-            ImageSkillActivity::class => fn () => new ImageSkillActivity($telegramApi),
         ],
-        'activityFinalizer' => static fn () => $ormScope->finalizeCurrent(),
+        'activityFinalizer' => static fn() => $ormScope->finalizeCurrent(),
     ],
 ];

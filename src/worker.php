@@ -3,13 +3,14 @@
 declare(strict_types=1);
 
 use Async\Signal;
+use Bot\Config\TemporalConfig;
 use Temporal\WorkerFactory;
 use TrueAsync\Temporal\Core\Connection;
 
 ini_set('display_errors', 'stderr');
 require_once __DIR__ . '/../vendor/autoload.php';
 
-/** @var Config $config */
+/** @var TemporalConfig $config */
 $config = require __DIR__ . '/../config/temporal.php';
 
 $factory = WorkerFactory::create(

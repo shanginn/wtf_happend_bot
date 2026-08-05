@@ -26,87 +26,6 @@ final class TrueAsyncPostgresDriver extends PostgresDriver
 
     private ?Coroutine $connectionTask = null;
 
-    private function coroutineId(): int
-    {
-        if (!function_exists('\Async\current_coroutine')) {
-            return 0;
-        }
-
-        try {
-            return \Async\current_coroutine()->getId();
-        } catch (Throwable) {
-            return 0;
-        }
-    }
-
-    private function setTransactionLevel(int $level): void
-    {
-        $id = $this->coroutineId();
-
-        if ($level === 0) {
-            unset($this->transactionLevels[$id]);
-
-            return;
-        }
-
-        $this->transactionLevels[$id] = $level;
-    }
-
-    protected function prepare(string $query): PDOStatement|PDOStatementInterface
-    {
-        return $this->getPDO()->prepare($query);
-    }
-
-    protected function statement(string $query, iterable $parameters = [], bool $retry = true): StatementInterface
-    {
-        $queryStart = microtime(true);
-
-        try {
-            $statement = $this->bindParameters($this->prepare($query), $parameters);
-            $statement->execute();
-
-            return new Statement($statement);
-        } catch (Throwable $e) {
-            $e = $this->mapException($e, Interpolator::interpolate($query, $parameters));
-
-            if (
-                $retry
-                && $this->getTransactionLevel() === 0
-                && $this->config->reconnect
-                && $e instanceof StatementException\ConnectionException
-            ) {
-                $this->disconnect();
-
-                return $this->statement($query, $parameters, false);
-            }
-
-            throw $e;
-        } finally {
-            if ($this->logger !== null) {
-                $queryString = $this->config->options['logInterpolatedQueries']
-                    ? Interpolator::interpolate($query, $parameters, $this->config->options)
-                    : $query;
-
-                $contextParameters = $this->config->options['logQueryParameters']
-                    ? $parameters
-                    : [];
-
-                $context = $this->defineLoggerContext(
-                    $queryStart,
-                    $statement ?? null,
-                    $contextParameters,
-                );
-
-                if (isset($e)) {
-                    $this->logger->error($queryString, $context);
-                    $this->logger->alert($e->getMessage());
-                } else {
-                    $this->logger->info($queryString, $context);
-                }
-            }
-        }
-    }
-
     /**
      * Cycle initializes PDO lazily. Share the first connection task so concurrent
      * cold-start queries create one native pool rather than competing pools.
@@ -271,5 +190,86 @@ final class TrueAsyncPostgresDriver extends PostgresDriver
         } finally {
             unset($this->transactionLevels[$id]);
         }
+    }
+
+    protected function prepare(string $query): PDOStatement|PDOStatementInterface
+    {
+        return $this->getPDO()->prepare($query);
+    }
+
+    protected function statement(string $query, iterable $parameters = [], bool $retry = true): StatementInterface
+    {
+        $queryStart = microtime(true);
+
+        try {
+            $statement = $this->bindParameters($this->prepare($query), $parameters);
+            $statement->execute();
+
+            return new Statement($statement);
+        } catch (Throwable $e) {
+            $e = $this->mapException($e, Interpolator::interpolate($query, $parameters));
+
+            if (
+                $retry
+                && $this->getTransactionLevel() === 0
+                && $this->config->reconnect
+                && $e instanceof StatementException\ConnectionException
+            ) {
+                $this->disconnect();
+
+                return $this->statement($query, $parameters, false);
+            }
+
+            throw $e;
+        } finally {
+            if ($this->logger !== null) {
+                $queryString = $this->config->options['logInterpolatedQueries']
+                    ? Interpolator::interpolate($query, $parameters, $this->config->options)
+                    : $query;
+
+                $contextParameters = $this->config->options['logQueryParameters']
+                    ? $parameters
+                    : [];
+
+                $context = $this->defineLoggerContext(
+                    $queryStart,
+                    $statement ?? null,
+                    $contextParameters,
+                );
+
+                if (isset($e)) {
+                    $this->logger->error($queryString, $context);
+                    $this->logger->alert($e->getMessage());
+                } else {
+                    $this->logger->info($queryString, $context);
+                }
+            }
+        }
+    }
+
+    private function coroutineId(): int
+    {
+        if (!function_exists('\Async\current_coroutine')) {
+            return 0;
+        }
+
+        try {
+            return \Async\current_coroutine()->getId();
+        } catch (Throwable) {
+            return 0;
+        }
+    }
+
+    private function setTransactionLevel(int $level): void
+    {
+        $id = $this->coroutineId();
+
+        if ($level === 0) {
+            unset($this->transactionLevels[$id]);
+
+            return;
+        }
+
+        $this->transactionLevels[$id] = $level;
     }
 }

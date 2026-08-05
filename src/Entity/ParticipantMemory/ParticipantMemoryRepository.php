@@ -43,6 +43,9 @@ final class ParticipantMemoryRepository extends Repository
     }
 
     /**
+     * @param int    $chatId
+     * @param string $participantKey
+     *
      * @return array<ParticipantMemory>
      */
     public function findByParticipantKey(int $chatId, string $participantKey): array
@@ -56,6 +59,8 @@ final class ParticipantMemoryRepository extends Repository
     }
 
     /**
+     * @param int $chatId
+     *
      * @return array<ParticipantMemory>
      */
     public function findByChatId(int $chatId): array

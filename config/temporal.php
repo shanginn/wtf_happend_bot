@@ -2,11 +2,10 @@
 
 declare(strict_types=1);
 
-use Bot\AgenticWorkflow\AgenticToolset;
-use Bot\Llm\Tools\Image\DownloadImage;
-use Bot\Temporal\OpenaiDataConverter;
+use Bot\Temporal\AgenticWorkflowInputDataConverter;
 use Bot\Temporal\TelegramDataConverter;
 use Bot\Telegram\Factory as TelegramFactory;
+use Bot\Config\TemporalConfig;
 use Phenogram\Bindings\Factory;
 use Temporal\Client\ClientOptions;
 use Temporal\DataConverter\BinaryConverter;
@@ -18,16 +17,19 @@ use Temporal\DataConverter\ProtoJsonConverter;
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-Dotenv\Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
+Dotenv\Dotenv::createUnsafeImmutable(__DIR__ . '/..')->safeLoad();
 
-$botToken = getenv('TELEGRAM_BOT_TOKEN');
-assert(is_string($botToken), 'Bot token must be a string');
+$requiredEnvironment = static function (string $name): string {
+    $value = getenv($name);
+    if (!is_string($value) || trim($value) === '') {
+        throw new InvalidArgumentException("{$name} is not set.");
+    }
 
-$openrouterApiKey = getenv('OPENROUTER_API_KEY');
-assert(is_string($openrouterApiKey), 'OpenRouter API key must be a string');
+    return $value;
+};
 
-$deepseekApiKey = getenv('DEEPSEEK_API_KEY');
-assert(is_string($deepseekApiKey), 'DeepSeek API key must be a string');
+$botToken = $requiredEnvironment('TELEGRAM_BOT_TOKEN');
+$requiredEnvironment('DEEPSEEK_API_KEY');
 
 $temporalAddress = getenv('TEMPORAL_ADDRESS') ?: getenv('TEMPORAL_CLI_ADDRESS') ?: 'localhost:7233';
 $temporalNamespace = getenv('TEMPORAL_NAMESPACE') ?: 'default';
@@ -35,31 +37,8 @@ $searchBaseUrl = getenv('SEARCH_BASE_URL') ?: 'http://searxng:8080';
 $searchTimeoutSeconds = (int) (getenv('SEARCH_TIMEOUT_SECONDS') ?: 10);
 $searchTimeoutSeconds = max(1, min($searchTimeoutSeconds, 30));
 
-if (!class_exists('Config')) {
-    class Config
-    {
-        public function __construct(
-            public readonly string $botToken,
-            public readonly string $openrouterApiKey,
-            public readonly string $deepseekApiKey,
-            public readonly string $temporalAddress,
-            public readonly string $temporalNamespace,
-            public readonly string $searchBaseUrl,
-            public readonly int $searchTimeoutSeconds,
-            public readonly ClientOptions $temporalClientOptions,
-            public readonly DataConverter $dataConverter,
-        ) {}
-    }
-}
-
-$openaiDataConverter = new OpenaiDataConverter();
-$openaiDataConverter->registerTools(
-    DownloadImage::class,
-    ...AgenticToolset::TOOLS,
-);
-
 $dataConverter = new DataConverter(
-    $openaiDataConverter,
+    new AgenticWorkflowInputDataConverter(),
     new TelegramDataConverter(factory: new TelegramFactory()),
     new NullConverter(),
     new BinaryConverter(),
@@ -68,10 +47,8 @@ $dataConverter = new DataConverter(
     new JsonConverter(),
 );
 
-return new Config(
+return new TemporalConfig(
     botToken: $botToken,
-    openrouterApiKey: $openrouterApiKey,
-    deepseekApiKey: $deepseekApiKey,
     temporalAddress: $temporalAddress,
     temporalNamespace: $temporalNamespace,
     searchBaseUrl: $searchBaseUrl,

@@ -14,7 +14,80 @@ use ReflectionUnionType;
 
 final class TelegramApiMethodCatalog
 {
-    private const int DESCRIPTION_LIMIT = 260;
+    private const int DESCRIPTION_LIMIT   = 260;
+    private const array UNSAFE_PARAMETERS = [
+        'allowPaidBroadcast',
+        'businessConnectionId',
+        'callbackQueryId',
+        'directMessagesTopicId',
+        'inlineMessageId',
+        'receiverUserId',
+        'replyParameters',
+        'suggestedPostParameters',
+    ];
+
+    /**
+     * The agent is intentionally limited to chat-scoped messaging and narrowly
+     * required read operations. Global bot configuration, authentication,
+     * payments/refunds, message mutation, cross-topic targets, moderation,
+     * invite links, and profile mutation are not
+     * reachable from group-chat prompts.
+     */
+    private const array ALLOWED_METHODS = [
+        'getChat',
+        'getChatAdministrators',
+        'getChatMember',
+        'getChatMemberCount',
+        'getFile',
+        'getForumTopicIconStickers',
+        'getMe',
+        'getUserChatBoosts',
+        'sendAnimation',
+        'sendAudio',
+        'sendChatAction',
+        'sendContact',
+        'sendDice',
+        'sendDocument',
+        'sendLocation',
+        'sendMediaGroup',
+        'sendMessage',
+        'sendPhoto',
+        'sendPoll',
+        'sendSticker',
+        'sendVenue',
+        'sendVideo',
+        'sendVideoNote',
+        'sendVoice',
+    ];
+
+    private const array TERMINAL_METHODS = [
+        'sendAnimation',
+        'sendAudio',
+        'sendContact',
+        'sendDice',
+        'sendDocument',
+        'sendLocation',
+        'sendMediaGroup',
+        'sendMessage',
+        'sendPhoto',
+        'sendPoll',
+        'sendSticker',
+        'sendVenue',
+        'sendVideo',
+        'sendVideoNote',
+        'sendVoice',
+    ];
+
+    private const array READ_ONLY_METHODS = [
+        'getChat',
+        'getChatAdministrators',
+        'getChatMember',
+        'getChatMemberCount',
+        'getFile',
+        'getForumTopicIconStickers',
+        'getMe',
+        'getUserChatBoosts',
+    ];
 
     /** @var array<string, ReflectionMethod>|null */
     private ?array $methods = null;
@@ -29,9 +102,14 @@ final class TelegramApiMethodCatalog
         }
 
         $reflection = new ReflectionClass(ApiInterface::class);
-        $methods = [];
+        $methods    = [];
+        $allowed    = array_fill_keys(self::ALLOWED_METHODS, true);
 
         foreach ($reflection->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
+            if (!isset($allowed[$method->getName()])) {
+                continue;
+            }
+
             $methods[$method->getName()] = $method;
         }
 
@@ -45,6 +123,13 @@ final class TelegramApiMethodCatalog
         $resolved = $this->resolveMethodName($name);
 
         return $resolved === null ? null : $this->methods()[$resolved];
+    }
+
+    public function isReadOnly(string $name): bool
+    {
+        $resolved = $this->resolveMethodName($name);
+
+        return $resolved !== null && in_array($resolved, self::READ_ONLY_METHODS, true);
     }
 
     public function resolveMethodName(string $name): ?string
@@ -90,6 +175,8 @@ final class TelegramApiMethodCatalog
     }
 
     /**
+     * @param ReflectionMethod $method
+     *
      * @return array<string, ReflectionParameter>
      */
     public function parameterMap(ReflectionMethod $method): array
@@ -103,7 +190,15 @@ final class TelegramApiMethodCatalog
         return $map;
     }
 
+    public function isAllowedParameter(string $name): bool
+    {
+        return !in_array($name, self::UNSAFE_PARAMETERS, true);
+    }
+
     /**
+     * @param string $name
+     * @param int    $limit
+     *
      * @return list<string>
      */
     public function similarMethods(string $name, int $limit = 6): array
@@ -127,9 +222,9 @@ final class TelegramApiMethodCatalog
 
     public function describeMethod(ReflectionMethod $method): string
     {
-        $description = $this->methodDescription($method);
+        $description       = $this->methodDescription($method);
         $paramDescriptions = $this->paramDescriptions($method);
-        $lines = [
+        $lines             = [
             $method->getName() . '(' . $this->signatureParameters($method) . '): ' . $this->typeToString($method->getReturnType()),
         ];
 
@@ -141,6 +236,10 @@ final class TelegramApiMethodCatalog
             $lines[] = 'Parameters:';
 
             foreach ($method->getParameters() as $parameter) {
+                if (!$this->isAllowedParameter($parameter->getName())) {
+                    continue;
+                }
+
                 $line = '- ' . $parameter->getName() . ': ' . $this->typeToString($parameter->getType());
 
                 if ($parameter->isDefaultValueAvailable()) {
@@ -161,8 +260,8 @@ final class TelegramApiMethodCatalog
 
     public function search(?string $query, int $limit): string
     {
-        $query = trim((string) $query);
-        $limit = max(1, min($limit, 80));
+        $query   = trim((string) $query);
+        $limit   = max(1, min($limit, 80));
         $matches = [];
 
         foreach ($this->methods() as $method) {
@@ -190,7 +289,7 @@ final class TelegramApiMethodCatalog
 
         foreach (array_slice($matches, 0, $limit) as $method) {
             $description = $this->truncate($this->methodDescription($method), 180);
-            $lines[] = '- ' . $method->getName()
+            $lines[]     = '- ' . $method->getName()
                 . '(' . $this->signatureParameters($method, includeDefaults: false) . '): '
                 . $this->typeToString($method->getReturnType())
                 . ($description === '' ? '' : ' - ' . $description);
@@ -203,9 +302,9 @@ final class TelegramApiMethodCatalog
         return implode("\n", $lines);
     }
 
-    public function isReadOnly(string $method): bool
+    public function isTerminal(string $method): bool
     {
-        return str_starts_with($method, 'get') && $method !== 'getUpdates';
+        return in_array($method, self::TERMINAL_METHODS, true);
     }
 
     private function signatureParameters(ReflectionMethod $method, bool $includeDefaults = true): string
@@ -213,6 +312,10 @@ final class TelegramApiMethodCatalog
         $parts = [];
 
         foreach ($method->getParameters() as $parameter) {
+            if (!$this->isAllowedParameter($parameter->getName())) {
+                continue;
+            }
+
             $part = $this->typeToString($parameter->getType()) . ' $' . $parameter->getName();
 
             if ($includeDefaults && $parameter->isDefaultValueAvailable()) {
@@ -240,7 +343,7 @@ final class TelegramApiMethodCatalog
 
             if (!$type->isBuiltin()) {
                 $separator = strrpos($name, '\\');
-                $name = $separator === false ? $name : substr($name, $separator + 1);
+                $name      = $separator === false ? $name : substr($name, $separator + 1);
             }
 
             return $type->allowsNull() && $name !== 'null' ? '?' . $name : $name;
@@ -293,6 +396,8 @@ final class TelegramApiMethodCatalog
     }
 
     /**
+     * @param ReflectionMethod $method
+     *
      * @return array<string, string>
      */
     private function paramDescriptions(ReflectionMethod $method): array
@@ -316,6 +421,8 @@ final class TelegramApiMethodCatalog
     }
 
     /**
+     * @param string $doc
+     *
      * @return list<string>
      */
     private function docLines(string $doc): array

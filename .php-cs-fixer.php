@@ -2,6 +2,9 @@
 
 $finder = (new PhpCsFixer\Finder())
     ->in(__DIR__ . '/src')
+    // php-cs-fixer 3.73 rewrites PHP 8.4 asymmetric property visibility
+    // incorrectly (for example, `private(set)` becomes invalid PHP).
+    ->notPath('Telegram/Update.php')
 //    ->in(__DIR__ . '/tests')
 //    ->exclude('var')
 ;
@@ -17,7 +20,8 @@ return (new PhpCsFixer\Config())
         'single_line_after_imports'              => true,
         'no_unused_imports'                      => true,
         'multiline_whitespace_before_semicolons' => false,
-        'phpdoc_to_comment' => false,
+        'phpdoc_to_comment'                      => false,
+        'no_useless_return'                      => false,
 
         'ordered_imports'         => true,
         'global_namespace_import' => true,

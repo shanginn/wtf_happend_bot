@@ -6,7 +6,6 @@ namespace Tests\AgenticWorkflow;
 
 use Bot\AgenticWorkflow\AgenticWorkflowHandler;
 use Bot\AgenticWorkflow\AgenticWorkflowInput;
-use Bot\Telegram\InvoiceWorkflowPayload;
 use Bot\Telegram\PaymentQueryAnswer;
 use Bot\Telegram\Update;
 use Carbon\CarbonInterval;
@@ -15,11 +14,9 @@ use Phenogram\Bindings\Factories\ChatFactory;
 use Phenogram\Bindings\Factories\MessageFactory;
 use Phenogram\Bindings\Factories\PreCheckoutQueryFactory;
 use Phenogram\Bindings\Factories\UpdateFactory;
-use Temporal\Client\WorkflowStubInterface;
 use Temporal\Client\WorkflowClientInterface;
 use Temporal\Client\WorkflowOptions;
 use Temporal\Common\IdReusePolicy;
-use Temporal\DataConverter\EncodedValues;
 use Tests\TestCase;
 
 class AgenticWorkflowHandlerTest extends TestCase
@@ -33,7 +30,7 @@ class AgenticWorkflowHandlerTest extends TestCase
         parent::tearDown();
     }
 
-    public function testGenerateWorkflowIdIgnoresTopic(): void
+    public function testGenerateWorkflowIdPartitionsRootAndTopics(): void
     {
         $generalUpdate = UpdateFactory::make(
             message: MessageFactory::make(
@@ -52,14 +49,14 @@ class AgenticWorkflowHandlerTest extends TestCase
 
         self::assertSame('Chat -100123456 [Root]', AgenticWorkflowHandler::generateWorkflowId($generalUpdate));
         self::assertSame(
-            AgenticWorkflowHandler::generateWorkflowId($generalUpdate),
+            'Chat -100123456 [Topic 789]',
             AgenticWorkflowHandler::generateWorkflowId($topicUpdate),
         );
     }
 
     public function testHandleUpdateSignalsWorkflowForRegularMessage(): void
     {
-        $update = $this->makeMessageUpdate('hello there');
+        $update = $this->makeMessageUpdate('hello there', messageThreadId: 789);
 
         $client = Mockery::mock(WorkflowClientInterface::class);
         $workflowStub = new \stdClass();
@@ -69,7 +66,7 @@ class AgenticWorkflowHandlerTest extends TestCase
             ->once()
             ->withArgs(function (string $class, WorkflowOptions $options): bool {
                 return $class === \Bot\AgenticWorkflow\AgenticWorkflow::class
-                    && $options->workflowId === 'Chat -100123456 [Root]'
+                    && $options->workflowId === 'Chat -100123456 [Topic 789]'
                     && (int) CarbonInterval::instance($options->workflowTaskTimeout)->totalSeconds === 60
                     && $options->workflowIdReusePolicy === IdReusePolicy::AllowDuplicate->value;
             })
@@ -89,7 +86,9 @@ class AgenticWorkflowHandlerTest extends TestCase
                     && $signalArgs === [$update]
                     && count($startArgs) === 1
                     && $startArgs[0] instanceof AgenticWorkflowInput
-                    && $startArgs[0]->chatId === self::CHAT_ID;
+                    && $startArgs[0]->chatId === self::CHAT_ID
+                    && $startArgs[0]->chatType === 'supergroup'
+                    && $startArgs[0]->topicId === 789;
             });
 
         $client->shouldNotReceive('newUntypedRunningWorkflowStub');
@@ -99,49 +98,7 @@ class AgenticWorkflowHandlerTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    public function testHandleUpdateSendsRoutedPaymentUpdateToRunningWorkflow(): void
-    {
-        $payload = InvoiceWorkflowPayload::encode(self::CHAT_ID, 'invoice-1');
-        $update = UpdateFactory::make(
-            updateId: 1002,
-            preCheckoutQuery: PreCheckoutQueryFactory::make(id: 'checkout-1', invoicePayload: $payload),
-        );
-
-        assert($update instanceof Update);
-
-        $workflow = Mockery::mock(WorkflowStubInterface::class);
-        $workflow
-            ->shouldReceive('update')
-            ->once()
-            ->with(
-                \Bot\AgenticWorkflow\AgenticWorkflow::PAYMENT_UPDATE_NAME,
-                $update,
-            )
-            ->andReturn(EncodedValues::fromValues([[
-                'action' => PaymentQueryAnswer::ACTION_PRE_CHECKOUT,
-                'query_id' => 'checkout-1',
-                'ok' => true,
-                'error_message' => null,
-            ]]));
-
-        $client = Mockery::mock(WorkflowClientInterface::class);
-        $client->shouldNotReceive('newWorkflowStub');
-        $client->shouldNotReceive('signalWithStart');
-        $client
-            ->shouldReceive('newUntypedRunningWorkflowStub')
-            ->once()
-            ->with('Chat -100123456 [Root]', null, \Bot\AgenticWorkflow\AgenticWorkflow::WORKFLOW_TYPE)
-            ->andReturn($workflow);
-
-        $answer = (new AgenticWorkflowHandler($client))->handleUpdate($update);
-
-        self::assertInstanceOf(PaymentQueryAnswer::class, $answer);
-        self::assertSame(PaymentQueryAnswer::ACTION_PRE_CHECKOUT, $answer->action);
-        self::assertSame('checkout-1', $answer->queryId);
-        self::assertTrue($answer->ok);
-    }
-
-    public function testHandleUpdateRejectsUnroutablePreCheckoutQueryWithoutStartingWorkflow(): void
+    public function testHandleUpdateRejectsPreCheckoutQueryWithoutStartingWorkflow(): void
     {
         $update = UpdateFactory::make(
             updateId: 1003,
@@ -161,6 +118,7 @@ class AgenticWorkflowHandlerTest extends TestCase
         self::assertSame(PaymentQueryAnswer::ACTION_PRE_CHECKOUT, $answer->action);
         self::assertSame('checkout-missing', $answer->queryId);
         self::assertFalse($answer->ok);
+        self::assertSame('Платежи через этого бота отключены.', $answer->errorMessage);
     }
 
     private function makeMessageUpdate(
