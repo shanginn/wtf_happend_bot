@@ -71,6 +71,7 @@ class WorkflowControlCommandTest extends TestCase
                 from: UserFactory::make(id: self::ADMIN_ID, isBot: false),
                 text: $command,
                 messageThreadId: 42,
+                isTopicMessage: true,
                 entities: [
                     MessageEntityFactory::make(
                         type: 'bot_command',
@@ -148,6 +149,7 @@ class WorkflowControlCommandTest extends TestCase
                 from: UserFactory::make(id: self::ADMIN_ID, isBot: false),
                 text: '/pause',
                 messageThreadId: 42,
+                isTopicMessage: true,
                 entities: [
                     MessageEntityFactory::make(
                         type: 'bot_command',
@@ -215,6 +217,7 @@ class WorkflowControlCommandTest extends TestCase
                 from: UserFactory::make(id: self::ADMIN_ID, isBot: false),
                 text: '/clear',
                 messageThreadId: 42,
+                isTopicMessage: true,
                 entities: [
                     MessageEntityFactory::make(
                         type: 'bot_command',
@@ -362,6 +365,7 @@ class WorkflowControlCommandTest extends TestCase
                 from: UserFactory::make(id: self::ADMIN_ID, isBot: false),
                 text: '/clear',
                 messageThreadId: 42,
+                isTopicMessage: true,
                 entities: [
                     MessageEntityFactory::make(
                         type: 'bot_command',
