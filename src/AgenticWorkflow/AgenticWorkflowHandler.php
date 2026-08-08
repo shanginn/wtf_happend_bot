@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Bot\AgenticWorkflow;
 
 use Bot\Telegram\PaymentQueryAnswer;
+use Bot\Telegram\TelegramTopicRouting;
 use Bot\Telegram\Update;
 use Carbon\CarbonInterval;
 use InvalidArgumentException;
@@ -34,7 +35,7 @@ class AgenticWorkflowHandler
         if ($chat !== null) {
             return self::generateWorkflowIdForChat(
                 $chat->id,
-                $update->effectiveMessage?->messageThreadId,
+                TelegramTopicRouting::topicId($update->effectiveMessage),
             );
         }
 
@@ -61,7 +62,7 @@ class AgenticWorkflowHandler
             return null;
         }
 
-        $this->signalWithStart($update, $chatId, $update->effectiveMessage?->messageThreadId);
+        $this->signalWithStart($update, $chatId, TelegramTopicRouting::topicId($update->effectiveMessage));
 
         return null;
     }

@@ -41,22 +41,38 @@ class AgenticWorkflowHandlerTest extends TestCase
             message: MessageFactory::make(
                 chat: ChatFactory::make(id: self::CHAT_ID, type: 'supergroup'),
                 messageThreadId: 789,
+                isTopicMessage: true,
+            ),
+        );
+        $genericThreadUpdate = UpdateFactory::make(
+            message: MessageFactory::make(
+                chat: ChatFactory::make(id: self::CHAT_ID, type: 'supergroup'),
+                messageThreadId: 193132,
             ),
         );
 
         assert($generalUpdate instanceof Update);
         assert($topicUpdate instanceof Update);
+        assert($genericThreadUpdate instanceof Update);
 
         self::assertSame('Chat -100123456 [Root]', AgenticWorkflowHandler::generateWorkflowId($generalUpdate));
         self::assertSame(
             'Chat -100123456 [Topic 789]',
             AgenticWorkflowHandler::generateWorkflowId($topicUpdate),
         );
+        self::assertSame(
+            'Chat -100123456 [Root]',
+            AgenticWorkflowHandler::generateWorkflowId($genericThreadUpdate),
+        );
     }
 
-    public function testHandleUpdateSignalsWorkflowForRegularMessage(): void
+    public function testHandleUpdateSignalsWorkflowForTopicMessage(): void
     {
-        $update = $this->makeMessageUpdate('hello there', messageThreadId: 789);
+        $update = $this->makeMessageUpdate(
+            'hello there',
+            messageThreadId: 789,
+            isTopicMessage: true,
+        );
 
         $client = Mockery::mock(WorkflowClientInterface::class);
         $workflowStub = new \stdClass();
@@ -124,6 +140,7 @@ class AgenticWorkflowHandlerTest extends TestCase
     private function makeMessageUpdate(
         string $text,
         ?int $messageThreadId = null,
+        ?bool $isTopicMessage = null,
     ): Update {
         $update = UpdateFactory::make(
             updateId: 1001,
@@ -132,6 +149,7 @@ class AgenticWorkflowHandlerTest extends TestCase
                 chat: ChatFactory::make(id: self::CHAT_ID, type: 'supergroup'),
                 text: $text,
                 messageThreadId: $messageThreadId,
+                isTopicMessage: $isTopicMessage,
             ),
         );
 
