@@ -7,6 +7,7 @@ namespace Bot\Handler;
 use Bot\AgenticWorkflow\AgenticWorkflowHandler;
 use Bot\Durability\DurableCommandReplyGateway;
 use Bot\Telegram\TelegramChatAuthorizationPolicy;
+use Bot\Telegram\TelegramTopicRouting;
 use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
 use Phenogram\Framework\Handler\AbstractCommandHandler;
 use Phenogram\Framework\TelegramBot;
@@ -55,13 +56,15 @@ class ClearCommandHandler extends AbstractCommandHandler
             return;
         }
 
+        $topicId = TelegramTopicRouting::topicId($message);
+
         $this->durableReplies->execute(
             updateId: $update->updateId,
             action: 'clear',
             chatId: $message->chat->id,
-            messageThreadId: $message->messageThreadId,
+            messageThreadId: $topicId,
             messageId: $message->messageId,
-            resolveReply: function () use ($message, $update): string {
+            resolveReply: function () use ($message, $update, $topicId): string {
                 try {
                     $authorized = $this->authorization->isMessageActorAuthorized($message);
                 } catch (Throwable) {
@@ -76,7 +79,7 @@ class ClearCommandHandler extends AbstractCommandHandler
                     $workflow = $this->client->newUntypedRunningWorkflowStub(
                         AgenticWorkflowHandler::generateWorkflowIdForChat(
                             $message->chat->id,
-                            $message->messageThreadId,
+                            $topicId,
                         ),
                     );
                     $workflow->terminate(
@@ -93,11 +96,11 @@ class ClearCommandHandler extends AbstractCommandHandler
 
                 return self::SUCCESS_MESSAGE;
             },
-            sendReply: function (string $responseText) use ($bot, $message): void {
+            sendReply: function (string $responseText) use ($bot, $message, $topicId): void {
                 $bot->api->sendMessage(
                     chatId: $message->chat->id,
                     text: $responseText,
-                    messageThreadId: $message->messageThreadId,
+                    messageThreadId: $topicId,
                 );
             },
         );

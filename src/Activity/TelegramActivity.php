@@ -7,6 +7,7 @@ namespace Bot\Activity;
 use Bot\Entity\UpdateRecord;
 use Bot\Entity\UpdateRecord\UpdateRecordRepository;
 use Bot\Telegram\InputMessageView;
+use Bot\Telegram\TelegramTopicRouting;
 use Bot\Telegram\TelegramUpdateViewFactory;
 use Bot\Telegram\Update;
 use Carbon\CarbonInterval;
@@ -103,7 +104,7 @@ class TelegramActivity
             updateId: $update->updateId,
             update: $encoded,
             chatId: $workflowChatId,
-            topicId: $update->effectiveMessage?->messageThreadId,
+            topicId: TelegramTopicRouting::topicId($update->effectiveMessage),
             createdAt: $update->effectiveMessage?->date ?? time(),
             ingestionRunId: $ingestionRunId,
         );
