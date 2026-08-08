@@ -4,19 +4,16 @@ declare(strict_types=1);
 
 namespace Bot\Llm\Tools\Telegram;
 
-use Bot\Telegram\InvoiceWorkflowPayload;
 use Phenogram\Bindings\ClientInterface;
 use Phenogram\Bindings\Serializer;
 use Phenogram\Bindings\SerializerInterface;
 use Phenogram\Bindings\Types\Interfaces\ResponseInterface;
 use ReflectionMethod;
-use Temporal\Activity\ActivityInterface;
-use Temporal\Activity\ActivityMethod;
 
-#[ActivityInterface(prefix: 'TelegramApiCallExecutor.')]
-class TelegramApiCallExecutor
+final class TelegramApiCallExecutor
 {
-    private const int RESULT_LIMIT = 7000;
+    private const int MAX_MESSAGE_TEXT_LENGTH = 4096;
+    private const int RESULT_LIMIT            = 7000;
 
     public function __construct(
         private readonly ClientInterface $client,
@@ -24,19 +21,45 @@ class TelegramApiCallExecutor
         private readonly TelegramApiMethodCatalog $catalog = new TelegramApiMethodCatalog(),
     ) {}
 
-    #[ActivityMethod]
-    public function execute(int $chatId, TelegramApiCall $schema): string
+    public static function isTerminalMethod(string $method): bool
     {
-        $method = $this->catalog->method($schema->method);
+        $catalog  = new TelegramApiMethodCatalog();
+        $resolved = $catalog->resolveMethodName($method);
+
+        return $resolved !== null && $catalog->isTerminal($resolved);
+    }
+
+    public static function isSuccessfulResult(string $result): bool
+    {
+        return str_starts_with($result, 'Telegram API call succeeded:');
+    }
+
+    public static function isReadOnlyMethod(string $method): bool
+    {
+        return (new TelegramApiMethodCatalog())->isReadOnly($method);
+    }
+
+    public function execute(
+        int $chatId,
+        string $methodName,
+        array $parameters = [],
+        ?int $messageThreadId = null,
+    ): string {
+        $method = $this->catalog->method($methodName);
         if ($method === null) {
             return sprintf(
                 'Unknown Telegram Bot API method "%s". Similar methods: %s. Use telegram_api_schema for the exact signature.',
-                $schema->method,
-                implode(', ', $this->catalog->similarMethods($schema->method)),
+                $methodName,
+                implode(', ', $this->catalog->similarMethods($methodName)),
             );
         }
 
-        $validation = $this->normalizeParameters($method, $schema->parameters, $chatId);
+        $validation = $this->normalizeParameters(
+            $method,
+            $parameters,
+            $chatId,
+            $messageThreadId,
+        );
         if (is_string($validation)) {
             return $validation;
         }
@@ -49,35 +72,28 @@ class TelegramApiCallExecutor
         return $this->formatResponse($method->getName(), $response);
     }
 
-    public static function isTerminalMethod(string $method): bool
-    {
-        $catalog = new TelegramApiMethodCatalog();
-        $resolved = $catalog->resolveMethodName($method);
-
-        if ($resolved === null || $resolved === 'sendChatAction') {
-            return false;
-        }
-
-        return !$catalog->isReadOnly($resolved);
-    }
-
-    public static function isSuccessfulResult(string $result): bool
-    {
-        return str_starts_with($result, 'Telegram API call succeeded:');
-    }
-
     /**
+     * @param ReflectionMethod $method
+     * @param array            $rawParameters
+     * @param int              $chatId
+     * @param ?int             $messageThreadId
+     *
      * @return array<string, mixed>|string
      */
-    private function normalizeParameters(ReflectionMethod $method, array $rawParameters, int $chatId): array|string
-    {
+    private function normalizeParameters(
+        ReflectionMethod $method,
+        array $rawParameters,
+        int $chatId,
+        ?int $messageThreadId,
+    ): array|string {
         $parameterMap = $this->catalog->parameterMap($method);
-        $parameters = [];
-        $unknown = [];
+        $parameters   = [];
+        $unknown      = [];
 
         foreach ($rawParameters as $name => $value) {
             if (!is_string($name)) {
                 $unknown[] = (string) $name;
+
                 continue;
             }
 
@@ -85,7 +101,15 @@ class TelegramApiCallExecutor
 
             if ($parameterName === null) {
                 $unknown[] = $name;
+
                 continue;
+            }
+
+            if (!$this->catalog->isAllowedParameter($parameterName)) {
+                return sprintf(
+                    'Parameter %s is not available: Telegram actions are bound to the current chat and topic.',
+                    $parameterName,
+                );
             }
 
             $parameters[$parameterName] = $value;
@@ -100,14 +124,29 @@ class TelegramApiCallExecutor
             );
         }
 
-        if (isset($parameterMap['chatId']) && (!array_key_exists('chatId', $parameters) || $parameters['chatId'] === null)) {
+        if (isset($parameterMap['chatId'])) {
             $parameters['chatId'] = $chatId;
         }
+        if (isset($parameterMap['fromChatId'])) {
+            $parameters['fromChatId'] = $chatId;
+        }
+        if (isset($parameterMap['messageThreadId'])) {
+            if ($messageThreadId === null) {
+                unset($parameters['messageThreadId']);
+            } else {
+                $parameters['messageThreadId'] = $messageThreadId;
+            }
+        }
 
-        if ($this->isInvoiceCreationMethod($method->getName())) {
-            $parameters['payload'] = InvoiceWorkflowPayload::encode(
-                chatId: $chatId,
-                payload: is_scalar($parameters['payload'] ?? null) ? (string) $parameters['payload'] : '',
+        if (
+            $method->getName() === 'sendMessage'
+            && is_string($parameters['text'] ?? null)
+            && mb_strlen($parameters['text']) > self::MAX_MESSAGE_TEXT_LENGTH
+        ) {
+            return sprintf(
+                'Telegram API call failed: %s text exceeds Telegram\'s %d character limit; shorten it and retry.',
+                $method->getName(),
+                self::MAX_MESSAGE_TEXT_LENGTH,
             );
         }
 
@@ -134,22 +173,17 @@ class TelegramApiCallExecutor
         return $parameters;
     }
 
-    private function isInvoiceCreationMethod(string $method): bool
-    {
-        return $method === 'sendInvoice' || $method === 'createInvoiceLink';
-    }
-
     private function formatResponse(string $method, ResponseInterface $response): string
     {
         $payload = [
-            'ok' => $response->ok,
+            'ok'     => $response->ok,
             'method' => $method,
         ];
 
         if (!$response->ok) {
-            $payload['error_code'] = $response->errorCode;
+            $payload['error_code']  = $response->errorCode;
             $payload['description'] = $response->description ?? 'Telegram returned ok=false.';
-            $payload['parameters'] = $response->parameters;
+            $payload['parameters']  = $response->parameters;
 
             return 'Telegram API call failed: ' . $this->encodeLimited($payload);
         }

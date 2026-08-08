@@ -16,18 +16,16 @@ class UpdateRecord
     public function __construct(
         #[Column(type: 'bigInteger', primary: true)]
         public int $updateId,
-
         #[Column(type: 'text')]
         public string $update,
-
         #[Column(type: 'bigInteger')]
         public int $chatId,
-
         #[Column(type: 'bigInteger', nullable: true)]
         public ?int $topicId = null,
-
         #[Column(type: 'bigInteger')]
         public int $createdAt = 0,
+        #[Column(type: 'text', nullable: true)]
+        public ?string $ingestionRunId = null,
     ) {
         $this->createdAt = $this->createdAt === 0 ? time() : $this->createdAt;
     }

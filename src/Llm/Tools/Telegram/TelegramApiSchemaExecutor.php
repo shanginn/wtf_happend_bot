@@ -4,33 +4,28 @@ declare(strict_types=1);
 
 namespace Bot\Llm\Tools\Telegram;
 
-use Temporal\Activity\ActivityInterface;
-use Temporal\Activity\ActivityMethod;
-
-#[ActivityInterface(prefix: 'TelegramApiSchemaExecutor.')]
-class TelegramApiSchemaExecutor
+final class TelegramApiSchemaExecutor
 {
     public function __construct(
         private readonly TelegramApiMethodCatalog $catalog = new TelegramApiMethodCatalog(),
     ) {}
 
-    #[ActivityMethod]
-    public function execute(int $chatId, TelegramApiSchema $schema): string
+    public function execute(?string $methodName = null, ?string $query = null, int $limit = 20): string
     {
-        if ($schema->method !== null && trim($schema->method) !== '') {
-            $method = $this->catalog->method($schema->method);
+        if ($methodName !== null && trim($methodName) !== '') {
+            $method = $this->catalog->method($methodName);
 
             if ($method === null) {
                 return sprintf(
                     'Unknown Telegram Bot API method "%s". Similar methods: %s',
-                    $schema->method,
-                    implode(', ', $this->catalog->similarMethods($schema->method)),
+                    $methodName,
+                    implode(', ', $this->catalog->similarMethods($methodName)),
                 );
             }
 
             return $this->catalog->describeMethod($method);
         }
 
-        return $this->catalog->search($schema->query, $schema->limit);
+        return $this->catalog->search($query, $limit);
     }
 }

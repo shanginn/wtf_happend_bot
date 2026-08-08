@@ -2,6 +2,7 @@ services:
   bot:
     env_file:
       - .env
+    restart: unless-stopped
     build:
       context: .
       dockerfile: Dockerfile
@@ -9,8 +10,10 @@ services:
     volumes:
       - .:/app
     depends_on:
-      - db
-      - searxng
+      db:
+        condition: service_healthy
+      searxng:
+        condition: service_started
     environment:
       - TEMPORAL_ADDRESS=host.docker.internal:7233
       - SEARCH_BASE_URL=${SEARCH_BASE_URL:-http://searxng:8080}
@@ -22,6 +25,7 @@ services:
   worker:
     env_file:
       - .env
+    restart: unless-stopped
     build:
       context: .
       dockerfile: Dockerfile
@@ -29,8 +33,10 @@ services:
     volumes:
       - .:/app
     depends_on:
-      - db
-      - searxng
+      db:
+        condition: service_healthy
+      searxng:
+        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:

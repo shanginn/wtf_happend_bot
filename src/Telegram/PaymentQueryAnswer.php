@@ -9,11 +9,14 @@ use Phenogram\Bindings\ApiInterface;
 final readonly class PaymentQueryAnswer
 {
     public const string ACTION_PRE_CHECKOUT = 'answerPreCheckoutQuery';
-    public const string ACTION_SHIPPING = 'answerShippingQuery';
-    public const string ACTION_NONE = 'none';
+    public const string ACTION_SHIPPING     = 'answerShippingQuery';
 
     /**
      * @param array<mixed>|null $shippingOptions
+     * @param string            $action
+     * @param string            $queryId
+     * @param bool              $ok
+     * @param ?string           $errorMessage
      */
     private function __construct(
         public string $action,
@@ -22,38 +25,6 @@ final readonly class PaymentQueryAnswer
         public ?string $errorMessage = null,
         public ?array $shippingOptions = null,
     ) {}
-
-    /**
-     * @param array<string, mixed>|null $payload
-     */
-    public static function fromWorkflowPayload(?array $payload): ?self
-    {
-        if ($payload === null || ($payload['action'] ?? null) === self::ACTION_NONE) {
-            return null;
-        }
-
-        $action = $payload['action'] ?? null;
-        $queryId = $payload['query_id'] ?? null;
-        if (!is_string($action) || !is_string($queryId) || $queryId === '') {
-            return null;
-        }
-
-        if (!in_array($action, [self::ACTION_PRE_CHECKOUT, self::ACTION_SHIPPING], true)) {
-            return null;
-        }
-
-        $ok = (bool) ($payload['ok'] ?? false);
-        $errorMessage = $payload['error_message'] ?? null;
-        $shippingOptions = $payload['shipping_options'] ?? null;
-
-        return new self(
-            action: $action,
-            queryId: $queryId,
-            ok: $ok,
-            errorMessage: is_string($errorMessage) ? $errorMessage : null,
-            shippingOptions: is_array($shippingOptions) ? $shippingOptions : null,
-        );
-    }
 
     public static function rejectedPreCheckout(string $queryId, string $message): self
     {
@@ -83,6 +54,7 @@ final readonly class PaymentQueryAnswer
                 ok: $this->ok,
                 errorMessage: $this->errorMessage,
             );
+
             return;
         }
 

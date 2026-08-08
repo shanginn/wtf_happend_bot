@@ -4,261 +4,149 @@ declare(strict_types=1);
 
 namespace Bot\AgenticWorkflow;
 
-use Bot\Llm\Tools\Image\DownloadImage;
-use Bot\Openai\CompatibleOpenaiSerializer;
-use Bot\Telegram\Update;
-use Shanginn\Openai\ChatCompletion\CompletionRequest\ToolInterface;
-use Shanginn\Openai\ChatCompletion\Message\MessageInterface;
-use Temporal\Internal\Marshaller\Meta\MarshalArray;
+use InvalidArgumentException;
 
-class AgenticWorkflowInput
+final readonly class AgenticWorkflowInput
 {
-    private const int JSON_FLAGS = \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE;
-
     /**
-     * @param array<int, MessageInterface|array<string, mixed>> $workingMemory
-     * @param Update[] $pendingUpdates
+     * @param list<array<string, mixed>> $messages
+     * @param list<array<string, mixed>> $tools
+     * @param list<QueuedTelegramUpdate> $pendingUpdates
+     * @param list<int>                  $pendingActorUserIds
+     * @param int                        $chatId
+     * @param string                     $chatType
+     * @param string                     $model
+     * @param ?int                       $topicId
+     * @param int                        $processedCount
+     * @param int                        $agentRun
+     * @param int                        $pipelinePendingSince
+     * @param bool                       $paused
+     * @param bool                       $callbackPending
+     * @param int                        $droppedUpdateCount
+     * @param ?string                    $lastNotificationFailure
+     * @param int                        $ingestionFailureCount
+     * @param int                        $contextFailureCount
+     * @param bool                       $ingestionRetryPending
+     * @param int                        $pendingBatchMessageCount
+     * @param bool                       $pendingActorIdentityComplete
+     * @param ?string                    $pendingTerminalText
+     * @param ?string                    $pendingTerminalScopeId
+     * @param int                        $notificationFailureCount
      */
     public function __construct(
         public int $chatId,
+        public string $chatType,
+        public string $model,
+        public array $tools,
+        public ?int $topicId = null,
+        public array $messages = [],
         public int $processedCount = 0,
-        public array $workingMemory = [],
-        public string $compactedContext = '',
-        public int $lastActivityAt = 0,
-        public int $lastCompactionAt = 0,
-        public int $compactionRetryAfter = 0,
-        public int $consecutiveCompactionFailures = 0,
+        public int $agentRun = 0,
         public int $pipelinePendingSince = 0,
-        #[MarshalArray(of: Update::class)]
         public array $pendingUpdates = [],
         public bool $paused = false,
-    ) {}
-
-    public function getPendingUpdates(): array
-    {
-        return isset($this->pendingUpdates) ? $this->pendingUpdates : [];
-    }
-
-    public function isPaused(): bool
-    {
-        return isset($this->paused) && $this->paused;
-    }
-
-    /**
-     * @return MessageInterface[]
-     */
-    public function getWorkingMemory(): array
-    {
-        return self::hydrateWorkingMemory($this->workingMemory);
-    }
-
-    /**
-     * @param MessageInterface[] $messages
-     * @return array<int, array<string, mixed>>
-     */
-    public static function serializeWorkingMemory(array $messages): array
-    {
-        if ($messages === []) {
-            return [];
+        public bool $callbackPending = false,
+        public int $droppedUpdateCount = 0,
+        public ?string $lastNotificationFailure = null,
+        public int $ingestionFailureCount = 0,
+        public int $contextFailureCount = 0,
+        public bool $ingestionRetryPending = false,
+        public int $pendingBatchMessageCount = 0,
+        public array $pendingActorUserIds = [],
+        public bool $pendingActorIdentityComplete = true,
+        public ?string $pendingTerminalText = null,
+        public ?string $pendingTerminalScopeId = null,
+        public int $notificationFailureCount = 0,
+    ) {
+        if (!in_array($chatType, ['private', 'group', 'supergroup', 'channel'], true)) {
+            throw new InvalidArgumentException('Telegram chat type is unsupported.');
         }
 
-        $payload = json_decode(
-            self::openaiSerializer()->serialize($messages),
-            associative: true,
-            flags: self::JSON_FLAGS,
-        );
-
-        if (!is_array($payload)) {
-            throw new \UnexpectedValueException('Serialized working memory must be a JSON array.');
-        }
-
-        return $payload;
-    }
-
-    /**
-     * @param array<int, MessageInterface|array<string, mixed>|object> $payloads
-     * @return MessageInterface[]
-     */
-    public static function hydrateWorkingMemory(array $payloads): array
-    {
-        if ($payloads === []) {
-            return [];
-        }
-
-        if (self::allMessages($payloads)) {
-            return array_values($payloads);
-        }
-
-        $payloads = array_map(
-            static fn (mixed $payload): array => self::normalizeMessagePayload($payload),
-            $payloads,
-        );
-
-        $messages = self::openaiSerializer()->deserialize(
-            json_encode($payloads, self::JSON_FLAGS),
-            'array',
-            self::knownTools(),
-        );
-
-        foreach ($messages as $message) {
-            if (!$message instanceof MessageInterface) {
-                throw new \UnexpectedValueException('Hydrated working memory must contain OpenAI messages.');
+        foreach ($pendingUpdates as $index => $pendingUpdate) {
+            if (!$pendingUpdate instanceof QueuedTelegramUpdate) {
+                throw new InvalidArgumentException(
+                    sprintf('Pending Telegram update %d must be a queued update envelope.', $index),
+                );
             }
         }
 
-        return array_values($messages);
-    }
-
-    /**
-     * @param array<int, mixed> $payloads
-     */
-    private static function allMessages(array $payloads): bool
-    {
-        foreach ($payloads as $payload) {
-            if (!$payload instanceof MessageInterface) {
-                return false;
-            }
+        if (
+            $ingestionFailureCount < 0
+            || $contextFailureCount < 0
+            || $pendingBatchMessageCount < 0
+            || $notificationFailureCount < 0
+        ) {
+            throw new InvalidArgumentException('Workflow counters cannot be negative.');
         }
 
-        return true;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private static function normalizeMessagePayload(mixed $payload): array
-    {
-        if ($payload instanceof MessageInterface) {
-            return self::serializeWorkingMemory([$payload])[0];
+        if (($pendingTerminalText === null) !== ($pendingTerminalScopeId === null)) {
+            throw new InvalidArgumentException(
+                'Pending terminal notification text and scope must be stored together.',
+            );
         }
-
-        $payload = self::toArray($payload);
-
-        if (!is_array($payload)) {
-            throw new \UnexpectedValueException('Working memory message payload must be an array.');
+        if (
+            $pendingTerminalText !== null
+            && (trim($pendingTerminalText) === '' || $pendingTerminalScopeId === '')
+        ) {
+            throw new InvalidArgumentException(
+                'Pending terminal notification text and scope must be non-empty.',
+            );
         }
-
-        if (isset($payload['role'])) {
-            $payload['role'] = self::enumValue($payload['role']);
+        if ($pendingTerminalText !== null && $pendingBatchMessageCount === 0) {
+            throw new InvalidArgumentException(
+                'A pending terminal notification requires a pending agent batch.',
+            );
         }
-
-        self::renameKey($payload, 'reasoningContent', 'reasoning_content');
-        self::renameKey($payload, 'toolCallId', 'tool_call_id');
-        self::renameKey($payload, 'toolCalls', 'tool_calls');
-
-        if (isset($payload['tool_calls']) && is_array($payload['tool_calls'])) {
-            $payload['tool_calls'] = array_map(
-                static fn (mixed $toolCall): array => self::normalizeToolCallPayload($toolCall),
-                $payload['tool_calls'],
+        if ($pendingTerminalText === null && $notificationFailureCount !== 0) {
+            throw new InvalidArgumentException(
+                'Notification failures require a pending terminal notification.',
             );
         }
 
-        return $payload;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private static function normalizeToolCallPayload(mixed $payload): array
-    {
-        $toolCall = self::toArray($payload);
-
-        if (!is_array($toolCall)) {
-            throw new \UnexpectedValueException('Tool call payload must be an array.');
-        }
-
-        $type = self::enumValue($toolCall['type'] ?? 'function');
-
-        if (isset($toolCall['function'])) {
-            $function = self::toArray($toolCall['function']);
-            if (!is_array($function)) {
-                throw new \UnexpectedValueException('Tool call function payload must be an array.');
-            }
-
-            $arguments = $function['arguments'] ?? '{}';
-            if (!is_string($arguments)) {
-                $arguments = json_encode($arguments, self::JSON_FLAGS);
-            }
-
-            return [
-                'id' => (string) ($toolCall['id'] ?? ''),
-                'type' => is_string($type) ? $type : 'function',
-                'function' => [
-                    'name' => (string) ($function['name'] ?? ''),
-                    'arguments' => $arguments,
-                ],
-            ];
-        }
-
-        $name = $toolCall['name'] ?? null;
-        $tool = $toolCall['tool'] ?? null;
-        if (!is_string($name) && is_string($tool) && is_a($tool, ToolInterface::class, true)) {
-            $name = $tool::getName();
-        }
-
-        $arguments = $toolCall['arguments'] ?? '{}';
-        if (!is_string($arguments)) {
-            $arguments = json_encode($arguments, self::JSON_FLAGS);
-        }
-
-        return [
-            'id' => (string) ($toolCall['id'] ?? ''),
-            'type' => is_string($type) ? $type : 'function',
-            'function' => [
-                'name' => (string) $name,
-                'arguments' => $arguments,
-            ],
-        ];
-    }
-
-    private static function renameKey(array &$payload, string $from, string $to): void
-    {
-        if (array_key_exists($from, $payload) && !array_key_exists($to, $payload)) {
-            $payload[$to] = $payload[$from];
-            unset($payload[$from]);
-        }
-    }
-
-    private static function enumValue(mixed $value): mixed
-    {
-        $value = self::toArray($value);
-
-        if (is_array($value) && array_key_exists('value', $value)) {
-            return $value['value'];
-        }
-
-        return $value;
-    }
-
-    private static function toArray(mixed $value): mixed
-    {
-        if (is_array($value)) {
-            return array_map(
-                static fn (mixed $item): mixed => self::toArray($item),
-                $value,
+        if (!array_is_list($pendingActorUserIds)) {
+            throw new InvalidArgumentException(
+                'Pending Telegram actor IDs must be a list.',
             );
         }
 
-        if (is_object($value)) {
-            return self::toArray(get_object_vars($value));
+        $previousActorId = 0;
+        foreach ($pendingActorUserIds as $actorUserId) {
+            if (!is_int($actorUserId) || $actorUserId <= $previousActorId) {
+                throw new InvalidArgumentException(
+                    'Pending Telegram actor IDs must be strictly increasing positive integers.',
+                );
+            }
+
+            $previousActorId = $actorUserId;
         }
 
-        return $value;
-    }
-
-    private static function openaiSerializer(): CompatibleOpenaiSerializer
-    {
-        return new CompatibleOpenaiSerializer();
-    }
-
-    /**
-     * @return array<class-string<ToolInterface>>
-     */
-    private static function knownTools(): array
-    {
-        return [
-            DownloadImage::class,
-            ...AgenticToolset::TOOLS,
-        ];
+        $messageCount = count($messages);
+        if (($messages[0]['role'] ?? null) === 'system') {
+            --$messageCount;
+        }
+        if ($pendingBatchMessageCount > $messageCount) {
+            throw new InvalidArgumentException(
+                'Pending agent batch cannot contain more messages than workflow history.',
+            );
+        }
+        if ($pendingBatchMessageCount === 0 && $pendingActorUserIds !== []) {
+            throw new InvalidArgumentException(
+                'Pending Telegram actors require a pending agent batch.',
+            );
+        }
+        if ($pendingBatchMessageCount === 0 && !$pendingActorIdentityComplete) {
+            throw new InvalidArgumentException(
+                'Telegram actor identity state must reset between agent batches.',
+            );
+        }
+        if (
+            $pendingBatchMessageCount > 0
+            && $pendingActorIdentityComplete
+            && $pendingActorUserIds === []
+        ) {
+            throw new InvalidArgumentException(
+                'A complete pending actor identity set cannot be empty.',
+            );
+        }
     }
 }

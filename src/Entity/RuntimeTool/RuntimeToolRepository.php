@@ -24,6 +24,9 @@ final class RuntimeToolRepository extends Repository
     }
 
     /**
+     * @param int  $chatId
+     * @param bool $enabledOnly
+     *
      * @return array<RuntimeTool>
      */
     public function findByChatId(int $chatId, bool $enabledOnly = true): array

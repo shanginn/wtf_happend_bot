@@ -5,108 +5,179 @@ declare(strict_types=1);
 namespace Bot\AgenticWorkflow;
 
 use Bot\Activity\TelegramActivity;
-use Bot\Agent\OpenaiMessageTransformer;
-use Bot\Llm\Tools\Decision\RespondDecision;
-use Bot\Llm\Tools\Runtime\UpsertRuntimeSkill;
-use Bot\Llm\Tools\Runtime\UpsertRuntimeTool;
-use Bot\Llm\Tools\Telegram\TelegramApiCall;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
-use Bot\Telegram\PaymentQueryAnswer;
 use Bot\Telegram\Update;
+use Bot\Temporal\AgenticWorkflowInputDataConverter;
 use Carbon\CarbonInterval;
-use Shanginn\Openai\ChatCompletion\ErrorResponse;
-use Shanginn\Openai\ChatCompletion\Message\Assistant\KnownFunctionCall;
-use Shanginn\Openai\ChatCompletion\Message\Assistant\UnknownFunctionCall;
-use Shanginn\Openai\ChatCompletion\Message\AssistantMessage;
-use Shanginn\Openai\ChatCompletion\Message\ToolMessage;
-use Shanginn\Openai\ChatCompletion\Message\UserMessage;
+use InvalidArgumentException;
+use LogicException;
+use Phenogram\Bindings\Types\Interfaces\UserInterface;
+use PiPHP\Temporal\Activity\DurableAgentActivitiesInterface;
+use PiPHP\Temporal\DTO\AgentMessage;
+use PiPHP\Temporal\DTO\AgentWorkflowInput;
+use PiPHP\Temporal\DTO\AgentWorkflowResult;
+use PiPHP\Temporal\DTO\ToolActivityInput;
+use PiPHP\Temporal\DTO\ToolActivityResult;
+use PiPHP\Temporal\Enum\AgentWorkflowStatus;
+use PiPHP\Temporal\Enum\ToolTerminationPolicy;
+use PiPHP\Temporal\Serialization\HistoryPayloadGuard;
+use PiPHP\Temporal\Workflow\DurableAgentWorkflowInterface;
 use Temporal\Activity\ActivityOptions;
+use Temporal\Api\Enums\V1\RetryState;
 use Temporal\Common\RetryOptions;
 use Temporal\DataConverter\Type;
-use Temporal\Exception\Failure\CanceledFailure;
+use Temporal\Exception\Failure\ActivityFailure;
+use Temporal\Exception\Failure\ApplicationFailure;
+use Temporal\Exception\Failure\ChildWorkflowFailure;
 use Temporal\Internal\Workflow\ActivityProxy;
 use Temporal\Workflow;
+use Temporal\Workflow\ChildWorkflowOptions;
 use Temporal\Workflow\ContinueAsNewOptions;
 use Temporal\Workflow\ReturnType;
-use Temporal\Workflow\UpdateMethod;
+use Temporal\Workflow\WorkflowInfo;
 use Temporal\Workflow\WorkflowInterface;
 use Temporal\Workflow\WorkflowMethod;
+use Throwable;
 
 #[WorkflowInterface]
-class AgenticWorkflow
+final class AgenticWorkflow
 {
-    public const string WORKFLOW_TYPE       = 'AgenticWorkflow';
-    public const string PAYMENT_UPDATE_NAME = 'handlePaymentUpdate';
-    public const string PAUSE_SIGNAL_NAME   = 'pause';
-    public const string RESUME_SIGNAL_NAME  = 'resume';
+    public const string WORKFLOW_TYPE      = 'AgenticWorkflow';
+    public const string PAUSE_SIGNAL_NAME  = 'pause';
+    public const string RESUME_SIGNAL_NAME = 'resume';
 
-    private const int COMPACTION_INTERVAL_SECONDS            = 86400;
-    private const int IDLE_COMPACTION_AFTER_SECONDS          = 3600;
-    private const int COMPACTION_RETRY_AFTER_SECONDS         = 300;
-    private const int MAX_COMPACTION_RETRY_AFTER_SECONDS     = 3600;
-    private const int MAX_COMPACTION_FAILURES_BEFORE_DROP    = 5;
-    private const int MAX_UPDATES_BEFORE_CONTINUE            = 100;
-    private const int WORKFLOW_TASK_TIMEOUT_SECONDS          = 60;
-    private const int USE_SUGGESTED_CONTINUE_AS_NEW_VERSION  = 2;
-    private const int MAX_DECISION_STEPS                     = 5;
-    private const int MAX_RESPONSE_STEPS                     = 50;
-    private const int PIPELINE_BATCH_WINDOW_SECONDS          = 5;
-    private const int TYPING_ACTION_REFRESH_INTERVAL_SECONDS = 4;
+    private const int PIPELINE_BATCH_WINDOW_SECONDS = 5;
+    private const int MAX_UPDATES_BEFORE_CONTINUE   = 100;
+    private const int MAX_TELEGRAM_TEXT_LENGTH      = 4096;
+    private const int WORKFLOW_TASK_TIMEOUT_SECONDS = 60;
 
-    private ActivityProxy|AgenticActivity $agenticActivity;
     private ActivityProxy|TelegramActivity $telegramActivity;
+    private ActivityProxy|AgentContextActivity $contextActivity;
+    private ActivityProxy|DurableAgentActivitiesInterface $agentActivities;
     private MessageQueue $updatesQueue;
     private AgenticWorkflowInput $input;
-    private int $lastActivityAt                = 0;
-    private int $lastCompactionAt              = 0;
-    private int $compactionRetryAfter          = 0;
-    private int $consecutiveCompactionFailures = 0;
-    private int $pipelinePendingSince          = 0;
+
+    /** @var list<array<string, mixed>> */
+    private array $messages = [];
+
     private int $processedCount                = 0;
     private int $processedSinceContinueAsNew   = 0;
-    private int $typingIndicatorGeneration     = 0;
-    private int $continueAsNewPolicyVersion    = self::USE_SUGGESTED_CONTINUE_AS_NEW_VERSION;
+    private int $agentRun                      = 0;
+    private int $pipelinePendingSince          = 0;
+    private int $ingestionFailureCount         = 0;
+    private int $contextFailureCount           = 0;
+    private int $droppedUpdateCount            = 0;
+    private int $pendingBatchMessageCount      = 0;
+    private int $notificationFailureCount      = 0;
     private bool $paused                       = false;
+    private bool $ingestionRetryPending        = false;
+    private bool $callbackPending              = false;
+    private bool $pendingActorIdentityComplete = true;
+    private ?string $lastNotificationFailure   = null;
+    private ?string $pendingTerminalText       = null;
+    private ?string $pendingTerminalScopeId    = null;
 
-    private WorkingMemory $workingMemory;
+    /** @var array<int, true> */
+    private array $seenUpdateIds = [];
+
+    /** @var array<int, true> */
+    private array $pendingActorUserIds = [];
 
     public function __construct()
     {
-        $this->agenticActivity  = AgenticActivity::getDefinition();
         $this->telegramActivity = TelegramActivity::getDefinition();
-        $this->updatesQueue     = new MessageQueue();
-        $this->workingMemory    = new WorkingMemory();
+        $this->contextActivity  = Workflow::newActivityStub(
+            AgentContextActivity::class,
+            ActivityOptions::new()
+                ->withStartToCloseTimeout(CarbonInterval::minute())
+                ->withRetryOptions(RetryOptions::new()->withMaximumAttempts(3)),
+        );
+        $this->agentActivities = Workflow::newActivityStub(
+            DurableAgentActivitiesInterface::class,
+            ActivityOptions::new()
+                ->withScheduleToCloseTimeout(CarbonInterval::minutes(10))
+                ->withStartToCloseTimeout(CarbonInterval::minutes(5))
+                ->withRetryOptions(
+                    RetryOptions::new()
+                        ->withInitialInterval(1)
+                        ->withMaximumInterval(30)
+                        ->withMaximumAttempts(3),
+                ),
+        );
+        $this->updatesQueue = new MessageQueue();
     }
 
     #[WorkflowMethod(name: self::WORKFLOW_TYPE)]
     #[ReturnType(Type::TYPE_STRING)]
     public function create(AgenticWorkflowInput $input): mixed
     {
-        $this->input                         = $input;
-        $this->processedCount                = $input->processedCount;
-        $this->lastActivityAt                = $input->lastActivityAt;
-        $this->lastCompactionAt              = $input->lastCompactionAt;
-        $this->compactionRetryAfter          = $input->compactionRetryAfter;
-        $this->consecutiveCompactionFailures = $input->consecutiveCompactionFailures;
-        $this->pipelinePendingSince          = $input->pipelinePendingSince;
-        $this->paused                        = $input->isPaused();
-        foreach ($input->getPendingUpdates() as $pendingUpdate) {
+        $this->input                        = $input;
+        $this->messages                     = $input->messages;
+        $this->processedCount               = $input->processedCount;
+        $this->agentRun                     = $input->agentRun;
+        $this->pipelinePendingSince         = $input->pipelinePendingSince;
+        $this->paused                       = $input->paused;
+        $this->callbackPending              = $input->callbackPending;
+        $this->droppedUpdateCount           = $input->droppedUpdateCount;
+        $this->lastNotificationFailure      = $input->lastNotificationFailure;
+        $this->ingestionFailureCount        = $input->ingestionFailureCount;
+        $this->contextFailureCount          = $input->contextFailureCount;
+        $this->ingestionRetryPending        = $input->ingestionRetryPending;
+        $this->pendingBatchMessageCount     = $input->pendingBatchMessageCount;
+        $this->pendingActorUserIds          = array_fill_keys($input->pendingActorUserIds, true);
+        $this->pendingActorIdentityComplete = $input->pendingActorIdentityComplete;
+        $this->pendingTerminalText          = $input->pendingTerminalText;
+        $this->pendingTerminalScopeId       = $input->pendingTerminalScopeId;
+        $this->notificationFailureCount     = $input->notificationFailureCount;
+
+        foreach ($input->pendingUpdates as $pendingUpdate) {
             $this->updatesQueue->push($pendingUpdate);
         }
-        $this->workingMemory = new WorkingMemory(
-            memories: $input->getWorkingMemory(),
-            compactedContext: $input->compactedContext,
-        );
-        $this->initializeCompactionClock();
-        $this->continueAsNewPolicyVersion = Workflow::getVersion(
-            'agentic-use-temporal-continue-as-new-suggestion',
-            1,
-            self::USE_SUGGESTED_CONTINUE_AS_NEW_VERSION,
-        );
 
         while (true) {
+            if ($this->shouldContinueAsNewAfterFailedAttempt()) {
+                return $this->continueAsNew();
+            }
+
+            if ($this->pendingTerminalText !== null) {
+                if ($this->retryPendingTerminalNotification()) {
+                    $this->finishPipeline();
+                }
+
+                continue;
+            }
+
             if ($this->paused) {
-                Workflow::await(fn (): bool => !$this->paused);
+                if ($this->shouldContinueAsNew(allowPendingPipeline: true)) {
+                    return $this->continueAsNew();
+                }
+
+                if ($this->updatesQueue->has()) {
+                    $this->ingestQueuedUpdates();
+
+                    continue;
+                }
+
+                Workflow::await(fn (): bool => !$this->paused || $this->updatesQueue->has());
+
+                continue;
+            }
+
+            if ($this->shouldRunAgentImmediately()) {
+                if ($this->runAgent()) {
+                    $this->finishPipeline();
+                }
+
+                continue;
+            }
+
+            if (
+                $this->pipelinePendingSince > 0
+                && $this->processedSinceContinueAsNew >= self::MAX_UPDATES_BEFORE_CONTINUE
+            ) {
+                if ($this->runAgent()) {
+                    $this->finishPipeline();
+                }
 
                 continue;
             }
@@ -118,52 +189,35 @@ class AgenticWorkflow
             if ($this->updatesQueue->has()) {
                 $this->ingestQueuedUpdates();
 
-                if ($this->shouldContinueAsNew()) {
-                    return $this->continueAsNew();
+                continue;
+            }
+
+            if ($this->pipelinePendingSince > 0) {
+                $remaining = $this->secondsUntilPipeline();
+                if ($remaining <= 0) {
+                    if ($this->runAgent()) {
+                        $this->finishPipeline();
+                    }
+
+                    continue;
                 }
-            }
 
-            if ($this->shouldCompactNow()) {
-                $this->compactWorkingMemory();
-
-                continue;
-            }
-
-            if ($this->shouldRunPipelineNow()) {
-                $this->runAgentLoop();
-                $this->pipelinePendingSince = 0;
+                Workflow::awaitWithTimeout(
+                    $remaining,
+                    fn (): bool => $this->updatesQueue->has() || $this->paused,
+                );
 
                 continue;
             }
 
-            $this->waitForUpdatesOrWorkflowDeadline();
+            Workflow::await(fn (): bool => $this->updatesQueue->has() || $this->paused);
         }
     }
 
-    public function executeTool(string $toolName, object $arguments): mixed
-    {
-        $separatorPosition = strrpos($toolName, '\\');
-        $shortClassName    = $separatorPosition === false
-            ? $toolName
-            : substr($toolName, $separatorPosition + 1);
-
-        return $this->awaitChildScope(
-            fn (): mixed => Workflow::executeActivity(
-                $shortClassName . 'Executor.execute',
-                [$this->input->chatId, $arguments],
-                options: ActivityOptions::new()
-                    ->withStartToCloseTimeout(CarbonInterval::minute())
-                    ->withRetryOptions(
-                        RetryOptions::new()->withNonRetryableExceptions([])
-                    )
-            )
-        );
-    }
-
     #[Workflow\SignalMethod]
-    public function addUpdate($update): void
+    public function addUpdate(Update $update): void
     {
-        $this->updatesQueue->push($update);
+        $this->enqueueUpdate($update);
     }
 
     #[Workflow\SignalMethod(name: self::PAUSE_SIGNAL_NAME)]
@@ -176,34 +230,6 @@ class AgenticWorkflow
     public function resume(): void
     {
         $this->paused = false;
-    }
-
-    #[UpdateMethod(name: self::PAYMENT_UPDATE_NAME)]
-    #[ReturnType(Type::TYPE_ARRAY)]
-    public function handlePaymentUpdate(Update $update): array
-    {
-        $this->updatesQueue->push($update);
-
-        if ($update->preCheckoutQuery !== null) {
-            return [
-                'action'        => PaymentQueryAnswer::ACTION_PRE_CHECKOUT,
-                'query_id'      => $update->preCheckoutQuery->id,
-                'ok'            => true,
-                'error_message' => null,
-            ];
-        }
-
-        if ($update->shippingQuery !== null) {
-            return [
-                'action'           => PaymentQueryAnswer::ACTION_SHIPPING,
-                'query_id'         => $update->shippingQuery->id,
-                'ok'               => false,
-                'shipping_options' => null,
-                'error_message'    => 'Для этого инвойса не настроены варианты доставки.',
-            ];
-        }
-
-        return ['action' => PaymentQueryAnswer::ACTION_NONE];
     }
 
     #[Workflow\QueryMethod]
@@ -228,252 +254,742 @@ class AgenticWorkflow
     #[Workflow\QueryMethod]
     public function getMemory(): array
     {
-        return $this->workingMemory->get();
+        return $this->messages;
     }
 
     #[Workflow\QueryMethod]
-    public function getCompactedContext(): string
+    public function getDroppedUpdateCount(): int
     {
-        return $this->workingMemory->getCompactedContext();
+        return $this->droppedUpdateCount;
     }
 
-    private static function stringifyUserContent(array|string $content): string
+    #[Workflow\QueryMethod]
+    public function getLastNotificationFailure(): ?string
     {
-        if (is_string($content)) {
-            return $content;
+        return $this->lastNotificationFailure;
+    }
+
+    private static function executionChainId(WorkflowInfo $info): string
+    {
+        $runId = $info->firstExecutionRunId;
+        if (!is_string($runId) || $runId === '') {
+            $runId = $info->execution->getRunID();
+        }
+        if (!is_string($runId) || $runId === '') {
+            throw new LogicException('Temporal workflow execution chain ID is unavailable.');
         }
 
-        return json_encode($content, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE) ?: '';
+        return $runId;
     }
 
-    private static function telegramFailureFeedbackChangeId(string $toolCallId): string
-    {
-        return 'agentic-telegram-api-call-failure-feedback-' . hash('sha256', $toolCallId);
-    }
+    /**
+     * Uses PiPH's concrete AgentWorkflowInput validation for every candidate,
+     * so the selected message suffix observes the complete serialized payload
+     * budget, including tools and metadata.
+     *
+     * @param list<array<string, mixed>> $messages
+     * @param list<array<string, mixed>> $tools
+     * @param array<string, mixed>       $metadata
+     * @param string                     $agentId
+     * @param string                     $model
+     * @param int                        $pendingBatchMessageCount
+     */
+    private static function boundedAgentInput(
+        string $agentId,
+        string $model,
+        array $messages,
+        array $tools,
+        array $metadata,
+        int $pendingBatchMessageCount,
+    ): AgentWorkflowInput {
+        if ($pendingBatchMessageCount < 1) {
+            throw new LogicException('Pending agent batch message state is inconsistent.');
+        }
 
-    private static function compactionRetryDelaySeconds(int $failureCount): int
-    {
-        return min(
-            self::MAX_COMPACTION_RETRY_AFTER_SECONDS,
-            self::COMPACTION_RETRY_AFTER_SECONDS * (2 ** max(0, $failureCount - 1)),
+        $lastFailure = null;
+        foreach (self::messageSuffixCandidates($messages, $pendingBatchMessageCount) as $candidate) {
+            try {
+                $candidate = self::collapsePendingBatchMessages(
+                    $candidate,
+                    $pendingBatchMessageCount,
+                );
+
+                return new AgentWorkflowInput(
+                    agentId: $agentId,
+                    model: $model,
+                    messages: $candidate,
+                    tools: $tools,
+                    maxTurns: AgentRuntime::MAX_TURNS,
+                    continueAsNewEvery: AgentRuntime::CONTINUE_AS_NEW_EVERY_TURNS,
+                    // PiPH's count limit is soft; the byte guard remains hard.
+                    // Never let the child trim an accepted current batch merely
+                    // because a parent continuation reset its update counter.
+                    maxRetainedMessages: max(
+                        AgentRuntime::MAX_RETAINED_MESSAGES,
+                        count($candidate),
+                    ),
+                    metadata: $metadata,
+                    toolTerminationPolicy: ToolTerminationPolicy::Any,
+                );
+            } catch (InvalidArgumentException $failure) {
+                $lastFailure = $failure;
+            }
+        }
+
+        throw self::agentInputTooLarge(
+            $lastFailure ?? new InvalidArgumentException(
+                'PiPH rejected the mandatory agent workflow input.',
+            ),
         );
+    }
+
+    /**
+     * PiPH trims only at user-turn boundaries. Treating each Telegram update as
+     * a separate user turn would let later model/tool output silently evict an
+     * early update from the still-pending batch. Collapse the complete batch
+     * into one user turn so PiPH either retains every update or rejects the
+     * indivisible turn when it cannot fit the hard payload budget.
+     *
+     * @param list<array<string, mixed>> $messages
+     * @param int                        $pendingBatchMessageCount
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function collapsePendingBatchMessages(
+        array $messages,
+        int $pendingBatchMessageCount,
+    ): array {
+        $messages = array_values($messages);
+        if (
+            $pendingBatchMessageCount < 1
+            || $pendingBatchMessageCount > count($messages)
+        ) {
+            throw new LogicException('Pending agent batch message state is inconsistent.');
+        }
+
+        $batchStart = count($messages) - $pendingBatchMessageCount;
+        $batch      = array_slice($messages, $batchStart);
+        $content    = [[
+            'type' => 'text',
+            'text' => sprintf(
+                'Telegram batch containing %d ordered update%s:',
+                $pendingBatchMessageCount,
+                $pendingBatchMessageCount === 1 ? '' : 's',
+            ),
+        ]];
+        $participantReferences = [];
+
+        foreach ($batch as $index => $message) {
+            if (($message['role'] ?? null) !== 'user') {
+                throw new LogicException(
+                    'Every pending Telegram batch message must be a user message.',
+                );
+            }
+
+            $blocks = $message['content'] ?? null;
+            if (!is_array($blocks) || !array_is_list($blocks)) {
+                throw new LogicException(
+                    'Every pending Telegram batch message must contain a content block list.',
+                );
+            }
+
+            $reference = $message['metadata']['telegramParticipant']
+                ?? $message['name']
+                ?? null;
+            if (is_string($reference) && $reference !== '') {
+                $participantReferences[] = $reference;
+            } else {
+                $reference = null;
+            }
+
+            $content[] = [
+                'type' => 'text',
+                'text' => sprintf(
+                    'Telegram update %d%s:',
+                    $index + 1,
+                    $reference === null ? '' : " from {$reference}",
+                ),
+            ];
+            foreach ($blocks as $block) {
+                if (!is_array($block)) {
+                    throw new LogicException(
+                        'Every pending Telegram batch content block must be an object.',
+                    );
+                }
+
+                $content[] = $block;
+            }
+        }
+
+        $composite = new AgentMessage(
+            role: 'user',
+            content: $content,
+            metadata: [
+                'telegramBatch'             => true,
+                'telegramBatchMessageCount' => $pendingBatchMessageCount,
+                'telegramParticipants'      => $participantReferences,
+            ],
+        );
+
+        return [
+            ...array_slice($messages, 0, $batchStart),
+            $composite->toArray(),
+        ];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $messages
+     * @param int                        $pendingBatchMessageCount
+     *
+     * @return list<list<array<string, mixed>>>
+     */
+    private static function messageSuffixCandidates(
+        array $messages,
+        int $pendingBatchMessageCount,
+    ): array {
+        $messages = array_values($messages);
+        $system   = ($messages[0]['role'] ?? null) === 'system'
+            ? $messages[0]
+            : null;
+        $body = $system === null ? $messages : array_slice($messages, 1);
+        if (
+            $pendingBatchMessageCount < 0
+            || $pendingBatchMessageCount > count($body)
+        ) {
+            throw new LogicException('Pending agent batch message state is inconsistent.');
+        }
+
+        $priorCount      = count($body) - $pendingBatchMessageCount;
+        $prior           = array_slice($body, 0, $priorCount);
+        $currentBatch    = array_slice($body, $priorCount);
+        $candidateStarts = [0];
+        foreach ($prior as $index => $message) {
+            if ($index > 0 && ($message['role'] ?? null) === 'user') {
+                $candidateStarts[] = $index;
+            }
+        }
+        if ($prior !== []) {
+            $candidateStarts[] = count($prior);
+        }
+
+        $candidates = [];
+        foreach ($candidateStarts as $start) {
+            $candidate = [
+                ...array_slice($prior, $start),
+                ...$currentBatch,
+            ];
+            if ($system !== null) {
+                array_unshift($candidate, $system);
+            }
+            $candidates[] = $candidate;
+        }
+
+        return $candidates;
+    }
+
+    private static function agentInputTooLarge(
+        InvalidArgumentException $failure,
+    ): ApplicationFailure {
+        return new ApplicationFailure(
+            message: sprintf(
+                'The current Telegram batch and mandatory agent context exceed '
+                . 'PiPH\'s %d-byte workflow input budget.',
+                HistoryPayloadGuard::MAX_ENCODED_BYTES,
+            ),
+            type: 'agent-workflow-input-too-large',
+            nonRetryable: true,
+            previous: $failure,
+        );
+    }
+
+    /**
+     * @param list<QueuedTelegramUpdate> $updates
+     *
+     * @return array{list<QueuedTelegramUpdate>, list<QueuedTelegramUpdate>}
+     */
+    private static function nextIngestionBatch(array $updates): array
+    {
+        usort(
+            $updates,
+            static fn (QueuedTelegramUpdate $left, QueuedTelegramUpdate $right): int => $left->update->updateId <=> $right->update->updateId
+                ?: strcmp($left->ingestionId, $right->ingestionId),
+        );
+
+        foreach ($updates as $index => $queuedUpdate) {
+            if (
+                $queuedUpdate->appendToAgent
+                && $queuedUpdate->update->callbackQuery !== null
+            ) {
+                return [
+                    array_slice($updates, 0, $index + 1),
+                    array_slice($updates, $index + 1),
+                ];
+            }
+        }
+
+        return [$updates, []];
+    }
+
+    private static function toolResultSummary(ToolActivityResult $result): string
+    {
+        $encoded = json_encode(
+            $result->content,
+            \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE | \JSON_PARTIAL_OUTPUT_ON_ERROR,
+        );
+
+        return is_string($encoded)
+            ? "Telegram notification tool returned an error: {$encoded}"
+            : 'Telegram notification tool returned an unencodable error.';
+    }
+
+    private static function truncateTelegramText(string $text): string
+    {
+        if (mb_strlen($text) <= self::MAX_TELEGRAM_TEXT_LENGTH) {
+            return $text;
+        }
+
+        $suffix = "\n… [truncated]";
+
+        return mb_substr(
+            $text,
+            0,
+            self::MAX_TELEGRAM_TEXT_LENGTH - mb_strlen($suffix),
+        ) . $suffix;
+    }
+
+    private static function notificationRetryDelaySeconds(int $failureCount): int
+    {
+        if ($failureCount < 1) {
+            throw new LogicException('Notification failure count must be positive.');
+        }
+
+        return min(60, 2 ** min(5, $failureCount - 1));
+    }
+
+    private static function parentNotificationIdempotencyKey(
+        string $workflowId,
+        string $executionChainId,
+        int $agentRun,
+        string $text,
+    ): string {
+        return 'parent-notification:' . hash('sha256', implode(':', [
+            $workflowId,
+            $executionChainId,
+            (string) $agentRun,
+            $text,
+        ]));
+    }
+
+    private static function completedResultText(AgentWorkflowResult $result): string
+    {
+        if ($result->status !== AgentWorkflowStatus::Completed) {
+            return '';
+        }
+
+        $finalText = trim($result->finalText ?? '');
+        if ($finalText !== '') {
+            return $finalText;
+        }
+
+        for ($index = count($result->snapshot->messages) - 1; $index >= 0; --$index) {
+            $message = $result->snapshot->messages[$index];
+            if (($message['role'] ?? null) !== 'assistant') {
+                continue;
+            }
+
+            $textBlocks = [];
+            $content    = $message['content'] ?? null;
+            if (!is_array($content)) {
+                return '';
+            }
+            foreach ($content as $block) {
+                if (
+                    is_array($block)
+                    && ($block['type'] ?? null) === 'text'
+                    && is_string($block['text'] ?? null)
+                ) {
+                    $textBlocks[] = $block['text'];
+                }
+            }
+
+            return trim(implode("\n", $textBlocks));
+        }
+
+        return '';
+    }
+
+    /**
+     * The pending batch becomes a complete PiPH turn after the child returns.
+     * Persist the whole turn across parent continue-as-new, not merely its
+     * original composite user message.
+     *
+     * @param list<array<string, mixed>> $messages
+     */
+    private static function pendingBatchTurnMessageCount(array $messages): int
+    {
+        $body = ($messages[0]['role'] ?? null) === 'system'
+            ? array_slice($messages, 1)
+            : $messages;
+
+        for ($index = count($body) - 1; $index >= 0; --$index) {
+            if (
+                ($body[$index]['role'] ?? null) === 'user'
+                && ($body[$index]['metadata']['telegramBatch'] ?? false) === true
+            ) {
+                return count($body) - $index;
+            }
+        }
+
+        throw new LogicException('PiPH result lost the pending Telegram user turn.');
     }
 
     private function ingestQueuedUpdates(): void
     {
-        $updates              = $this->updatesQueue->flush();
-        $now                  = $this->currentTimestamp();
-        $this->lastActivityAt = $now;
-
-        if (!$this->hasPendingPipeline()) {
-            $this->pipelinePendingSince = $now;
-        }
-
-        foreach ($updates as $update) {
-            $this->telegramActivity->saveUpdates($update);
-        }
-
-        foreach ($updates as $update) {
-            $inputMessageView = $this->telegramActivity->updateToView($update);
-            $userMessageView  = OpenaiMessageTransformer::toChatUserMessage($inputMessageView);
-
-            $this->workingMemory->add($userMessageView);
-        }
-
-        $this->processedCount              += count($updates);
-        $this->processedSinceContinueAsNew += count($updates);
-    }
-
-    private function runAgentLoop(): void
-    {
-        $decisionMemory        = $this->workingMemory->getContext(recentLimit: 10);
-        $initialDecisionMemory = $decisionMemory;
-
-        for ($step = 0; $step < self::MAX_DECISION_STEPS; ++$step) {
-            $result = $this->agenticActivity->memoryComplete(
-                memory: $decisionMemory,
-                tools: AgenticToolset::DECISION_TOOLS,
-                chatId: $this->input->chatId,
-            );
-
-            if ($result instanceof ErrorResponse) {
-                $errorMessage = $result->message ?? 'Unknown error.';
-                $this->sendMessage('Произошла ошибка: ' . $errorMessage);
-
-                return;
-            }
-
-            $choice = $result->choices[0] ?? null;
-            if ($choice === null) {
-                return;
-            }
-
-            $this->agenticActivity->saveResponseMessage(
-                chatId: $this->input->chatId,
-                topicId: null,
-                message: $choice->message,
-                rawResponse: $result,
-            );
-
-            $assistantMessage     = $choice->message;
-            $shouldRespond        = null;
-            $decisionToolCalls    = [];
-            $decisionToolMessages = [];
-            $executedToolCalls    = [];
-            $executedToolMessages = [];
-
-            foreach ($assistantMessage->toolCalls ?? [] as $toolCall) {
-                if ($toolCall instanceof UnknownFunctionCall) {
-                    $decisionToolCalls[]    = $toolCall;
-                    $decisionToolMessages[] = $this->decisionToolUnavailableMessage($toolCall->name, $toolCall->id);
-
-                    continue;
-                }
-
-                if (!$toolCall instanceof KnownFunctionCall) {
-                    continue;
-                }
-
-                if ($toolCall->arguments instanceof RespondDecision) {
-                    $shouldRespond = $toolCall->arguments->shouldRespond;
-
-                    continue;
-                }
-
-                if (!$this->isExecutableDecisionToolCall($toolCall)) {
-                    $decisionToolCalls[]    = $toolCall;
-                    $decisionToolMessages[] = $this->decisionToolUnavailableMessage($toolCall->tool, $toolCall->id);
-
-                    continue;
-                }
-
-                $toolResult = $this->executeTool(
-                    toolName: $toolCall->tool,
-                    arguments: $toolCall->arguments,
-                );
-
-                $toolMessage = new ToolMessage(
-                    content: $toolResult,
-                    toolCallId: $toolCall->id,
-                );
-
-                $decisionToolCalls[]    = $toolCall;
-                $decisionToolMessages[] = $toolMessage;
-                $executedToolCalls[]    = $toolCall;
-                $executedToolMessages[] = $toolMessage;
-            }
-
-            if ($decisionToolCalls !== []) {
-                $decisionMemory[] = AssistantMessage::withToolCalls($assistantMessage, $decisionToolCalls);
-
-                foreach ($decisionToolMessages as $toolMessage) {
-                    $decisionMemory[] = $toolMessage;
-
-                    $this->agenticActivity->saveResponseMessage(
-                        chatId: $this->input->chatId,
-                        topicId: null,
-                        message: $toolMessage,
-                    );
-                }
-            }
-
-            $this->rememberDecisionToolResults($assistantMessage, $executedToolCalls, $executedToolMessages);
-
-            if ($shouldRespond !== null) {
-                if ($shouldRespond) {
-                    $this->respondWithTyping();
-                }
-
-                return;
-            }
-
-            $decisionMemory[] = $this->invalidDecisionRetryMessage($decisionToolCalls !== []);
-        }
-
-        if ($this->shouldFallbackRespond($initialDecisionMemory)) {
-            $this->respondWithTyping();
-        }
-    }
-
-    private function isExecutableDecisionToolCall(KnownFunctionCall $toolCall): bool
-    {
-        return in_array($toolCall->tool, AgenticToolset::DECISION_TOOLS, true)
-            && !$toolCall->arguments instanceof RespondDecision;
-    }
-
-    private function decisionToolUnavailableMessage(string $toolName, string $toolCallId): ToolMessage
-    {
-        return new ToolMessage(
-            content: sprintf(
-                'Tool "%s" is not available in the decision phase. Do not execute tools here. '
-                . 'Finish by calling respond_decision; set shouldRespond=true if the response agent should handle this request.',
-                $toolName,
-            ),
-            toolCallId: $toolCallId,
+        [$updates, $remainingUpdates] = self::nextIngestionBatch(
+            $this->updatesQueue->flush(),
         );
-    }
-
-    private function invalidDecisionRetryMessage(bool $hadToolCalls): UserMessage
-    {
-        $reason = $hadToolCalls
-            ? 'The previous decision step used tool calls but did not call respond_decision.'
-            : 'The previous decision step did not call respond_decision.';
-
-        return new UserMessage(
-            $reason . ' This completion is invalid. Call respond_decision now. '
-            . 'If the latest user message asks for bot functionality or runtime tools, set shouldRespond=true.'
-        );
-    }
-
-    /**
-     * Keep decision-side memory tool effects visible to later decision passes.
-     * The internal respond_decision tool is intentionally excluded because it
-     * has no tool result and would make the chat-completion history invalid.
-     *
-     * @param array<KnownFunctionCall> $toolCalls
-     * @param array<ToolMessage>       $toolMessages
-     * @param AssistantMessage         $assistantMessage
-     */
-    private function rememberDecisionToolResults(
-        AssistantMessage $assistantMessage,
-        array $toolCalls,
-        array $toolMessages,
-    ): void {
-        if ($toolCalls === [] || $toolMessages === []) {
-            return;
+        if ($remainingUpdates !== []) {
+            $this->updatesQueue->prepend($remainingUpdates);
         }
 
-        $this->workingMemory->add(AssistantMessage::withToolCalls($assistantMessage, $toolCalls));
+        foreach ($updates as $index => $queuedUpdate) {
+            if ($this->processedSinceContinueAsNew >= self::MAX_UPDATES_BEFORE_CONTINUE) {
+                $this->updatesQueue->prepend(array_slice($updates, $index));
 
-        foreach ($toolMessages as $toolMessage) {
-            $this->workingMemory->add($toolMessage);
-        }
-    }
+                return;
+            }
 
-    /**
-     * Last-resort guard for malformed decision completions. It is deliberately
-     * conservative and only responds when the recent Telegram text clearly
-     * looks directed at the bot or invokes a command.
-     *
-     * @param array<object> $messages
-     */
-    private function shouldFallbackRespond(array $messages): bool
-    {
-        for ($index = count($messages) - 1; $index >= 0; --$index) {
-            $message = $messages[$index] ?? null;
-            if (!$message instanceof UserMessage) {
+            $update = $queuedUpdate->update;
+            if (isset($this->seenUpdateIds[$update->updateId])) {
+                ++$this->processedSinceContinueAsNew;
+
                 continue;
             }
 
-            $content    = self::stringifyUserContent($message->content);
-            $normalized = mb_strtolower($content);
+            try {
+                $owned = $this->telegramActivity->saveUpdates(
+                    $update,
+                    $this->input->chatId,
+                    $queuedUpdate->ingestionId,
+                );
+            } catch (ActivityFailure $failure) {
+                if ($this->dropNonRetryableUpdate($failure, $update)) {
+                    continue;
+                }
 
+                $this->retryIngestion($updates, $index);
+
+                return;
+            }
+
+            $this->ingestionRetryPending            = false;
+            $this->seenUpdateIds[$update->updateId] = true;
+            ++$this->processedSinceContinueAsNew;
+            if (!$owned) {
+                continue;
+            }
+
+            try {
+                $view = $this->telegramActivity->updateToView($update);
+            } catch (ActivityFailure $failure) {
+                if ($this->dropNonRetryableUpdate($failure, $update, alreadyCounted: true)) {
+                    ++$this->processedCount;
+
+                    continue;
+                }
+
+                unset($this->seenUpdateIds[$update->updateId]);
+                --$this->processedSinceContinueAsNew;
+                $this->retryIngestion($updates, $index);
+
+                return;
+            }
+
+            ++$this->processedCount;
+            if (!$queuedUpdate->appendToAgent) {
+                continue;
+            }
+
+            if ($this->pipelinePendingSince === 0) {
+                $this->pipelinePendingSince = Workflow::now()->getTimestamp();
+            }
+
+            if ($update->callbackQuery !== null) {
+                $this->callbackPending = true;
+            }
+            $this->messages[] = TelegramAgentMessageMapper::map($view)->toArray();
+            ++$this->pendingBatchMessageCount;
+            $this->trackPendingActor($update);
+        }
+
+        $this->ingestionFailureCount = 0;
+        $this->ingestionRetryPending = false;
+    }
+
+    private function runAgent(): bool
+    {
+        try {
+            $runtimeInstructions = $this->contextActivity->runtimeInstructions($this->input->chatId);
+        } catch (ActivityFailure $failure) {
+            ++$this->contextFailureCount;
+            Workflow::getLogger()->error(
+                'Unable to load chat runtime instructions; the agent batch remains pending.',
+                [
+                    'chatId'  => $this->input->chatId,
+                    'topicId' => $this->input->topicId,
+                    'failure' => $failure->getMessage(),
+                ],
+            );
+            Workflow::timer(CarbonInterval::seconds(min(
+                60,
+                2 ** min(5, $this->contextFailureCount - 1),
+            )));
+
+            return false;
+        }
+        $this->contextFailureCount = 0;
+
+        try {
+            $this->replaceSystemMessage(AgentPrompt::build($runtimeInstructions));
+        } catch (InvalidArgumentException $failure) {
+            throw self::agentInputTooLarge($failure);
+        }
+
+        ++$this->agentRun;
+        $parentInfo       = Workflow::getInfo();
+        $executionChainId = self::executionChainId($parentInfo);
+        $terminalScopeId  = hash('sha256', implode(':', [
+            $parentInfo->execution->getID(),
+            $executionChainId,
+            'batch',
+            (string) $this->agentRun,
+        ]));
+        $workflowId = sprintf(
+            '%s:%s:agent:%d',
+            $parentInfo->execution->getID(),
+            $executionChainId,
+            $this->agentRun,
+        );
+        $agentInput = self::boundedAgentInput(
+            agentId: sprintf('telegram-chat-%d', $this->input->chatId),
+            model: $this->input->model,
+            messages: $this->messages,
+            tools: $this->input->tools,
+            metadata: [
+                'chatId'                => $this->input->chatId,
+                'chatType'              => $this->input->chatType,
+                'actorUserIds'          => $this->pendingActorIds(),
+                'actorIdentityComplete' => $this->pendingActorIdentityComplete,
+                'topicId'               => $this->input->topicId,
+                'terminalScopeId'       => $terminalScopeId,
+                'parentWorkflowId'      => $parentInfo->execution->getID(),
+                'parentWorkflowType'    => self::WORKFLOW_TYPE,
+            ],
+            pendingBatchMessageCount: $this->pendingBatchMessageCount,
+        );
+        $this->messages = $agentInput->messages;
+        // The accepted Telegram batch is now one indivisible PiPH user turn.
+        $this->pendingBatchMessageCount = 1;
+
+        /** @var DurableAgentWorkflowInterface $agent */
+        $agent = Workflow::newChildWorkflowStub(
+            DurableAgentWorkflowInterface::class,
+            ChildWorkflowOptions::new()
+                ->withWorkflowId($workflowId)
+                ->withTaskQueue($parentInfo->taskQueue)
+                ->withWorkflowTaskTimeout(CarbonInterval::minute()),
+        );
+
+        try {
+            $result = $agent->run($agentInput);
+        } catch (ChildWorkflowFailure) {
+            return $this->notifyProcessingFailure($terminalScopeId);
+        }
+
+        if (!$result instanceof AgentWorkflowResult) {
+            throw new LogicException('PiPH durable agent returned an invalid result.');
+        }
+
+        $this->messages                 = $result->snapshot->messages;
+        $this->pendingBatchMessageCount = self::pendingBatchTurnMessageCount($this->messages);
+        if ($this->hasAmbiguousToolAttempt($workflowId)) {
+            return $this->queueTerminalNotification(
+                'Не удалось подтвердить результат внешнего действия. '
+                . 'Я не повторял его, чтобы избежать дубля. '
+                . 'Проверьте чат и попробуйте ещё раз при необходимости.',
+                $terminalScopeId,
+            );
+        }
+
+        if ($this->hasConfirmedTerminalAction($workflowId)) {
+            return true;
+        }
+
+        if ($this->terminalToolCallIds() !== []) {
+            return $this->notifyProcessingFailure($terminalScopeId);
+        }
+
+        if ($result->status === AgentWorkflowStatus::Completed) {
+            $fallback = self::completedResultText($result);
+            if ($fallback !== '') {
+                return $this->queueTerminalNotification($fallback, $terminalScopeId);
+            }
+        }
+
+        return $this->notifyProcessingFailure($terminalScopeId);
+    }
+
+    private function notifyProcessingFailure(string $terminalScopeId): bool
+    {
+        return $this->queueTerminalNotification(
+            'Не удалось завершить обработку сообщения. Попробуйте ещё раз.',
+            $terminalScopeId,
+        );
+    }
+
+    private function queueTerminalNotification(string $text, string $terminalScopeId): bool
+    {
+        $this->stageTerminalNotification($text, $terminalScopeId);
+
+        return $this->retryPendingTerminalNotification();
+    }
+
+    private function stageTerminalNotification(string $text, string $terminalScopeId): void
+    {
+        $text            = self::truncateTelegramText(trim($text));
+        $terminalScopeId = trim($terminalScopeId);
+        if ($text === '' || $terminalScopeId === '') {
+            throw new LogicException('A pending terminal notification must be non-empty.');
+        }
+
+        if ($this->pendingTerminalText !== null) {
             if (
-                preg_match('/(^|\s)\/[a-z0-9_]+/iu', $content) === 1
-                || str_contains($normalized, '@wtf_happend_bot')
-                || str_contains($normalized, '@wtf_happened_bot')
-                || str_contains($normalized, 'бот')
-                || str_contains($normalized, 'bot')
+                $this->pendingTerminalText !== $text
+                || $this->pendingTerminalScopeId !== $terminalScopeId
+            ) {
+                throw new LogicException(
+                    'A different terminal notification is already pending for this batch.',
+                );
+            }
+
+            return;
+        }
+
+        $this->pendingTerminalText      = $text;
+        $this->pendingTerminalScopeId   = $terminalScopeId;
+        $this->notificationFailureCount = 0;
+        $this->lastNotificationFailure  = null;
+    }
+
+    private function retryPendingTerminalNotification(): bool
+    {
+        $text            = $this->pendingTerminalText;
+        $terminalScopeId = $this->pendingTerminalScopeId;
+        if ($text === null || $terminalScopeId === null) {
+            throw new LogicException('No terminal notification is pending.');
+        }
+
+        if ($this->notifyChat($text, $terminalScopeId)) {
+            $this->confirmPendingTerminalNotification();
+
+            return true;
+        }
+
+        Workflow::timer(CarbonInterval::seconds(
+            $this->markPendingTerminalNotificationFailed(),
+        ));
+
+        return false;
+    }
+
+    private function markPendingTerminalNotificationFailed(): int
+    {
+        ++$this->notificationFailureCount;
+
+        return self::notificationRetryDelaySeconds($this->notificationFailureCount);
+    }
+
+    private function confirmPendingTerminalNotification(): void
+    {
+        $this->pendingTerminalText      = null;
+        $this->pendingTerminalScopeId   = null;
+        $this->notificationFailureCount = 0;
+        $this->lastNotificationFailure  = null;
+    }
+
+    private function notifyChat(string $text, string $terminalScopeId): bool
+    {
+        $text             = self::truncateTelegramText($text);
+        $info             = Workflow::getInfo();
+        $workflowId       = $info->execution->getID();
+        $executionChainId = self::executionChainId($info);
+        $idempotencyKey   = self::parentNotificationIdempotencyKey(
+            $workflowId,
+            $executionChainId,
+            $this->agentRun,
+            $text,
+        );
+
+        try {
+            $result = $this->agentActivities->executeTool(new ToolActivityInput(
+                callId: "parent-notification-{$this->agentRun}",
+                name: 'telegram_api_call',
+                arguments: [
+                    'method'     => 'sendMessage',
+                    'parameters' => ['text' => $text],
+                ],
+                idempotencyKey: $idempotencyKey,
+                metadata: [
+                    'chatId'             => $this->input->chatId,
+                    'topicId'            => $this->input->topicId,
+                    'terminalScopeId'    => $terminalScopeId,
+                    'parentWorkflowId'   => $workflowId,
+                    'parentWorkflowType' => self::WORKFLOW_TYPE,
+                    'source'             => 'parent-notification',
+                ],
+            ));
+        } catch (ActivityFailure $failure) {
+            return $this->recordNotificationFailure($failure->getMessage());
+        }
+
+        if (!$result instanceof ToolActivityResult) {
+            return $this->recordNotificationFailure('PiPH returned an invalid parent notification result.');
+        }
+
+        if (($result->metadata['terminalActionSuppressed'] ?? false) === true) {
+            if (($result->metadata['terminalActionState'] ?? null) === 'claimed') {
+                return $this->recordNotificationFailure(
+                    'The batch terminal action has an unknown outcome; the parent notification '
+                    . 'was suppressed to avoid a duplicate Telegram action.',
+                );
+            }
+
+            Workflow::getLogger()->info(
+                'Parent notification was suppressed because this batch already claimed its terminal action.',
+                ['terminalScopeId' => $terminalScopeId],
+            );
+            $this->lastNotificationFailure = null;
+
+            return true;
+        }
+
+        if ($result->isError || !$result->terminate) {
+            return $this->recordNotificationFailure(self::toolResultSummary($result));
+        }
+
+        $this->lastNotificationFailure = null;
+
+        return true;
+    }
+
+    private function hasAmbiguousToolAttempt(string $childWorkflowId): bool
+    {
+        foreach ($this->messages as $message) {
+            $metadata = $message['metadata'] ?? null;
+            if (
+                is_array($metadata)
+                && ($metadata['workflowId'] ?? null) === $childWorkflowId
+                && ($metadata['ambiguousPriorAttempt'] ?? false) === true
             ) {
                 return true;
             }
@@ -482,435 +998,337 @@ class AgenticWorkflow
         return false;
     }
 
-    private function respondWithTyping(): void
+    private function hasConfirmedTerminalAction(string $childWorkflowId): bool
     {
-        $this->sendTypingAction();
+        $terminalToolCalls = $this->terminalToolCallIds();
 
-        $this->startTypingIndicator();
-
-        try {
-            $this->respond();
-        } finally {
-            $this->stopTypingIndicator();
-        }
-    }
-
-    private function respond(): void
-    {
-        $memorySelection = $this->agenticActivity->recollectRelevantMemories(
-            chatId: $this->input->chatId,
-            history: $this->workingMemory->getContext(),
-        );
-
-        if ($memorySelection instanceof ErrorResponse) {
-            $errorMessage = $memorySelection->message ?? 'Unknown error.';
-            $this->sendMessage('Произошла ошибка: ' . $errorMessage);
-
-            return;
-        }
-
-        $relevantMemories = 'No relevant memories.';
-
-        $memoryChoice  = $memorySelection->choices[0] ?? null;
-        $memoryContent = $memoryChoice?->message->content === null
-            ? ''
-            : trim($memoryChoice->message->content);
-
-        if ($memoryContent !== '') {
-            $relevantMemories = $memoryContent;
-        }
-
-        $responseMemory   = $this->workingMemory->getContext();
-        $responseMemory[] = new UserMessage(
-            "Relevant participant memories for this reply:\n{$relevantMemories}",
-        );
-        $responseMemory[] = new UserMessage(
-            "Current Telegram API target context:\n"
-            . "- current chat_id: {$this->input->chatId}\n"
-            . "- When using telegram_api_call for this chat, omit chat_id/chatId and the tool will inject it.\n"
-            . "- A failed telegram_api_call is returned to you as a tool error, not as a user notification. Diagnose that error, use telegram_api_schema when useful, and make a corrected call until Telegram reports success.\n"
-            . "- When creating invoices with sendInvoice/createInvoiceLink, invoice payload routing is injected automatically so payment updates return to this workflow.\n"
-            . '- Use telegram_api_schema if you need exact Telegram Bot API method signatures.'
-        );
-
-        for ($step = 0; $step < self::MAX_RESPONSE_STEPS; ++$step) {
-            $response = $this->agenticActivity->respondFromMemory(
-                memory: $responseMemory,
-                tools: AgenticToolset::RESPONSE_TOOLS,
-                skills: AgenticToolset::RESPONSE_SKILLS,
-                chatId: $this->input->chatId,
-            );
-
-            if ($response instanceof ErrorResponse) {
-                $errorMessage = $response->message ?? 'Unknown error.';
-                $this->sendMessage('Произошла ошибка: ' . $errorMessage);
-
-                return;
-            }
-
-            $choice = $response->choices[0] ?? null;
-            if ($choice === null) {
-                return;
-            }
-
-            $this->agenticActivity->saveResponseMessage(
-                chatId: $this->input->chatId,
-                topicId: null,
-                message: $choice->message,
-                rawResponse: $response,
-            );
-
-            $assistantMessage = $choice->message;
-            $toolCalls        = $assistantMessage->toolCalls ?? [];
-
-            if ($toolCalls === []) {
-                $content = $assistantMessage->content === null ? '' : trim($assistantMessage->content);
-                if ($content === '') {
-                    continue;
-                }
-
-                $this->workingMemory->add($assistantMessage);
-
-                $this->sendMessage($content);
-
-                return;
-            }
-
-            $executableToolCalls = array_values(array_filter(
-                $toolCalls,
-                static fn (object $toolCall): bool => $toolCall instanceof KnownFunctionCall
-                    || $toolCall instanceof UnknownFunctionCall,
-            ));
-
-            if ($executableToolCalls === []) {
+        foreach ($this->messages as $message) {
+            $toolCallId = $message['toolCallId'] ?? null;
+            $metadata   = $message['metadata'] ?? null;
+            if (
+                ($message['role'] ?? null) !== 'toolResult'
+                || !is_string($toolCallId)
+                || !isset($terminalToolCalls[$toolCallId])
+                || !is_array($metadata)
+                || ($metadata['workflowId'] ?? null) !== $childWorkflowId
+            ) {
                 continue;
             }
 
-            $assistantToolMessage = count($executableToolCalls) === count($toolCalls)
-                ? $assistantMessage
-                : AssistantMessage::withToolCalls($assistantMessage, $executableToolCalls);
+            if (($message['isError'] ?? false) === false) {
+                return true;
+            }
 
-            $responseMemory[] = $assistantToolMessage;
-            $this->workingMemory->add($assistantToolMessage);
-            $hasTerminalUserNotification = false;
+            if (
+                ($metadata['terminalActionSuppressed'] ?? false) === true
+                && ($metadata['terminalActionState'] ?? null) === 'completed'
+            ) {
+                return true;
+            }
+        }
 
-            foreach ($executableToolCalls as $toolCall) {
-                if ($toolCall instanceof KnownFunctionCall) {
-                    $toolResult = $this->executeTool(
-                        toolName: $toolCall->tool,
-                        arguments: $toolCall->arguments,
-                    );
+        return false;
+    }
 
-                    if (
-                        $toolCall->arguments instanceof TelegramApiCall
-                        && TelegramApiCallExecutor::isTerminalMethod($toolCall->arguments->method)
-                    ) {
-                        $isTerminalTelegramResult = TelegramApiCallExecutor::isSuccessfulResult($toolResult);
+    /**
+     * @return array<string, true>
+     */
+    private function terminalToolCallIds(): array
+    {
+        $terminalToolCalls = [];
+        foreach ($this->messages as $message) {
+            if (($message['role'] ?? null) !== 'assistant') {
+                continue;
+            }
 
-                        if (!$isTerminalTelegramResult) {
-                            $failureFeedbackVersion = Workflow::getVersion(
-                                self::telegramFailureFeedbackChangeId($toolCall->id),
-                                Workflow::DEFAULT_VERSION,
-                                1,
-                            );
+            $content = $message['content'] ?? null;
+            if (!is_array($content)) {
+                continue;
+            }
 
-                            $isTerminalTelegramResult = $failureFeedbackVersion === Workflow::DEFAULT_VERSION;
-                        }
-
-                        $hasTerminalUserNotification = $hasTerminalUserNotification || $isTerminalTelegramResult;
-                    }
-
-                    if ($toolCall->arguments instanceof UpsertRuntimeSkill || $toolCall->arguments instanceof UpsertRuntimeTool) {
-                        $hasTerminalUserNotification = true;
-                    }
-                } else {
-                    $toolResult = $this->executeRuntimeTool(
-                        toolName: $toolCall->name,
-                        argumentsJson: $toolCall->arguments,
-                    );
+            foreach ($content as $block) {
+                if (
+                    !is_array($block)
+                    || ($block['type'] ?? null) !== 'toolCall'
+                    || !is_string($block['id'] ?? null)
+                ) {
+                    continue;
                 }
 
-                $toolMessage = new ToolMessage(
-                    content: $toolResult,
-                    toolCallId: $toolCall->id,
-                );
+                $name = $block['name'] ?? null;
+                if ($name === 'stay_silent') {
+                    $terminalToolCalls[$block['id']] = true;
 
-                $responseMemory[] = $toolMessage;
-                $this->workingMemory->add($toolMessage);
+                    continue;
+                }
 
-                $this->agenticActivity->saveResponseMessage(
-                    chatId: $this->input->chatId,
-                    topicId: null,
-                    message: $toolMessage,
-                );
-            }
-
-            if ($hasTerminalUserNotification) {
-                return;
+                $method = $block['arguments']['method'] ?? null;
+                if (
+                    $name === 'telegram_api_call'
+                    && is_string($method)
+                    && TelegramApiCallExecutor::isTerminalMethod($method)
+                ) {
+                    $terminalToolCalls[$block['id']] = true;
+                }
             }
         }
 
-        $this->sendMessage('Не удалось завершить ответ за допустимое число шагов.');
+        return $terminalToolCalls;
     }
 
-    private function initializeCompactionClock(): void
+    private function replaceSystemMessage(string $prompt): void
     {
-        $now = $this->currentTimestamp();
+        $system = AgentMessage::text('system', $prompt)->toArray();
+        if (($this->messages[0]['role'] ?? null) === 'system') {
+            $this->messages[0] = $system;
 
-        if ($this->lastActivityAt === 0) {
-            $this->lastActivityAt = $now;
+            return;
         }
 
-        if ($this->lastCompactionAt === 0) {
-            $this->lastCompactionAt = $now;
-        }
+        array_unshift($this->messages, $system);
     }
 
-    private function shouldCompactNow(): bool
+    private function secondsUntilPipeline(): int
     {
-        $now = $this->currentTimestamp();
+        return max(
+            0,
+            ($this->pipelinePendingSince + self::PIPELINE_BATCH_WINDOW_SECONDS)
+            - Workflow::now()->getTimestamp(),
+        );
+    }
 
-        $periodicCompactionDue = ($now - $this->lastCompactionAt) >= self::COMPACTION_INTERVAL_SECONDS;
-        $idleCompactionDue     = $this->lastActivityAt > $this->lastCompactionAt
-            && ($now - $this->lastActivityAt) >= self::IDLE_COMPACTION_AFTER_SECONDS;
-        $sizeCompactionDue = $this->workingMemory->shouldCompactBySize();
+    private function shouldRunAgentImmediately(): bool
+    {
+        return $this->pipelinePendingSince > 0 && $this->callbackPending;
+    }
 
-        if (!$periodicCompactionDue && !$idleCompactionDue && !$sizeCompactionDue) {
+    private function shouldContinueAsNewAfterFailedAttempt(): bool
+    {
+        if (
+            !$this->ingestionRetryPending
+            && $this->contextFailureCount === 0
+            && $this->notificationFailureCount === 0
+            && $this->pendingTerminalText === null
+            && $this->pendingTerminalScopeId === null
+        ) {
             return false;
         }
 
-        return $now >= $this->compactionRetryAfter;
+        return $this->processedSinceContinueAsNew >= self::MAX_UPDATES_BEFORE_CONTINUE
+            || Workflow::getInfo()->shouldContinueAsNew;
     }
 
-    private function waitForUpdatesOrWorkflowDeadline(): void
+    private function shouldContinueAsNew(bool $allowPendingPipeline = false): bool
     {
-        Workflow::awaitWithTimeout(
-            $this->secondsUntilNextWorkflowDeadline(),
-            fn (): bool => $this->updatesQueue->has(),
-        );
-    }
-
-    private function secondsUntilNextWorkflowDeadline(): int
-    {
-        $now       = $this->currentTimestamp();
-        $deadlines = [$this->nextCompactionDeadline($now)];
-
-        if ($this->hasPendingPipeline()) {
-            $deadlines[] = $this->pipelinePendingSince + self::PIPELINE_BATCH_WINDOW_SECONDS;
+        if ($this->ingestionRetryPending) {
+            return false;
         }
 
-        return max(1, min($deadlines) - $now);
-    }
-
-    private function nextCompactionDeadline(int $now): int
-    {
-        $deadlines = [
-            $this->lastCompactionAt + self::COMPACTION_INTERVAL_SECONDS,
-        ];
-
-        if ($this->workingMemory->shouldCompactBySize()) {
-            $deadlines[] = $now;
+        if (!$allowPendingPipeline && $this->pipelinePendingSince > 0) {
+            return false;
         }
 
-        if ($this->lastActivityAt > $this->lastCompactionAt) {
-            $deadlines[] = $this->lastActivityAt + self::IDLE_COMPACTION_AFTER_SECONDS;
-        }
-
-        $deadline = min($deadlines);
-
-        if ($deadline <= $now && $this->compactionRetryAfter > $now) {
-            $deadline = $this->compactionRetryAfter;
-        }
-
-        return $deadline;
+        return $this->processedSinceContinueAsNew >= self::MAX_UPDATES_BEFORE_CONTINUE
+            || Workflow::getInfo()->shouldContinueAsNew;
     }
 
-    private function hasPendingPipeline(): bool
+    private function finishPipeline(): void
     {
-        return $this->pipelinePendingSince > 0;
-    }
-
-    private function shouldRunPipelineNow(): bool
-    {
-        return $this->shouldRunPipelineAt($this->currentTimestamp());
-    }
-
-    private function shouldRunPipelineAt(int $now): bool
-    {
-        return !$this->paused
-            && $this->hasPendingPipeline()
-            && ($now - $this->pipelinePendingSince) >= self::PIPELINE_BATCH_WINDOW_SECONDS;
-    }
-
-    private function compactWorkingMemory(): void
-    {
-        if (!$this->workingMemory->hasMessagesToCompact()) {
-            $this->markCompactionSucceeded();
-
-            return;
-        }
-
-        $messagesToCompact = $this->workingMemory->getMessagesToCompact();
-
-        if ($messagesToCompact === []) {
-            $this->workingMemory->compact('No compacted context.');
-            $this->markCompactionSucceeded();
-
-            return;
-        }
-
-        $compactedContext = $this->agenticActivity->compactWorkingMemory(
-            existingCompactedContext: $this->workingMemory->getCompactedContext(),
-            memory: $messagesToCompact,
-        );
-
-        if (!is_string($compactedContext)) {
-            $this->markCompactionFailed();
-
-            return;
-        }
-
-        $this->workingMemory->compact($compactedContext);
-        $this->markCompactionSucceeded();
-    }
-
-    private function markCompactionSucceeded(): void
-    {
-        $this->lastCompactionAt              = $this->currentTimestamp();
-        $this->compactionRetryAfter          = 0;
-        $this->consecutiveCompactionFailures = 0;
-    }
-
-    private function markCompactionFailed(): void
-    {
-        ++$this->consecutiveCompactionFailures;
-
         if (
-            $this->consecutiveCompactionFailures >= self::MAX_COMPACTION_FAILURES_BEFORE_DROP
-            && $this->workingMemory->shouldCompactBySize()
+            $this->pendingTerminalText !== null
+            || $this->pendingTerminalScopeId !== null
+            || $this->notificationFailureCount !== 0
         ) {
-            $this->workingMemory->dropMessagesToCompact();
-            $this->lastCompactionAt              = $this->currentTimestamp();
-            $this->compactionRetryAfter          = 0;
-            $this->consecutiveCompactionFailures = 0;
+            throw new LogicException(
+                'A batch cannot finish while its terminal notification is unconfirmed.',
+            );
+        }
+
+        $this->pipelinePendingSince         = 0;
+        $this->callbackPending              = false;
+        $this->pendingBatchMessageCount     = 0;
+        $this->pendingActorUserIds          = [];
+        $this->pendingActorIdentityComplete = true;
+    }
+
+    /**
+     * @param list<QueuedTelegramUpdate> $updates
+     * @param int                        $failedIndex
+     */
+    private function retryIngestion(array $updates, int $failedIndex): void
+    {
+        $this->updatesQueue->prepend(array_slice($updates, $failedIndex));
+        $this->ingestionRetryPending = true;
+        ++$this->ingestionFailureCount;
+        Workflow::timer(CarbonInterval::seconds(min(
+            60,
+            2 ** min(5, $this->ingestionFailureCount - 1),
+        )));
+    }
+
+    private function dropNonRetryableUpdate(
+        ActivityFailure $failure,
+        Update $update,
+        bool $alreadyCounted = false,
+    ): bool {
+        if ($failure->getRetryState() !== RetryState::RETRY_STATE_NON_RETRYABLE_FAILURE) {
+            return false;
+        }
+
+        $this->seenUpdateIds[$update->updateId] = true;
+        if (!$alreadyCounted) {
+            ++$this->processedSinceContinueAsNew;
+        }
+        ++$this->droppedUpdateCount;
+        $this->ingestionRetryPending = false;
+        Workflow::getLogger()->error(
+            'Dropped a non-retryable Telegram update instead of blocking the chat workflow.',
+            [
+                'chatId'   => $this->input->chatId,
+                'topicId'  => $this->input->topicId,
+                'updateId' => $update->updateId,
+                'failure'  => $failure->getMessage(),
+            ],
+        );
+
+        return true;
+    }
+
+    private function enqueueUpdate(Update $update): void
+    {
+        $this->updatesQueue->push(new QueuedTelegramUpdate(
+            update: $update,
+            appendToAgent: !$this->paused,
+            ingestionId: Workflow::uuid4()->toString(),
+        ));
+    }
+
+    private function trackPendingActor(Update $update): void
+    {
+        $sender = $update->effectiveSender;
+        if (!$sender instanceof UserInterface || $sender->id <= 0) {
+            $this->pendingActorIdentityComplete = false;
 
             return;
         }
 
-        $this->compactionRetryAfter = $this->currentTimestamp()
-            + self::compactionRetryDelaySeconds($this->consecutiveCompactionFailures);
+        $this->pendingActorUserIds[$sender->id] = true;
     }
 
-    private function currentTimestamp(): int
+    /**
+     * @return list<int>
+     */
+    private function pendingActorIds(): array
     {
-        return Workflow::now()->getTimestamp();
+        $actorIds = array_keys($this->pendingActorUserIds);
+        sort($actorIds, \SORT_NUMERIC);
+
+        return $actorIds;
     }
 
-    private function executeRuntimeTool(string $toolName, string $argumentsJson): mixed
+    private function recordNotificationFailure(string $failure): bool
     {
-        return $this->awaitChildScope(
-            fn (): mixed => Workflow::executeActivity(
-                'RuntimeToolExecutor.execute',
-                [$this->input->chatId, $toolName, $argumentsJson],
-                options: ActivityOptions::new()
-                    ->withStartToCloseTimeout(CarbonInterval::minute())
-                    ->withRetryOptions(
-                        RetryOptions::new()->withNonRetryableExceptions([])
-                    )
-            )
+        $failure                       = trim($failure);
+        $this->lastNotificationFailure = mb_substr(
+            $failure === '' ? 'Unknown Telegram notification failure.' : $failure,
+            0,
+            500,
         );
-    }
-
-    private function shouldContinueAsNew(): bool
-    {
-        return $this->shouldContinueAsNewForSuggestion(Workflow::getInfo()->shouldContinueAsNew);
-    }
-
-    private function shouldContinueAsNewForSuggestion(bool $suggested): bool
-    {
-        return (
-            $this->continueAsNewPolicyVersion >= self::USE_SUGGESTED_CONTINUE_AS_NEW_VERSION
-            && $suggested
-        ) || $this->processedSinceContinueAsNew >= self::MAX_UPDATES_BEFORE_CONTINUE;
-    }
-
-    private function continueAsNew(): mixed
-    {
-        $input = new AgenticWorkflowInput(
-            chatId: $this->input->chatId,
-            processedCount: $this->processedCount,
-            workingMemory: AgenticWorkflowInput::serializeWorkingMemory($this->workingMemory->get()),
-            compactedContext: $this->workingMemory->getCompactedContext(),
-            lastActivityAt: $this->lastActivityAt,
-            lastCompactionAt: $this->lastCompactionAt,
-            compactionRetryAfter: $this->compactionRetryAfter,
-            consecutiveCompactionFailures: $this->consecutiveCompactionFailures,
-            pipelinePendingSince: $this->pipelinePendingSince,
-            pendingUpdates: $this->updatesQueue->all(),
-            paused: $this->paused,
+        Workflow::getLogger()->error(
+            'Unable to deliver a parent workflow notification.',
+            [
+                'chatId'  => $this->input->chatId,
+                'topicId' => $this->input->topicId,
+                'failure' => $this->lastNotificationFailure,
+            ],
         );
 
-        return Workflow::continueAsNew(
-            self::WORKFLOW_TYPE,
-            [$input],
-            ContinueAsNewOptions::new()->withWorkflowTaskTimeout(CarbonInterval::seconds(self::WORKFLOW_TASK_TIMEOUT_SECONDS)),
-        );
+        return false;
     }
 
-    private function sendMessage(string $text): int|string
+    private function boundedContinuationInput(): AgenticWorkflowInput
     {
-        return $this->awaitChildScope(
-            fn (): int|string => $this->telegramActivity->sendMessage(
-                chatId: $this->input->chatId,
-                text: $text,
-                messageThreadId: null,
-            )
-        );
-    }
+        $converter   = new AgenticWorkflowInputDataConverter();
+        $lastFailure = null;
+        foreach (
+            self::messageSuffixCandidates(
+                $this->messages,
+                $this->pendingBatchMessageCount,
+            ) as $candidateMessages
+        ) {
+            try {
+                $candidate    = $this->continuationInput($candidateMessages);
+                $encodedBytes = $converter->encodedBytes($candidate);
+            } catch (Throwable $failure) {
+                $lastFailure = $failure;
 
-    private function sendTypingAction(): true
-    {
-        return $this->awaitChildScope(
-            fn (): true => $this->telegramActivity->sendChatAction(
-                chatId: $this->input->chatId,
-                action: 'typing',
-                messageThreadId: null,
-            )
+                continue;
+            }
+
+            if ($encodedBytes <= HistoryPayloadGuard::MAX_ENCODED_BYTES) {
+                return $candidate;
+            }
+            $lastFailure = new InvalidArgumentException(sprintf(
+                'Agentic workflow continuation requires %d encoded bytes.',
+                $encodedBytes,
+            ));
+        }
+
+        throw new ApplicationFailure(
+            message: sprintf(
+                'The current Telegram batch and mandatory parent workflow state exceed '
+                . 'the %d-byte continuation budget.',
+                HistoryPayloadGuard::MAX_ENCODED_BYTES,
+            ),
+            type: 'agentic-workflow-input-too-large',
+            nonRetryable: true,
+            previous: $lastFailure,
         );
     }
 
     /**
-     * Preserve the child-scope boundary recorded by pre-Fiber workflow histories.
-     * Flattening these calls changes command ordering when concurrent scopes resume.
+     * @param list<array<string, mixed>> $messages
      */
-    private function awaitChildScope(callable $operation): mixed
+    private function continuationInput(array $messages): AgenticWorkflowInput
     {
-        return Workflow::async($operation)->await();
+        return new AgenticWorkflowInput(
+            chatId: $this->input->chatId,
+            chatType: $this->input->chatType,
+            topicId: $this->input->topicId,
+            model: $this->input->model,
+            tools: $this->input->tools,
+            messages: $messages,
+            processedCount: $this->processedCount,
+            agentRun: $this->agentRun,
+            pipelinePendingSince: $this->pipelinePendingSince,
+            pendingUpdates: $this->updatesQueue->all(),
+            paused: $this->paused,
+            callbackPending: $this->callbackPending,
+            droppedUpdateCount: $this->droppedUpdateCount,
+            lastNotificationFailure: $this->lastNotificationFailure,
+            ingestionFailureCount: $this->ingestionFailureCount,
+            contextFailureCount: $this->contextFailureCount,
+            ingestionRetryPending: $this->ingestionRetryPending,
+            pendingBatchMessageCount: $this->pendingBatchMessageCount,
+            pendingActorUserIds: $this->pendingActorIds(),
+            pendingActorIdentityComplete: $this->pendingActorIdentityComplete,
+            pendingTerminalText: $this->pendingTerminalText,
+            pendingTerminalScopeId: $this->pendingTerminalScopeId,
+            notificationFailureCount: $this->notificationFailureCount,
+        );
     }
 
-    private function startTypingIndicator(): void
+    private function continueAsNew(): mixed
     {
-        $generation = ++$this->typingIndicatorGeneration;
+        $input          = $this->boundedContinuationInput();
+        $this->messages = $input->messages;
 
-        Workflow::async(function () use ($generation): void {
-            try {
-                while ($this->typingIndicatorGeneration === $generation) {
-                    Workflow::timer(self::TYPING_ACTION_REFRESH_INTERVAL_SECONDS);
-
-                    if ($this->typingIndicatorGeneration !== $generation) {
-                        return;
-                    }
-
-                    $this->sendTypingAction();
-                }
-            } catch (CanceledFailure) {
-                return;
-            }
-        });
-    }
-
-    private function stopTypingIndicator(): void
-    {
-        ++$this->typingIndicatorGeneration;
+        return Workflow::continueAsNew(
+            self::WORKFLOW_TYPE,
+            [$input],
+            ContinueAsNewOptions::new()->withWorkflowTaskTimeout(
+                CarbonInterval::seconds(self::WORKFLOW_TASK_TIMEOUT_SECONDS),
+            ),
+        );
     }
 }

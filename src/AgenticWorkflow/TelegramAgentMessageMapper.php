@@ -1,0 +1,37 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Bot\AgenticWorkflow;
+
+use Bot\Telegram\InputMessageView;
+use PiPHP\Temporal\DTO\AgentMessage;
+
+final class TelegramAgentMessageMapper
+{
+    public static function map(InputMessageView $view): AgentMessage
+    {
+        $text = trim($view->text);
+        if ($view->participantReference !== null) {
+            $text .= "\nParticipant reference: {$view->participantReference}";
+        }
+        if ($view->imageAttachmentCount > 0) {
+            $text .= sprintf(
+                "\n\nImage attachments: %d. Visual bytes are not included in this model context.",
+                $view->imageAttachmentCount,
+            );
+        }
+
+        return new AgentMessage(
+            role: 'user',
+            content: [['type' => 'text', 'text' => $text]],
+            name: $view->participantReference,
+            metadata: array_filter([
+                'telegramParticipant'  => $view->participantReference,
+                'imageAttachmentCount' => $view->imageAttachmentCount > 0
+                    ? $view->imageAttachmentCount
+                    : null,
+            ], static fn (mixed $value): bool => $value !== null),
+        );
+    }
+}

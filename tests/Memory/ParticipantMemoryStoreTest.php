@@ -5,10 +5,6 @@ declare(strict_types=1);
 namespace Tests\Memory;
 
 use Bot\Entity\ParticipantMemory;
-use Bot\Llm\Tools\Memory\ForgetMemory;
-use Bot\Llm\Tools\Memory\RecallMemory;
-use Bot\Llm\Tools\Memory\SaveMemory;
-use Bot\Llm\Tools\Memory\UpdateMemory;
 use Bot\Memory\ParticipantMemoryStore;
 use Cycle\ORM\ORMInterface;
 use Cycle\ORM\RepositoryInterface;
@@ -94,17 +90,15 @@ class ParticipantMemoryStoreTest extends TestCase
 
         $result = $store->save(
             -100123,
-            new SaveMemory(
-                userIdentifier: '@Alice',
-                memory: 'Alice prefers TypeScript over PHP',
-                quote: 'I would choose TypeScript for this one',
-                context: 'The group was discussing which stack to use for a new project.',
-            ),
+            userIdentifier: 'telegram_user:7',
+            memory: 'Alice prefers TypeScript over PHP',
+            quote: 'I would choose TypeScript for this one',
+            context: 'The group was discussing which stack to use for a new project.',
         );
 
-        self::assertSame('Memory saved for @Alice: Alice prefers TypeScript over PHP', $result);
+        self::assertSame('Memory saved for telegram_user:7: Alice prefers TypeScript over PHP', $result);
         self::assertCount(1, $state->saved);
-        self::assertSame('@alice', $state->saved[0]->participantKey);
+        self::assertSame('telegram_user:7', $state->saved[0]->participantKey);
         self::assertSame('Alice prefers TypeScript over PHP', $state->saved[0]->memory);
         self::assertSame('I would choose TypeScript for this one', $state->saved[0]->quote);
         self::assertSame('The group was discussing which stack to use for a new project.', $state->saved[0]->context);
@@ -114,8 +108,8 @@ class ParticipantMemoryStoreTest extends TestCase
     {
         $memory = new ParticipantMemory(
             chatId: -100123,
-            participantKey: '@alice',
-            participantLabel: '@alice',
+            participantKey: 'telegram_user:7',
+            participantLabel: 'telegram_user:7',
             memory: 'Alice uses Vim',
             quote: 'I use Vim',
             context: 'They were comparing editors.',
@@ -181,15 +175,13 @@ class ParticipantMemoryStoreTest extends TestCase
 
         $result = $store->save(
             -100123,
-            new SaveMemory(
-                userIdentifier: '@alice',
-                memory: 'Alice uses Vim',
-                quote: 'Actually I switched to Neovim last year',
-                context: 'They corrected their earlier statement while discussing tooling.',
-            ),
+            userIdentifier: 'telegram_user:7',
+            memory: 'Alice uses Vim',
+            quote: 'Actually I switched to Neovim last year',
+            context: 'They corrected their earlier statement while discussing tooling.',
         );
 
-        self::assertSame('Memory updated for @alice: Alice uses Vim', $result);
+        self::assertSame('Memory updated for telegram_user:7: Alice uses Vim', $result);
         self::assertSame('Alice uses Vim', $state->saved[0]->memory);
         self::assertSame('Actually I switched to Neovim last year', $state->saved[0]->quote);
         self::assertSame('They corrected their earlier statement while discussing tooling.', $state->saved[0]->context);
@@ -272,10 +264,8 @@ class ParticipantMemoryStoreTest extends TestCase
 
         $result = $store->recall(
             -100123,
-            new RecallMemory(
-                userIdentifier: '@alice',
-                query: 'Temporal Symfony',
-            ),
+            userIdentifier: '@alice',
+            query: 'Temporal Symfony',
         );
 
         self::assertStringContainsString('Memories for @alice:', $result);
@@ -302,7 +292,7 @@ class ParticipantMemoryStoreTest extends TestCase
 
         $result = $store->recall(
             -100123,
-            new RecallMemory(userIdentifier: '@alice'),
+            userIdentifier: '@alice',
         );
 
         self::assertStringContainsString('- #7 @alice | memory: Alice owns deploys', $result);
@@ -326,12 +316,10 @@ class ParticipantMemoryStoreTest extends TestCase
 
         $result = $store->update(
             -100123,
-            new UpdateMemory(
-                memory: 'Alice uses Neovim',
-                quote: 'I switched to Neovim',
-                context: 'They corrected their editor preference.',
-                memoryId: 7,
-            ),
+            memory: 'Alice uses Neovim',
+            quote: 'I switched to Neovim',
+            context: 'They corrected their editor preference.',
+            memoryId: 7,
         );
 
         self::assertSame('Memory updated for @alice (#7): Alice uses Neovim', $result);
@@ -344,8 +332,8 @@ class ParticipantMemoryStoreTest extends TestCase
     {
         $first = new ParticipantMemory(
             chatId: -100123,
-            participantKey: '@alice',
-            participantLabel: '@alice',
+            participantKey: 'telegram_user:7',
+            participantLabel: 'telegram_user:7',
             memory: 'Alice uses Symfony',
             quote: 'Symfony is my daily framework',
             context: 'Backend discussion.',
@@ -355,8 +343,8 @@ class ParticipantMemoryStoreTest extends TestCase
         $first->id = 1;
         $second = new ParticipantMemory(
             chatId: -100123,
-            participantKey: '@alice',
-            participantLabel: '@alice',
+            participantKey: 'telegram_user:7',
+            participantLabel: 'telegram_user:7',
             memory: 'Alice maintains Symfony services',
             quote: 'I maintain our Symfony services',
             context: 'Ownership discussion.',
@@ -369,18 +357,16 @@ class ParticipantMemoryStoreTest extends TestCase
 
         $result = $store->update(
             -100123,
-            new UpdateMemory(
-                memory: 'Alice works on Laravel now',
-                quote: 'I moved to Laravel',
-                context: 'They corrected their backend work.',
-                userIdentifier: '@alice',
-                query: 'Symfony',
-            ),
+            memory: 'Alice works on Laravel now',
+            quote: 'I moved to Laravel',
+            context: 'They corrected their backend work.',
+            userIdentifier: 'telegram_user:7',
+            query: 'Symfony',
         );
 
         self::assertStringContainsString('selector matched multiple memories', $result);
-        self::assertStringContainsString('#1 @alice: Alice uses Symfony', $result);
-        self::assertStringContainsString('#2 @alice: Alice maintains Symfony services', $result);
+        self::assertStringContainsString('#1 telegram_user:7: Alice uses Symfony', $result);
+        self::assertStringContainsString('#2 telegram_user:7: Alice maintains Symfony services', $result);
         self::assertSame('Alice uses Symfony', $state->saved[0]->memory);
         self::assertSame('Alice maintains Symfony services', $state->saved[1]->memory);
     }
@@ -414,7 +400,7 @@ class ParticipantMemoryStoreTest extends TestCase
 
         $result = $store->forget(
             -100123,
-            new ForgetMemory(memoryId: 1),
+            memoryId: 1,
         );
 
         self::assertSame('Memory forgotten for @alice (#1): Alice uses Vim', $result);
@@ -426,8 +412,8 @@ class ParticipantMemoryStoreTest extends TestCase
     {
         $first = new ParticipantMemory(
             chatId: -100123,
-            participantKey: '@alice',
-            participantLabel: '@alice',
+            participantKey: 'telegram_user:7',
+            participantLabel: 'telegram_user:7',
             memory: 'Alice uses Vim',
             quote: 'I use Vim',
             context: 'Editor discussion.',
@@ -437,8 +423,8 @@ class ParticipantMemoryStoreTest extends TestCase
         $first->id = 1;
         $second = new ParticipantMemory(
             chatId: -100123,
-            participantKey: '@alice',
-            participantLabel: '@alice',
+            participantKey: 'telegram_user:7',
+            participantLabel: 'telegram_user:7',
             memory: 'Alice owns deploys',
             quote: 'I own deploys',
             context: 'Release planning.',
@@ -451,7 +437,7 @@ class ParticipantMemoryStoreTest extends TestCase
 
         $result = $store->forget(
             -100123,
-            new ForgetMemory(userIdentifier: '@alice'),
+            userIdentifier: 'telegram_user:7',
         );
 
         self::assertSame(
@@ -462,11 +448,71 @@ class ParticipantMemoryStoreTest extends TestCase
 
         $result = $store->forget(
             -100123,
-            new ForgetMemory(userIdentifier: '@alice', forgetAllForParticipant: true),
+            userIdentifier: 'telegram_user:7',
+            forgetAllForParticipant: true,
         );
 
-        self::assertSame('2 memories forgotten for @alice.', $result);
+        self::assertSame('2 memories forgotten for telegram_user:7.', $result);
         self::assertSame([], $state->saved);
+    }
+
+    public function testSaveRejectsMutableParticipantAlias(): void
+    {
+        [$store, $state] = $this->makeStoreWithMemories();
+
+        $result = $store->save(
+            -100123,
+            userIdentifier: '@alice',
+            memory: 'Alice owns deploys',
+            quote: 'I own deploys',
+            context: 'Release planning.',
+        );
+
+        self::assertSame(
+            'Memory not saved: participant reference must be telegram_user:<positive id> '
+            . 'or telegram_chat:<non-zero signed id>.',
+            $result,
+        );
+        self::assertSame([], $state->saved);
+    }
+
+    public function testParticipantScopedMutationsRejectMutableAlias(): void
+    {
+        $memory = new ParticipantMemory(
+            chatId: -100123,
+            participantKey: '@alice',
+            participantLabel: '@alice',
+            memory: 'Alice owns deploys',
+            quote: 'I own deploys',
+            context: 'Release planning.',
+        );
+        $memory->id = 7;
+
+        [$store, $state] = $this->makeStoreWithMemories($memory);
+
+        self::assertSame(
+            'Memory not updated: participant reference must be telegram_user:<positive id> '
+            . 'or telegram_chat:<non-zero signed id>.',
+            $store->update(
+                -100123,
+                memory: 'Alice no longer owns deploys',
+                quote: 'I handed deploys over',
+                context: 'Ownership update.',
+                userIdentifier: '@alice',
+                currentMemory: 'Alice owns deploys',
+            ),
+        );
+        self::assertSame(
+            'Memory not forgotten: participant reference must be telegram_user:<positive id> '
+            . 'or telegram_chat:<non-zero signed id>.',
+            $store->forget(
+                -100123,
+                userIdentifier: '@alice',
+                query: 'deploys',
+            ),
+        );
+        self::assertCount(1, $state->saved);
+        self::assertSame('Alice owns deploys', $state->saved[0]->memory);
     }
 
     /**

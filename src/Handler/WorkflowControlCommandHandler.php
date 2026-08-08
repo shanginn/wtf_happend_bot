@@ -6,22 +6,31 @@ namespace Bot\Handler;
 
 use Bot\AgenticWorkflow\AgenticWorkflow;
 use Bot\AgenticWorkflow\AgenticWorkflowHandler;
+use Bot\Durability\DurableCommandReplyGateway;
+use Bot\Telegram\TelegramChatAuthorizationPolicy;
 use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
 use Phenogram\Framework\Handler\AbstractCommandHandler;
 use Phenogram\Framework\TelegramBot;
 use Temporal\Client\WorkflowClientInterface;
 use Temporal\Exception\Client\WorkflowNotFoundException;
+use Throwable;
 
 class WorkflowControlCommandHandler extends AbstractCommandHandler
 {
-    private const string PAUSE_COMMAND_PATTERN = '/^\/pause(?:@[\pL\pN_]+)?$/u';
+    private const string PAUSE_COMMAND_PATTERN  = '/^\/pause(?:@[\pL\pN_]+)?$/u';
     private const string RESUME_COMMAND_PATTERN = '/^\/resume(?:@[\pL\pN_]+)?$/u';
-    private const string PAUSED_MESSAGE = 'Workflow чата приостановлен. Новые сообщения будут ждать команды /resume.';
-    private const string RESUMED_MESSAGE = 'Workflow чата продолжил работу и обработает накопленные сообщения.';
-    private const string NO_WORKFLOW_MESSAGE = 'Активного workflow для этого чата нет.';
+    private const string PAUSED_MESSAGE         = 'Workflow темы приостановлен. Новые сообщения сохраняются в историю, но не обрабатываются задним числом.';
+    private const string RESUMED_MESSAGE        = 'Workflow темы продолжил работу. Новые сообщения снова обрабатываются.';
+    private const string NO_WORKFLOW_MESSAGE    = 'Активного workflow для этого чата нет.';
+    private const string DENIED_MESSAGE         = 'Недостаточно прав: в личном чате команду может выполнить '
+        . 'только его пользователь, а в группе — владелец или администратор.';
+    private const string AUTHORIZATION_FAILURE_MESSAGE = 'Не удалось проверить права в Telegram. '
+        . 'Workflow не изменён; попробуйте ещё раз позже.';
 
     public function __construct(
         private readonly WorkflowClientInterface $client,
+        private readonly TelegramChatAuthorizationPolicy $authorization,
+        private readonly DurableCommandReplyGateway $durableReplies,
     ) {}
 
     public static function supports(UpdateInterface $update): bool
@@ -38,25 +47,50 @@ class WorkflowControlCommandHandler extends AbstractCommandHandler
             return;
         }
 
-        $responseText = $command === AgenticWorkflow::PAUSE_SIGNAL_NAME
-            ? self::PAUSED_MESSAGE
-            : self::RESUMED_MESSAGE;
-
-        try {
-            $workflow = $this->client->newUntypedRunningWorkflowStub(
-                AgenticWorkflowHandler::generateWorkflowIdForChat($message->chat->id),
-                null,
-                AgenticWorkflow::WORKFLOW_TYPE,
-            );
-            $workflow->signal($command);
-        } catch (WorkflowNotFoundException) {
-            $responseText = self::NO_WORKFLOW_MESSAGE;
-        }
-
-        $bot->api->sendMessage(
+        $this->durableReplies->execute(
+            updateId: $update->updateId,
+            action: $command,
             chatId: $message->chat->id,
-            text: $responseText,
             messageThreadId: $message->messageThreadId,
+            messageId: $message->messageId,
+            resolveReply: function () use ($message, $command): string {
+                try {
+                    $authorized = $this->authorization->isMessageActorAuthorized($message);
+                } catch (Throwable) {
+                    return self::AUTHORIZATION_FAILURE_MESSAGE;
+                }
+
+                if (!$authorized) {
+                    return self::DENIED_MESSAGE;
+                }
+
+                $responseText = $command === AgenticWorkflow::PAUSE_SIGNAL_NAME
+                    ? self::PAUSED_MESSAGE
+                    : self::RESUMED_MESSAGE;
+
+                try {
+                    $workflow = $this->client->newUntypedRunningWorkflowStub(
+                        AgenticWorkflowHandler::generateWorkflowIdForChat(
+                            $message->chat->id,
+                            $message->messageThreadId,
+                        ),
+                        null,
+                        AgenticWorkflow::WORKFLOW_TYPE,
+                    );
+                    $workflow->signal($command);
+                } catch (WorkflowNotFoundException) {
+                    return self::NO_WORKFLOW_MESSAGE;
+                }
+
+                return $responseText;
+            },
+            sendReply: function (string $responseText) use ($bot, $message): void {
+                $bot->api->sendMessage(
+                    chatId: $message->chat->id,
+                    text: $responseText,
+                    messageThreadId: $message->messageThreadId,
+                );
+            },
         );
     }
 

@@ -16,37 +16,34 @@ use Phenogram\Bindings\Types\Interfaces\UserInterface;
 class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
 {
     private const MESSAGE_UPDATE_SOURCES = [
-        'message' => ['label' => 'message', 'verb' => 'sent'],
-        'editedMessage' => ['label' => 'edited message', 'verb' => 'edited'],
-        'channelPost' => ['label' => 'channel post', 'verb' => 'published'],
-        'editedChannelPost' => ['label' => 'edited channel post', 'verb' => 'edited'],
-        'businessMessage' => ['label' => 'business message', 'verb' => 'sent'],
+        'message'               => ['label' => 'message', 'verb' => 'sent'],
+        'editedMessage'         => ['label' => 'edited message', 'verb' => 'edited'],
+        'channelPost'           => ['label' => 'channel post', 'verb' => 'published'],
+        'editedChannelPost'     => ['label' => 'edited channel post', 'verb' => 'edited'],
+        'businessMessage'       => ['label' => 'business message', 'verb' => 'sent'],
         'editedBusinessMessage' => ['label' => 'edited business message', 'verb' => 'edited'],
+        'guestMessage'          => ['label' => 'guest message', 'verb' => 'sent'],
     ];
 
     private const OTHER_UPDATE_SOURCES = [
-        'callbackQuery' => 'callback query',
-        'inlineQuery' => 'inline query',
-        'chosenInlineResult' => 'chosen inline result',
-        'businessConnection' => 'business connection update',
+        'callbackQuery'           => 'callback query',
+        'inlineQuery'             => 'inline query',
+        'chosenInlineResult'      => 'chosen inline result',
+        'businessConnection'      => 'business connection update',
         'deletedBusinessMessages' => 'deleted business messages',
-        'messageReaction' => 'message reaction update',
-        'messageReactionCount' => 'message reaction count update',
-        'shippingQuery' => 'shipping query',
-        'preCheckoutQuery' => 'pre-checkout query',
-        'purchasedPaidMedia' => 'paid media purchase',
-        'poll' => 'poll update',
-        'pollAnswer' => 'poll answer',
-        'myChatMember' => 'bot membership update',
-        'chatMember' => 'chat member update',
-        'chatJoinRequest' => 'chat join request',
-        'chatBoost' => 'chat boost update',
-        'removedChatBoost' => 'chat boost removal',
+        'messageReaction'         => 'message reaction update',
+        'messageReactionCount'    => 'message reaction count update',
+        'shippingQuery'           => 'shipping query',
+        'preCheckoutQuery'        => 'pre-checkout query',
+        'purchasedPaidMedia'      => 'paid media purchase',
+        'poll'                    => 'poll update',
+        'pollAnswer'              => 'poll answer',
+        'myChatMember'            => 'bot membership update',
+        'chatMember'              => 'chat member update',
+        'chatJoinRequest'         => 'chat join request',
+        'chatBoost'               => 'chat boost update',
+        'removedChatBoost'        => 'chat boost removal',
     ];
-
-    public function __construct(
-        private readonly ?TelegramFileUrlResolverInterface $fileUrlResolver = null,
-    ) {}
 
     public function create(UpdateInterface $update): InputMessageView
     {
@@ -69,11 +66,13 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
                 message: $message,
             ),
             participantReference: $this->resolveParticipantReference($message),
-            imageUrls: $this->collectImageUrls($message),
+            imageAttachmentCount: $this->countImageAttachments($message),
         );
     }
 
     /**
+     * @param UpdateInterface $update
+     *
      * @return array{label: string, verb: string, message: MessageInterface}|null
      */
     private function extractMessageUpdate(UpdateInterface $update): ?array
@@ -83,8 +82,8 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
 
             if ($message instanceof MessageInterface) {
                 return [
-                    'label' => $meta['label'],
-                    'verb' => $meta['verb'],
+                    'label'   => $meta['label'],
+                    'verb'    => $meta['verb'],
                     'message' => $message,
                 ];
             }
@@ -95,6 +94,16 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
 
     private function resolveNonMessageParticipantReference(UpdateInterface $update): ?string
     {
+        if ($update instanceof Update) {
+            $sender = $update->effectiveSender;
+            if ($sender instanceof ChatInterface) {
+                return $this->resolveChatReference($sender);
+            }
+            if ($sender instanceof UserInterface) {
+                return $this->resolveUserReference($sender);
+            }
+        }
+
         if ($update->callbackQuery !== null) {
             return $this->resolveUserReference($update->callbackQuery->from);
         }
@@ -137,28 +146,20 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
         }
 
         if ($update->shippingQuery !== null) {
-            $query = $update->shippingQuery;
+            $query   = $update->shippingQuery;
             $lines[] = 'Kind: shipping query';
             $lines[] = 'From: ' . $this->describeUser($query->from);
-            $lines[] = 'Query id: ' . $query->id;
-            $lines[] = 'Invoice payload: ' . $query->invoicePayload;
-            $lines[] = 'Shipping address: ' . $this->describeShippingAddress($query->shippingAddress);
+            $lines[] = 'Sensitive checkout details are retained internally and excluded from model context.';
 
             return implode("\n", $lines);
         }
 
         if ($update->preCheckoutQuery !== null) {
-            $query = $update->preCheckoutQuery;
+            $query   = $update->preCheckoutQuery;
             $lines[] = 'Kind: pre-checkout query';
             $lines[] = 'From: ' . $this->describeUser($query->from);
-            $lines[] = 'Query id: ' . $query->id;
             $lines[] = 'Currency: ' . $query->currency;
             $lines[] = 'Total amount: ' . $query->totalAmount;
-            $lines[] = 'Invoice payload: ' . $query->invoicePayload;
-
-            if ($query->shippingOptionId !== null) {
-                $lines[] = 'Shipping option id: ' . $query->shippingOptionId;
-            }
 
             return implode("\n", $lines);
         }
@@ -183,7 +184,7 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
         MessageInterface $message,
     ): string {
         $sections = [];
-        $facts = [
+        $facts    = [
             'Telegram update: ' . $updateLabel,
             'Update id: ' . $updateId,
             'Chat: ' . $this->describeChat($message->chat),
@@ -239,6 +240,8 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
     }
 
     /**
+     * @param MessageInterface $message
+     *
      * @return list<array{label: string, value: string}>
      */
     private function collectTextBlocks(MessageInterface $message): array
@@ -273,6 +276,8 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
     }
 
     /**
+     * @param MessageInterface $message
+     *
      * @return list<array{label: string, value: string}>
      */
     private function collectPaymentBlocks(MessageInterface $message): array
@@ -298,9 +303,6 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
                 'value' => implode("\n", [
                     'Currency: ' . $message->successfulPayment->currency,
                     'Total amount: ' . $message->successfulPayment->totalAmount,
-                    'Invoice payload: ' . $message->successfulPayment->invoicePayload,
-                    'Telegram charge id: ' . $message->successfulPayment->telegramPaymentChargeId,
-                    'Provider charge id: ' . $message->successfulPayment->providerPaymentChargeId,
                 ]),
             ];
         }
@@ -311,9 +313,6 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
                 'value' => implode("\n", [
                     'Currency: ' . $message->refundedPayment->currency,
                     'Total amount: ' . $message->refundedPayment->totalAmount,
-                    'Invoice payload: ' . $message->refundedPayment->invoicePayload,
-                    'Telegram charge id: ' . $message->refundedPayment->telegramPaymentChargeId,
-                    'Provider charge id: ' . ($message->refundedPayment->providerPaymentChargeId ?? 'none'),
                 ]),
             ];
         }
@@ -322,6 +321,9 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
     }
 
     /**
+     * @param MessageInterface $message
+     * @param string           $verb
+     *
      * @return list<string>
      */
     private function describeMessageEvents(MessageInterface $message, string $verb): array
@@ -423,35 +425,13 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
         }
 
         if ($message->contact !== null) {
-            $name = trim($message->contact->firstName . ' ' . ($message->contact->lastName ?? ''));
-            $details = $this->joinDetails([
-                $name !== '' ? $name : null,
-                $message->contact->phoneNumber,
-            ]);
-
-            $events[] = 'shared a contact' . ($details !== '' ? ' (' . $details . ')' : '');
+            $events[] = 'shared a contact (details withheld from model context)';
         }
 
         if ($message->venue !== null) {
-            $details = $this->joinDetails([
-                $message->venue->title,
-                $message->venue->address,
-                $this->formatCoordinates(
-                    $message->venue->location->latitude,
-                    $message->venue->location->longitude,
-                ),
-            ]);
-
-            $events[] = 'shared a venue' . ($details !== '' ? ' (' . $details . ')' : '');
+            $events[] = 'shared a venue (details withheld from model context)';
         } elseif ($message->location !== null) {
-            $details = $this->joinDetails([
-                $this->formatCoordinates($message->location->latitude, $message->location->longitude),
-                $message->location->horizontalAccuracy !== null
-                    ? 'accuracy ' . rtrim(rtrim(number_format($message->location->horizontalAccuracy, 2, '.', ''), '0'), '.') . 'm'
-                    : null,
-            ]);
-
-            $events[] = 'shared a location' . ($details !== '' ? ' (' . $details . ')' : '');
+            $events[] = 'shared a location (details withheld from model context)';
         }
 
         if ($message->newChatMembers !== null && $message->newChatMembers !== []) {
@@ -537,30 +517,16 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
         return $events;
     }
 
-    /**
-     * @return list<string>
-     */
-    private function collectImageUrls(MessageInterface $message): array
+    private function countImageAttachments(MessageInterface $message): int
     {
-        if ($this->fileUrlResolver === null) {
-            return [];
-        }
-
-        $urls = [];
         $seen = [];
 
-        $appendImage = function (?string $fileId) use (&$urls, &$seen): void {
+        $appendImage = static function (?string $fileId) use (&$seen): void {
             if ($fileId === null || $fileId === '') {
                 return;
             }
 
-            $url = $this->fileUrlResolver?->resolve($fileId);
-            if ($url === null || isset($seen[$url])) {
-                return;
-            }
-
-            $seen[$url] = true;
-            $urls[] = $url;
+            $seen[$fileId] = true;
         };
 
         $appendImage($this->pickLargestPhoto($message->photo)?->fileId);
@@ -579,19 +545,19 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
         $appendImage($message->audio?->thumbnail?->fileId);
         $appendImage($this->pickLargestPhoto($message->newChatPhoto)?->fileId);
 
-        return $urls;
+        return count($seen);
     }
 
     private function resolveParticipantReference(MessageInterface $message): ?string
     {
-        return $message->from !== null
-            ? $this->resolveUserReference($message->from)
-            : $this->resolveChatReference($message->senderChat);
+        return $message->senderChat !== null
+            ? $this->resolveChatReference($message->senderChat)
+            : ($message->from === null ? null : $this->resolveUserReference($message->from));
     }
 
     private function resolveUserReference(UserInterface $user): string
     {
-        return $user->username ?? 'user_' . $user->id;
+        return 'telegram_user:' . $user->id;
     }
 
     private function resolveChatReference(?ChatInterface $chat): ?string
@@ -600,19 +566,17 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
             return null;
         }
 
-        return $chat->username !== null
-            ? 'chat_' . $chat->username
-            : 'chat_' . $chat->id;
+        return 'telegram_chat:' . $chat->id;
     }
 
     private function describeActor(MessageInterface $message): string
     {
-        if ($message->from !== null) {
-            return $this->describeUser($message->from);
-        }
-
         if ($message->senderChat !== null) {
             return 'chat ' . $this->describeChat($message->senderChat);
+        }
+
+        if ($message->from !== null) {
+            return $this->describeUser($message->from);
         }
 
         return 'unknown sender';
@@ -620,27 +584,15 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
 
     private function describeUser(UserInterface $user): string
     {
-        $name = trim($user->firstName . ' ' . ($user->lastName ?? ''));
+        $name     = trim($user->firstName . ' ' . ($user->lastName ?? ''));
         $identity = $name !== '' ? $name : 'user';
-        $details = ['id ' . $user->id];
+        $details  = ['id ' . $user->id];
 
         if ($user->username !== null) {
             array_unshift($details, '@' . $user->username);
         }
 
         return $identity . ' (' . implode(', ', $details) . ')';
-    }
-
-    private function describeShippingAddress(object $address): string
-    {
-        return implode(', ', array_filter([
-            $address->streetLine1 ?? null,
-            $address->streetLine2 ?? null,
-            $address->city ?? null,
-            $address->state ?? null,
-            $address->postCode ?? null,
-            $address->countryCode ?? null,
-        ], static fn (?string $part): bool => $part !== null && trim($part) !== ''));
     }
 
     /**
@@ -660,7 +612,7 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
             ?? $chat->username
             ?? trim(($chat->firstName ?? '') . ' ' . ($chat->lastName ?? ''));
 
-        $suffix = $label !== '' ? ' ' . $this->quote($label) : '';
+        $suffix  = $label !== '' ? ' ' . $this->quote($label) : '';
         $details = ['id ' . $chat->id];
 
         if ($chat->username !== null) {
@@ -672,9 +624,9 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
 
     private function describeReply(MessageInterface $reply): string
     {
-        $sender = $reply->from !== null
-            ? $this->describeUser($reply->from)
-            : ($reply->senderChat !== null ? 'chat ' . $this->describeChat($reply->senderChat) : null);
+        $sender = $reply->senderChat !== null
+            ? 'chat ' . $this->describeChat($reply->senderChat)
+            : ($reply->from !== null ? $this->describeUser($reply->from) : null);
 
         $preview = $this->normalizeText($reply->text)
             ?? $this->normalizeText($reply->caption)
@@ -706,7 +658,7 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
         }
 
         usort($photos, static function (PhotoSizeInterface $left, PhotoSizeInterface $right): int {
-            $leftArea = $left->width * $left->height;
+            $leftArea  = $left->width * $left->height;
             $rightArea = $right->width * $right->height;
 
             return [$rightArea, $right->fileSize ?? 0] <=> [$leftArea, $left->fileSize ?? 0];
@@ -736,7 +688,7 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
 
     private function describeDocument(DocumentInterface $document): string
     {
-        $kind = $this->isImageDocument($document) ? 'an image document' : 'a document';
+        $kind    = $this->isImageDocument($document) ? 'an image document' : 'a document';
         $details = $this->joinDetails([
             $document->fileName,
             $document->mimeType,
@@ -777,8 +729,8 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
             return $seconds . 's';
         }
 
-        $hours = intdiv($seconds, 3600);
-        $minutes = intdiv($seconds % 3600, 60);
+        $hours            = intdiv($seconds, 3600);
+        $minutes          = intdiv($seconds % 3600, 60);
         $remainingSeconds = $seconds % 60;
 
         $parts = [];
@@ -803,23 +755,18 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
             return null;
         }
 
-        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        $value = (float) $bytes;
+        $units     = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $value     = (float) $bytes;
         $unitIndex = 0;
 
         while ($value >= 1024 && $unitIndex < count($units) - 1) {
             $value /= 1024;
-            $unitIndex++;
+            ++$unitIndex;
         }
 
         $precision = $unitIndex === 0 ? 0 : ($value < 10 ? 1 : 0);
 
         return number_format($value, $precision, '.', '') . ' ' . $units[$unitIndex];
-    }
-
-    private function formatCoordinates(float $latitude, float $longitude): string
-    {
-        return sprintf('%.5f, %.5f', $latitude, $longitude);
     }
 
     /**

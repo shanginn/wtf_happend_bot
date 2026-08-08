@@ -20,29 +20,22 @@ class RuntimeTool
     public function __construct(
         #[Column(type: 'bigInteger')]
         public int $chatId,
-
         #[Column(type: 'text')]
         public string $name,
-
         #[Column(type: 'text')]
         public string $description,
-
         #[Column(type: 'text')]
         public string $parametersSchema,
-
         #[Column(type: 'text')]
         public string $instructions,
-
         #[Column(type: 'boolean')]
         public bool $enabled = true,
-
         #[Column(type: 'bigInteger')]
         public int $createdAt = 0,
-
         #[Column(type: 'bigInteger')]
         public int $updatedAt = 0,
     ) {
-        $now = time();
+        $now             = time();
         $this->createdAt = $this->createdAt === 0 ? $now : $this->createdAt;
         $this->updatedAt = $this->updatedAt === 0 ? $now : $this->updatedAt;
     }

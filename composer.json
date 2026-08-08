@@ -1,6 +1,6 @@
 {
     "name": "shanginn/wtf_happend_bot",
-    "description": "Bot that will summarize the chat messages for you using Temporal Agentic Loop",
+    "description": "Agentic Telegram bot powered by PiPH and Temporal",
     "type": "project",
     "license": "MIT",
     "autoload": {
@@ -22,7 +22,15 @@
     "repositories": [
         {
             "type": "vcs",
-            "url": "https://github.com/shanginn/openai-sdk-php"
+            "url": "https://github.com/shanginn/pihp"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/shanginn/pihp-agent-core"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/shanginn/pihp-ai"
         },
         {
             "type": "vcs",
@@ -34,21 +42,22 @@
         "ext-pcntl": "*",
         "ext-temporal": "*",
         "ext-true_async": "^0.8.2",
-        "shanginn/openai-sdk": "dev-feature/true-async",
         "phenogram/framework": "dev-feature/true-async",
+        "piphp/agent-core": "dev-master",
+        "piphp/ai": "dev-master",
+        "piphp/piphp": "dev-master",
         "vlucas/phpdotenv": "^5.6",
         "cycle/orm": "^2.10",
         "cycle/migrations": "^4.2",
         "cycle/schema-migrations-generator": "^2.3",
         "cycle/annotated": "^4.2",
         "symfony/var-dumper": "^8.0",
-        "symfony/serializer": "^7.4",
         "temporal/sdk": "dev-true-async as 2.17.x-dev"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
     "scripts": {
-        "fix": "PHP_CS_FIXER_IGNORE_ENV=1 ./tools/vendor/bin/php-cs-fixer fix src --diff -vvv --config=.php-cs-fixer.php"
+        "fix": "PHP_CS_FIXER_IGNORE_ENV=1 ./tools/vendor/bin/php-cs-fixer fix --diff -vvv --config=.php-cs-fixer.php"
     },
     "require-dev": {
         "buggregator/trap": "^1.15",

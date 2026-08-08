@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Llm\Tools\Search;
 
-use Bot\Llm\Tools\Search\InternetSearch;
 use Bot\Llm\Tools\Search\InternetSearchExecutor;
 use Bot\Llm\Tools\Search\SearxngHttpClientInterface;
 use Bot\Llm\Tools\Search\SearxngSearchClient;
@@ -31,14 +30,14 @@ class InternetSearchExecutorTest extends TestCase
             client: new SearxngSearchClient('http://searxng.test', 4, $http),
         );
 
-        $result = $executor->execute(-100123, new InternetSearch(
+        $result = $executor->execute(
             query: 'PHP 8.4 release',
             limit: 3,
             timeRange: 'year',
             language: 'en',
             categories: 'general,news',
             safeSearch: 2,
-        ));
+        );
 
         self::assertSame('http://searxng.test/search', $http->url);
         self::assertSame([
@@ -66,7 +65,7 @@ class InternetSearchExecutorTest extends TestCase
             ])),
         );
 
-        $result = $executor->execute(-100123, new InternetSearch(query: 'unlikely query'));
+        $result = $executor->execute(query: 'unlikely query');
 
         self::assertStringContainsString('No web results found.', $result);
     }
@@ -77,7 +76,7 @@ class InternetSearchExecutorTest extends TestCase
             client: new SearxngSearchClient('http://searxng.test', 10, new FakeSearxngHttpClient([])),
         );
 
-        self::assertSame('Search query cannot be empty.', $executor->execute(-100123, new InternetSearch(query: '  ')));
+        self::assertSame('Search query cannot be empty.', $executor->execute(query: '  '));
     }
 
     public function testExecutorReportsSearchFailures(): void
@@ -86,7 +85,7 @@ class InternetSearchExecutorTest extends TestCase
             client: new SearxngSearchClient('http://searxng.test', 10, new FailingSearxngHttpClient()),
         );
 
-        $result = $executor->execute(-100123, new InternetSearch(query: 'news'));
+        $result = $executor->execute(query: 'news');
 
         self::assertSame('Internet search failed: SearXNG returned HTTP 403.', $result);
     }

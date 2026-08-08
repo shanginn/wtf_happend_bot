@@ -24,6 +24,9 @@ final class RuntimeSkillRepository extends Repository
     }
 
     /**
+     * @param int  $chatId
+     * @param bool $enabledOnly
+     *
      * @return array<RuntimeSkill>
      */
     public function findByChatId(int $chatId, bool $enabledOnly = true): array

@@ -37,7 +37,7 @@ final class CycleOrmScope
 
     public function finalizeCurrent(): void
     {
-        $id = $this->coroutineId();
+        $id      = $this->coroutineId();
         $context = $this->contexts[$id] ?? null;
 
         try {
@@ -56,7 +56,7 @@ final class CycleOrmScope
     private function createContext(): CycleOrmContext
     {
         $container = new Container();
-        $orm = new ORM(
+        $orm       = new ORM(
             new Factory($this->databaseManager, factory: $container),
             $this->schema,
         );

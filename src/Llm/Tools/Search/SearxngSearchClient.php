@@ -19,7 +19,12 @@ final class SearxngSearchClient
     }
 
     /**
-     * @param InternetSearch $search
+     * @param string  $query
+     * @param int     $limit
+     * @param ?string $timeRange
+     * @param string  $language
+     * @param string  $categories
+     * @param int     $safeSearch
      *
      * @return array{
      *     answers: list<string>,
@@ -28,16 +33,28 @@ final class SearxngSearchClient
      *     results: list<array{title: string, url: string, content: string, engine: string, publishedDate: string}>
      * }
      */
-    public function search(InternetSearch $search): array
-    {
-        $query = trim($search->query);
+    public function search(
+        string $query,
+        int $limit = 5,
+        ?string $timeRange = null,
+        string $language = 'auto',
+        string $categories = 'general',
+        int $safeSearch = 1,
+    ): array {
+        $query = trim($query);
         if ($query === '') {
             throw new InvalidArgumentException('Search query cannot be empty.');
         }
 
         $payload = $this->httpClient->getJson(
             url: $this->endpoint(),
-            query: $this->requestQuery($search, $query),
+            query: $this->requestQuery(
+                query: $query,
+                timeRange: $timeRange,
+                language: $language,
+                categories: $categories,
+                safeSearch: $safeSearch,
+            ),
             timeoutSeconds: max(1, min($this->timeoutSeconds, 30)),
         );
 
@@ -45,7 +62,7 @@ final class SearxngSearchClient
             'answers'     => self::stringList($payload['answers'] ?? []),
             'corrections' => self::stringList($payload['corrections'] ?? []),
             'suggestions' => self::stringList($payload['suggestions'] ?? []),
-            'results'     => $this->results($payload['results'] ?? [], max(1, min($search->limit, 10))),
+            'results'     => $this->results($payload['results'] ?? [], max(1, min($limit, 10))),
         ];
     }
 
@@ -93,30 +110,38 @@ final class SearxngSearchClient
     }
 
     /**
-     * @param InternetSearch $search
-     * @param string         $query
+     * @param string  $query
+     * @param ?string $timeRange
+     * @param string  $language
+     * @param string  $categories
+     * @param int     $safeSearch
      *
      * @return array<string, scalar|null>
      */
-    private function requestQuery(InternetSearch $search, string $query): array
-    {
+    private function requestQuery(
+        string $query,
+        ?string $timeRange,
+        string $language,
+        string $categories,
+        int $safeSearch,
+    ): array {
         $request = [
             'q'          => $query,
             'format'     => 'json',
-            'safesearch' => max(0, min($search->safeSearch, 2)),
+            'safesearch' => max(0, min($safeSearch, 2)),
         ];
 
-        $categories = trim($search->categories);
+        $categories = trim($categories);
         if ($categories !== '') {
             $request['categories'] = $categories;
         }
 
-        $language = trim($search->language);
+        $language = trim($language);
         if ($language !== '' && strtolower($language) !== 'auto') {
             $request['language'] = $language;
         }
 
-        $timeRange = $this->timeRange($search->timeRange);
+        $timeRange = $this->timeRange($timeRange);
         if ($timeRange !== null) {
             $request['time_range'] = $timeRange;
         }

@@ -13,26 +13,25 @@ class MessageQueue
         $this->queue[] = $item;
     }
 
+    /**
+     * @param list<mixed> $items
+     */
+    public function prepend(array $items): void
+    {
+        $this->queue = [...$items, ...$this->queue];
+    }
+
     public function has(): bool
     {
         return count($this->queue) > 0;
     }
 
-    public function shift(): mixed
-    {
-        return array_shift($this->queue);
-    }
-
     public function flush(): array
     {
-        $items = $this->queue;
+        $items       = $this->queue;
         $this->queue = [];
-        return $items;
-    }
 
-    public function count(): int
-    {
-        return count($this->queue);
+        return $items;
     }
 
     public function all(): array

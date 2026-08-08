@@ -4,26 +4,25 @@ declare(strict_types=1);
 
 namespace Bot\Llm\Tools\Chat;
 
-use Temporal\Activity\ActivityInterface;
-use Temporal\Activity\ActivityMethod;
+use DateTimeImmutable;
+use DateTimeZone;
+use Exception;
 
-#[ActivityInterface(prefix: 'GetCurrentTimeExecutor.')]
-class GetCurrentTimeExecutor
+final class GetCurrentTimeExecutor
 {
-    #[ActivityMethod]
-    public function execute(int $chatId, GetCurrentTime $schema): string
+    public function execute(string $timezoneName = 'UTC'): string
     {
         try {
-            $timezone = new \DateTimeZone($schema->timezone);
-        } catch (\Exception) {
-            return "Unknown timezone: {$schema->timezone}. Use IANA timezone names like 'Europe/Moscow' or 'America/New_York'.";
+            $timezone = new DateTimeZone($timezoneName);
+        } catch (Exception) {
+            return "Unknown timezone: {$timezoneName}. Use IANA timezone names like 'Europe/Moscow' or 'America/New_York'.";
         }
 
-        $now = new \DateTimeImmutable('now', $timezone);
+        $now = new DateTimeImmutable('now', $timezone);
 
         return sprintf(
             'Current time in %s: %s (%s)',
-            $schema->timezone,
+            $timezoneName,
             $now->format('Y-m-d H:i:s'),
             $now->format('l'),
         );

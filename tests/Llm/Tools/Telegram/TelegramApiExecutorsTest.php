@@ -4,11 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Llm\Tools\Telegram;
 
-use Bot\Llm\Tools\Telegram\TelegramApiCall;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
-use Bot\Llm\Tools\Telegram\TelegramApiSchema;
 use Bot\Llm\Tools\Telegram\TelegramApiSchemaExecutor;
-use Bot\Telegram\InvoiceWorkflowPayload;
 use Phenogram\Bindings\ClientInterface;
 use Phenogram\Bindings\Types\Response;
 use Phenogram\Bindings\Types\Interfaces\ResponseInterface;
@@ -19,7 +16,7 @@ class TelegramApiExecutorsTest extends TestCase
     public function testSchemaExecutorDescribesExactMethod(): void
     {
         $executor = new TelegramApiSchemaExecutor();
-        $result = $executor->execute(-100123, new TelegramApiSchema(method: 'sendMessage'));
+        $result = $executor->execute(methodName: 'sendMessage');
 
         self::assertStringContainsString('sendMessage(', $result);
         self::assertStringContainsString('chatId', $result);
@@ -29,9 +26,31 @@ class TelegramApiExecutorsTest extends TestCase
     public function testSchemaExecutorSearchesMethods(): void
     {
         $executor = new TelegramApiSchemaExecutor();
-        $result = $executor->execute(-100123, new TelegramApiSchema(query: 'poll', limit: 10));
+        $result = $executor->execute(query: 'poll', limit: 10);
 
         self::assertStringContainsString('sendPoll', $result);
+    }
+
+    public function testSchemaExecutorDoesNotExposeGlobalOrPrivilegedMethods(): void
+    {
+        $executor = new TelegramApiSchemaExecutor();
+
+        self::assertStringContainsString(
+            'Unknown Telegram Bot API method',
+            $executor->execute(methodName: 'setWebhook'),
+        );
+        self::assertStringNotContainsString(
+            'banChatMember',
+            $executor->execute(query: 'ban', limit: 10),
+        );
+        self::assertStringContainsString(
+            'Unknown Telegram Bot API method',
+            $executor->execute(methodName: 'sendInvoice'),
+        );
+        self::assertStringContainsString(
+            'Unknown Telegram Bot API method',
+            $executor->execute(methodName: 'editMessageText'),
+        );
     }
 
     public function testCallExecutorInjectsCurrentChatAndSendsRawRequest(): void
@@ -44,7 +63,8 @@ class TelegramApiExecutorsTest extends TestCase
 
         $result = $executor->execute(
             -100123,
-            new TelegramApiCall(method: 'sendMessage', parameters: ['text' => 'Hello']),
+            methodName: 'sendMessage',
+            parameters: ['text' => 'Hello'],
         );
 
         self::assertSame('sendMessage', $client->method);
@@ -66,13 +86,11 @@ class TelegramApiExecutorsTest extends TestCase
 
         $result = $executor->execute(
             -100123,
-            new TelegramApiCall(
-                method: 'sendMessage',
-                parameters: [
-                    'text' => 'Synthetic reply',
-                    'reply_to_message_id' => 123,
-                ],
-            ),
+            methodName: 'sendMessage',
+            parameters: [
+                'text' => 'Synthetic reply',
+                'reply_to_message_id' => 123,
+            ],
         );
 
         self::assertNull($client->method);
@@ -94,13 +112,11 @@ class TelegramApiExecutorsTest extends TestCase
 
         $executor->execute(
             -100123,
-            new TelegramApiCall(
-                method: 'send_message',
-                parameters: [
-                    'text' => 'Quiet hello',
-                    'disable_notification' => true,
-                ],
-            ),
+            methodName: 'send_message',
+            parameters: [
+                'text' => 'Quiet hello',
+                'disable_notification' => true,
+            ],
         );
 
         self::assertSame('sendMessage', $client->method);
@@ -111,62 +127,155 @@ class TelegramApiExecutorsTest extends TestCase
         ], $client->data);
     }
 
-    public function testCallExecutorRoutesSendInvoicePayloadToCurrentWorkflow(): void
+    public function testCallExecutorCannotEscapeTheCurrentChat(): void
     {
         $client = new RecordingTelegramClient(new Response(
             ok: true,
-            result: ['message_id' => 400],
+            result: ['message_id' => 322],
         ));
         $executor = new TelegramApiCallExecutor($client);
 
         $executor->execute(
             -100123,
-            new TelegramApiCall(
-                method: 'sendInvoice',
-                parameters: [
-                    'title' => 'Demo',
-                    'description' => 'On the fly invoice',
-                    'payload' => 'order-42',
-                    'currency' => 'XTR',
-                    'prices' => [['label' => 'Demo', 'amount' => 1]],
-                ],
-            ),
+            methodName: 'sendMessage',
+            parameters: [
+                'chat_id' => 999999,
+                'text' => 'Keep this scoped',
+            ],
         );
 
-        self::assertSame('sendInvoice', $client->method);
-        self::assertIsString($client->data['payload']);
-
-        $route = InvoiceWorkflowPayload::decode($client->data['payload']);
-
-        self::assertNotNull($route);
-        self::assertSame(-100123, $route->chatId);
-        self::assertSame('order-42', $route->originalPayload);
-        self::assertLessThanOrEqual(128, strlen($client->data['payload']));
+        self::assertSame('sendMessage', $client->method);
+        self::assertSame(-100123, $client->data['chat_id']);
     }
 
-    public function testCallExecutorCanCreateInvoiceWithoutCallerProvidedPayload(): void
+    public function testCallExecutorBindsActionsToTheTrustedTopic(): void
     {
         $client = new RecordingTelegramClient(new Response(
             ok: true,
-            result: ['message_id' => 401],
+            result: ['message_id' => 322],
         ));
         $executor = new TelegramApiCallExecutor($client);
 
         $executor->execute(
             -100123,
-            new TelegramApiCall(
-                method: 'sendInvoice',
-                parameters: [
-                    'title' => 'Demo',
-                    'description' => 'On the fly invoice',
-                    'currency' => 'XTR',
-                    'prices' => [['label' => 'Demo', 'amount' => 1]],
-                ],
-            ),
+            methodName: 'sendMessage',
+            parameters: [
+                'text' => 'Topic-safe reply',
+                'message_thread_id' => 999,
+            ],
+            messageThreadId: 42,
         );
 
-        self::assertSame('sendInvoice', $client->method);
-        self::assertNotNull(InvoiceWorkflowPayload::decode($client->data['payload']));
+        self::assertSame('sendMessage', $client->method);
+        self::assertSame(42, $client->data['message_thread_id']);
+    }
+
+    public function testCallbackAnswerIsNotExposedToTheModel(): void
+    {
+        $client = new RecordingTelegramClient(new Response(ok: true, result: true));
+        $executor = new TelegramApiCallExecutor($client);
+
+        $result = $executor->execute(
+            -100123,
+            methodName: 'answerCallbackQuery',
+            parameters: ['callback_query_id' => 'model-controlled'],
+        );
+
+        self::assertNull($client->method);
+        self::assertStringContainsString('Unknown Telegram Bot API method', $result);
+    }
+
+    public function testCallExecutorRejectsNestedAndPaidRoutingOptions(): void
+    {
+        $client = new RecordingTelegramClient(new Response(ok: true, result: true));
+        $executor = new TelegramApiCallExecutor($client);
+
+        $replyResult = $executor->execute(
+            -100123,
+            methodName: 'sendMessage',
+            parameters: [
+                'text' => 'No escape',
+                'reply_parameters' => [
+                    'chat_id' => 999999,
+                    'message_id' => 1,
+                ],
+            ],
+        );
+        $paidResult = $executor->execute(
+            -100123,
+            methodName: 'sendMessage',
+            parameters: [
+                'text' => 'No paid broadcast',
+                'allow_paid_broadcast' => true,
+            ],
+        );
+
+        self::assertNull($client->method);
+        self::assertStringContainsString('bound to the current chat and topic', $replyResult);
+        self::assertStringContainsString('bound to the current chat and topic', $paidResult);
+    }
+
+    public function testCallExecutorRejectsOversizedMessageBeforeNetworkCall(): void
+    {
+        $client = new RecordingTelegramClient(new Response(ok: true, result: true));
+        $executor = new TelegramApiCallExecutor($client);
+
+        $result = $executor->execute(
+            -100123,
+            methodName: 'sendMessage',
+            parameters: ['text' => str_repeat('x', 4097)],
+        );
+
+        self::assertNull($client->method);
+        self::assertStringContainsString('4096 character limit', $result);
+    }
+
+    public function testCrossTopicMessageMutationIsNotExposed(): void
+    {
+        $client = new RecordingTelegramClient(new Response(ok: true, result: true));
+        $executor = new TelegramApiCallExecutor($client);
+
+        $result = $executor->execute(
+            -100123,
+            methodName: 'forwardMessage',
+            parameters: [
+                'from_chat_id' => 999999,
+                'message_id' => 42,
+            ],
+        );
+
+        self::assertNull($client->method);
+        self::assertStringContainsString('Unknown Telegram Bot API method', $result);
+    }
+
+    public function testGlobalBotAdministrationMethodIsRejected(): void
+    {
+        $client = new RecordingTelegramClient(new Response(ok: true, result: true));
+        $executor = new TelegramApiCallExecutor($client);
+
+        $result = $executor->execute(
+            -100123,
+            methodName: 'setWebhook',
+            parameters: ['url' => 'https://example.test/hijack'],
+        );
+
+        self::assertNull($client->method);
+        self::assertStringContainsString('Unknown Telegram Bot API method', $result);
+    }
+
+    public function testCallExecutorCannotCreateInvoices(): void
+    {
+        $client = new RecordingTelegramClient(new Response(ok: true, result: true));
+        $executor = new TelegramApiCallExecutor($client);
+
+        $result = $executor->execute(
+            -100123,
+            methodName: 'sendInvoice',
+            parameters: [],
+        );
+
+        self::assertNull($client->method);
+        self::assertStringContainsString('Unknown Telegram Bot API method', $result);
     }
 
     public function testCallExecutorRejectsUnknownParameterBeforeNetworkCall(): void
@@ -176,13 +285,11 @@ class TelegramApiExecutorsTest extends TestCase
 
         $result = $executor->execute(
             -100123,
-            new TelegramApiCall(
-                method: 'sendMessage',
-                parameters: [
-                    'text' => 'Hello',
-                    'wat' => true,
-                ],
-            ),
+            methodName: 'sendMessage',
+            parameters: [
+                'text' => 'Hello',
+                'wat' => true,
+            ],
         );
 
         self::assertNull($client->method);
@@ -196,7 +303,8 @@ class TelegramApiExecutorsTest extends TestCase
 
         $result = $executor->execute(
             -100123,
-            new TelegramApiCall(method: 'sendPhoto', parameters: []),
+            methodName: 'sendPhoto',
+            parameters: [],
         );
 
         self::assertNull($client->method);
@@ -206,9 +314,14 @@ class TelegramApiExecutorsTest extends TestCase
     public function testTerminalMethodDetection(): void
     {
         self::assertTrue(TelegramApiCallExecutor::isTerminalMethod('sendMessage'));
-        self::assertTrue(TelegramApiCallExecutor::isTerminalMethod('deleteMessage'));
+        self::assertFalse(TelegramApiCallExecutor::isTerminalMethod('editMessageText'));
         self::assertFalse(TelegramApiCallExecutor::isTerminalMethod('getChat'));
         self::assertFalse(TelegramApiCallExecutor::isTerminalMethod('sendChatAction'));
+        self::assertFalse(TelegramApiCallExecutor::isTerminalMethod('createInvoiceLink'));
+        self::assertFalse(TelegramApiCallExecutor::isTerminalMethod('deleteMessage'));
+        self::assertTrue(TelegramApiCallExecutor::isReadOnlyMethod('getChat'));
+        self::assertTrue(TelegramApiCallExecutor::isReadOnlyMethod('get_me'));
+        self::assertFalse(TelegramApiCallExecutor::isReadOnlyMethod('sendChatAction'));
     }
 }
 
