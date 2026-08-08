@@ -23,9 +23,9 @@ use Bot\Llm\Tools\Search\InternetSearchExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiSchemaExecutor;
 use Bot\Memory\ParticipantMemoryStore;
+use Bot\Telegram\TelegramBindingsSerializer;
 use Bot\Telegram\TelegramChatAuthorizationPolicy;
 use Phenogram\Bindings\Api;
-use Phenogram\Bindings\Serializer;
 use Phenogram\Framework\TelegramBotApiClient;
 use PiPHP\AI\Models;
 use PiPHP\AI\Provider\OpenAICompatiblePreset;
@@ -36,18 +36,18 @@ use PiPHP\Temporal\Gateway\ModelsModelResolver;
 use PiPHP\Temporal\Gateway\ToolRegistryGateway;
 use PiPHP\Temporal\Workflow\DurableAgentWorkflow;
 
-/** @var TemporalConfig $config */
-$config = require __DIR__ . '/temporal.php';
+/** @var TemporalConfig $temporalConfig */
+$temporalConfig = require __DIR__ . '/temporal.php';
 
-$telegramClient = new TelegramBotApiClient($config->botToken);
-$telegramSerializer = new Serializer();
+$telegramClient = new TelegramBotApiClient($temporalConfig->botToken);
+$telegramSerializer = new TelegramBindingsSerializer();
 $telegramApi = new Api(
     client: $telegramClient,
     serializer: $telegramSerializer,
 );
 $telegramAuthorization = new TelegramChatAuthorizationPolicy($telegramApi);
 
-$ormData = require __DIR__ . '/orm.php';
+$ormData = (static fn (): array => require __DIR__ . '/orm.php')();
 /** @var CycleOrmScope $ormScope */
 $ormScope = $ormData[2];
 
@@ -61,7 +61,7 @@ $modelGateway = new ModelsGateway(
 );
 
 $toolCatalog = static function () use (
-    $config,
+    $temporalConfig,
     $modelGateway,
     $ormScope,
     $telegramClient,
@@ -73,8 +73,8 @@ $toolCatalog = static function () use (
         memoryStore: new ParticipantMemoryStore($orm),
         searchMessages: new SearchMessagesExecutor($orm),
         internetSearch: new InternetSearchExecutor(
-            baseUrl: $config->searchBaseUrl,
-            timeoutSeconds: $config->searchTimeoutSeconds,
+            baseUrl: $temporalConfig->searchBaseUrl,
+            timeoutSeconds: $temporalConfig->searchTimeoutSeconds,
         ),
         currentTime: new GetCurrentTimeExecutor(),
         telegramSchema: new TelegramApiSchemaExecutor(),

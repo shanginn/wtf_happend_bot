@@ -1649,12 +1649,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/shanginn/pihp-ai.git",
-                "reference": "66f2f45ffee1b81fe0bed64b4e59d43eca7c0def"
+                "reference": "32af1a37a2f7ea82451c1b9da89b7656e1a0f52e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/shanginn/pihp-ai/zipball/66f2f45ffee1b81fe0bed64b4e59d43eca7c0def",
-                "reference": "66f2f45ffee1b81fe0bed64b4e59d43eca7c0def",
+                "url": "https://api.github.com/repos/shanginn/pihp-ai/zipball/32af1a37a2f7ea82451c1b9da89b7656e1a0f52e",
+                "reference": "32af1a37a2f7ea82451c1b9da89b7656e1a0f52e",
                 "shasum": ""
             },
             "require": {
@@ -1719,7 +1719,7 @@
                 "issues": "https://github.com/shanginn/piphp-ai/issues",
                 "source": "https://github.com/shanginn/piphp-ai"
             },
-            "time": "2026-08-05T09:36:34+00:00"
+            "time": "2026-08-08T08:29:59+00:00"
         },
         {
             "name": "piphp/piphp",
@@ -1727,12 +1727,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/shanginn/pihp.git",
-                "reference": "0d7637db82ef1c71f054a68a97315d0dfa727d7b"
+                "reference": "6ab2e8e1aeada4c418a73538ae9c39691398ec7e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/shanginn/pihp/zipball/0d7637db82ef1c71f054a68a97315d0dfa727d7b",
-                "reference": "0d7637db82ef1c71f054a68a97315d0dfa727d7b",
+                "url": "https://api.github.com/repos/shanginn/pihp/zipball/6ab2e8e1aeada4c418a73538ae9c39691398ec7e",
+                "reference": "6ab2e8e1aeada4c418a73538ae9c39691398ec7e",
                 "shasum": ""
             },
             "require": {
@@ -1798,7 +1798,7 @@
                 "issues": "https://github.com/shanginn/pihp/issues",
                 "source": "https://github.com/shanginn/pihp"
             },
-            "time": "2026-08-05T13:12:29+00:00"
+            "time": "2026-08-08T08:29:57+00:00"
         },
         {
             "name": "psr-discovery/discovery",

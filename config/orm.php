@@ -75,14 +75,18 @@ $dbal = new Database\DatabaseManager(
     ])
 );
 
-$config = new Migrations\Config\MigrationConfig([
+$migrationConfig = new Migrations\Config\MigrationConfig([
     'directory' => __DIR__ . '/../migrations/', // where to store migrations
     'table'     => 'migrations',                // database table to store migration status
     'safe'      => true                         // When set to true no confirmation will be requested on migration run.
 ]);
 
 $skipMigrations = getenv('SKIP_MIGRATIONS') === 'true';
-$migrator = new Migrations\Migrator($config, $dbal, new Migrations\FileRepository($config));
+$migrator = new Migrations\Migrator(
+    $migrationConfig,
+    $dbal,
+    new Migrations\FileRepository($migrationConfig),
+);
 
 $migrate = function () use ($migrator) {
     while(($migrated = $migrator->run()) !== null) {
