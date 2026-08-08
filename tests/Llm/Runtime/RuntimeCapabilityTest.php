@@ -19,7 +19,9 @@ use Cycle\Database\DatabaseInterface;
 use Cycle\ORM\ORMInterface;
 use Cycle\ORM\RepositoryInterface;
 use Mockery;
+use PiPHP\AI\Codec\JsonObjectNormalizer;
 use PiPHP\Temporal\Contract\ModelCompletionGatewayInterface;
+use stdClass;
 use Tests\TestCase;
 use UnexpectedValueException;
 
@@ -116,6 +118,48 @@ final class RuntimeCapabilityTest extends TestCase
         $schema = json_decode($state->tools[0]->parametersSchema, true, flags: \JSON_THROW_ON_ERROR);
         self::assertSame('object', $schema['type']);
         self::assertFalse($schema['additionalProperties']);
+    }
+
+    public function testEmptyRuntimeToolSchemaCannotPoisonModelToolRegistration(): void
+    {
+        $state = (object) ['skills' => [], 'tools' => []];
+        $repo  = $this->makeRuntimeToolRepo($state);
+
+        $orm = Mockery::mock(ORMInterface::class);
+        $orm->shouldReceive('getRepository')->with(RuntimeTool::class)->andReturn($repo);
+        $orm
+            ->shouldReceive('getRepository')
+            ->with(RuntimeSkill::class)
+            ->andReturn($this->makeRuntimeSkillRepo($state));
+
+        $result = (new UpsertRuntimeToolExecutor($orm))->execute(
+            -1001593195299,
+            name: 'iddqd_dildak',
+            description: 'Regression fixture for an empty parameter schema.',
+            parametersSchema: [],
+            instructions: 'Return a short response.',
+        );
+
+        self::assertSame('Runtime tool "iddqd_dildak" created and is enabled.', $result);
+        self::assertCount(1, $state->tools);
+
+        $storedSchema = RuntimeCapabilityValidator::decodeParametersSchema(
+            $state->tools[0]->parametersSchema,
+        );
+        $wireSchema = JsonObjectNormalizer::schema($storedSchema);
+        $wire = json_decode(json_encode([
+            'type'     => 'function',
+            'function' => [
+                'name'       => 'iddqd_dildak',
+                'parameters' => $wireSchema,
+            ],
+        ], \JSON_THROW_ON_ERROR), false, flags: \JSON_THROW_ON_ERROR);
+
+        self::assertInstanceOf(stdClass::class, $wire);
+        self::assertInstanceOf(stdClass::class, $wire->function ?? null);
+        self::assertInstanceOf(stdClass::class, $wire->function->parameters ?? null);
+        self::assertInstanceOf(stdClass::class, $wire->function->parameters->properties ?? null);
+        self::assertSame('object', $wire->function->parameters->type ?? null);
     }
 
     public function testRuntimeRegistryReturnsValidatedSkillDefinitions(): void
@@ -267,6 +311,37 @@ final class RuntimeCapabilityTest extends TestCase
 
         self::assertSame(
             'Runtime tool "broken_tool" is unavailable: stored schema is invalid.',
+            $result,
+        );
+    }
+
+    public function testLegacyArrayRuntimeSchemaReturnsInBandErrorWithoutModelCall(): void
+    {
+        $tool = new RuntimeTool(
+            chatId: -1001593195299,
+            name: 'iddqd_dildak',
+            description: 'Historical malformed schema fixture.',
+            parametersSchema: '[]',
+            instructions: 'Do not execute.',
+        );
+        $state = (object) ['skills' => [], 'tools' => [$tool]];
+        $orm   = Mockery::mock(ORMInterface::class);
+        $orm
+            ->shouldReceive('getRepository')
+            ->with(RuntimeTool::class)
+            ->andReturn($this->makeRuntimeToolRepo($state));
+        $models = Mockery::mock(ModelCompletionGatewayInterface::class);
+        $models->shouldNotReceive('complete');
+
+        $result = (new RuntimeToolExecutor($orm, $models))->execute(
+            chatId: -1001593195299,
+            toolName: 'iddqd_dildak',
+            arguments: [],
+            idempotencyKey: 'incident-2026-08-07',
+        );
+
+        self::assertSame(
+            'Runtime tool "iddqd_dildak" is unavailable: stored schema is invalid.',
             $result,
         );
     }
