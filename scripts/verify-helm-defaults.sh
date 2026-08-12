@@ -21,6 +21,10 @@ if grep -Fq 'dockerconfigjson-github-com' "$rendered" || grep -Fq 'helm.sh/hook'
     echo 'Default chart contains obsolete registry credentials or hooks.' >&2; exit 1
 fi
 [[ "$(grep -Ec '^kind: ServiceAccount$' "$rendered")" == 1 ]]
+[[ "$(grep -Ec '^kind: RoleBinding$' "$rendered")" == 2 ]]
+grep -Fq 'name: wtf-happend-bot-token' "$rendered"
+grep -Fq 'name: wtf-happend-bot-admin' "$rendered"
+grep -Fq 'name: wtf-happend-bot-monitoring-access' "$rendered"
 [[ "$(grep -Ec '^kind: Deployment$' "$rendered")" == 2 ]]
 grep -Fq 'name: wtf-happend-bot' "$rendered"
 grep -Fq 'type: Recreate' "$rendered"
@@ -53,10 +57,9 @@ grep -Fq 'resources: ["pods/log"]' <<< "$release_render"
 grep -Fq 'resources: ["cronjobs", "jobs"]' <<< "$release_render"
 grep -Fq 'resources: ["configmaps", "secrets", "serviceaccounts", "services"]' <<< "$release_render"
 grep -Fq 'helm.sh/resource-policy: keep' <<< "$release_render"
-grep -Fq 'kind: ClusterRole' <<< "$release_render"
-grep -Fq 'kind: ClusterRoleBinding' <<< "$release_render"
-grep -Fq 'resourceNames: ["admin", "prometheus-kube-prometheus-operator"]' <<< "$release_render"
-grep -Fq 'verbs: ["bind"]' <<< "$release_render"
+if grep -Eq '^kind: ClusterRole(Binding)?$' <<< "$release_render"; then
+    echo 'The namespaced release controller must not require cluster-scoped RBAC.' >&2; exit 1
+fi
 grep -Fq 'name: wtf-happend-bot-release-reconciler-abcdef123456' <<< "$release_render"
 grep -Fq 'alpine/helm@sha256:d899e6316789fec04ee95300a18e454b7942539cbb3d89bde3e0655d6ca2e895' <<< "$release_render"
 grep -Fq 'name: RELEASE_PREVIOUS_HELM_REVISION' <<< "$release_render"

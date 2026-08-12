@@ -188,10 +188,11 @@ transient Kubernetes, PostgreSQL, Telegram, and Temporal failures without an
 administrator.
 
 The first legacy adoption uses Helm ownership transfer for the old hook-created
-ServiceAccount. Application Pods never mount its Kubernetes token. Recovery is
-allowed to recreate only the two exact legacy RoleBindings required by the
-previous revision; controller RBAC and its Helm 3.17.3 image are immutable and
-kept across rollback.
+ServiceAccount. The existing deploy-token Secret and its two legacy
+RoleBindings are kept so rollback and later releases remain autonomous, but
+application Pods never mount that token. The release controller itself remains
+namespace-scoped; its Helm 3.17.3 image and RBAC are immutable and kept across
+rollback.
 
 `Recreate` deliberately prevents old and new Telegram pollers from overlapping.
 It does imply a bounded no-poller interval while the old pod stops, the final
