@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace Tests\Bot;
 
-use Bot\AgenticWorkflow\AgenticWorkflow;
 use Bot\Durability\DurableCommandReplyGateway;
 use Bot\Durability\IdempotencyClaim;
 use Bot\Durability\IdempotencyLedgerInterface;
 use Bot\Handler\ClearCommandHandler;
 use Bot\Handler\WorkflowControlCommandHandler;
+use Bot\Space\Runtime\SpaceIdentity;
+use Bot\Space\Runtime\SpaceIdentityResolverInterface;
+use Bot\Space\Workflow\SpaceAgentWorkflow;
 use Bot\Telegram\TelegramChatAuthorizationPolicy;
+use Bot\Telegram\TelegramTopicRouting;
+use Bot\Telegram\Update;
 use Mockery;
 use Phenogram\Bindings\Api;
 use Phenogram\Bindings\Factories\ChatFactory;
@@ -35,6 +39,7 @@ class WorkflowControlCommandTest extends TestCase
     private const int CHAT_ID         = -100123456;
     private const int ADMIN_ID        = 7001;
     private const int PRIVATE_CHAT_ID = 7002;
+    private const string SPACE_ID     = 'spc_0123456789abcdef0123456789abcdef01234567';
 
     protected function tearDown(): void
     {
@@ -50,12 +55,12 @@ class WorkflowControlCommandTest extends TestCase
     {
         yield 'pause' => [
             '/pause',
-            AgenticWorkflow::PAUSE_SIGNAL_NAME,
+            SpaceAgentWorkflow::PAUSE_SIGNAL_NAME,
             'Workflow темы приостановлен. Новые сообщения сохраняются в историю, но не обрабатываются задним числом.',
         ];
         yield 'resume with bot username' => [
             '/resume@wtf_happend_bot',
-            AgenticWorkflow::RESUME_SIGNAL_NAME,
+            SpaceAgentWorkflow::RESUME_SIGNAL_NAME,
             'Workflow темы продолжил работу. Новые сообщения снова обрабатываются.',
         ];
     }
@@ -89,7 +94,11 @@ class WorkflowControlCommandTest extends TestCase
         $client
             ->shouldReceive('newUntypedRunningWorkflowStub')
             ->once()
-            ->with('Chat -100123456 [Topic 42]', null, AgenticWorkflow::WORKFLOW_TYPE)
+            ->with(
+                'space-agent/' . self::SPACE_ID . '/v1/release/local',
+                null,
+                SpaceAgentWorkflow::WORKFLOW_TYPE,
+            )
             ->andReturn($workflow);
 
         $api = Mockery::mock(Api::class);
@@ -110,6 +119,7 @@ class WorkflowControlCommandTest extends TestCase
 
         $handler = new WorkflowControlCommandHandler(
             $client,
+            self::spaceResolver($update),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
         );
@@ -164,7 +174,7 @@ class WorkflowControlCommandTest extends TestCase
         $workflow
             ->shouldReceive('signal')
             ->once()
-            ->with(AgenticWorkflow::PAUSE_SIGNAL_NAME);
+            ->with(SpaceAgentWorkflow::PAUSE_SIGNAL_NAME);
 
         $client = Mockery::mock(WorkflowClientInterface::class);
         $client
@@ -196,6 +206,7 @@ class WorkflowControlCommandTest extends TestCase
 
         $handler = new WorkflowControlCommandHandler(
             $client,
+            self::spaceResolver($update),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
         );
@@ -263,6 +274,7 @@ class WorkflowControlCommandTest extends TestCase
 
         $handler = new ClearCommandHandler(
             $client,
+            self::spaceResolver($update),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
         );
@@ -287,7 +299,7 @@ class WorkflowControlCommandTest extends TestCase
         try {
             $gateway->execute(
                 updateId: 1010,
-                action: AgenticWorkflow::PAUSE_SIGNAL_NAME,
+                action: SpaceAgentWorkflow::PAUSE_SIGNAL_NAME,
                 chatId: self::CHAT_ID,
                 messageThreadId: 42,
                 messageId: 2010,
@@ -307,7 +319,7 @@ class WorkflowControlCommandTest extends TestCase
 
         $gateway->execute(
             updateId: 1010,
-            action: AgenticWorkflow::PAUSE_SIGNAL_NAME,
+            action: SpaceAgentWorkflow::PAUSE_SIGNAL_NAME,
             chatId: self::CHAT_ID,
             messageThreadId: 42,
             messageId: 2010,
@@ -337,7 +349,7 @@ class WorkflowControlCommandTest extends TestCase
         ] as $routing) {
             $gateway->execute(
                 updateId: 1011,
-                action: AgenticWorkflow::PAUSE_SIGNAL_NAME,
+                action: SpaceAgentWorkflow::PAUSE_SIGNAL_NAME,
                 chatId: $routing['chatId'],
                 messageThreadId: $routing['messageThreadId'],
                 messageId: $routing['messageId'],
@@ -386,7 +398,11 @@ class WorkflowControlCommandTest extends TestCase
         $client
             ->shouldReceive('newUntypedRunningWorkflowStub')
             ->once()
-            ->with('Chat -100123456 [Topic 42]')
+            ->with(
+                'space-agent/' . self::SPACE_ID . '/v1/release/local',
+                null,
+                SpaceAgentWorkflow::WORKFLOW_TYPE,
+            )
             ->andReturn($workflow);
 
         $api = Mockery::mock(Api::class);
@@ -414,6 +430,7 @@ class WorkflowControlCommandTest extends TestCase
 
         (new ClearCommandHandler(
             $client,
+            self::spaceResolver($update),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
         ))->handle(
@@ -443,11 +460,11 @@ class WorkflowControlCommandTest extends TestCase
         $workflow
             ->shouldReceive('signal')
             ->once()
-            ->with(AgenticWorkflow::PAUSE_SIGNAL_NAME)
+            ->with(SpaceAgentWorkflow::PAUSE_SIGNAL_NAME)
             ->andThrow(new WorkflowNotFoundException(
                 null,
-                new WorkflowExecution('Chat 7002 [Root]'),
-                AgenticWorkflow::WORKFLOW_TYPE,
+                new WorkflowExecution('space-agent/' . self::SPACE_ID . '/v1/release/local'),
+                SpaceAgentWorkflow::WORKFLOW_TYPE,
             ));
 
         $client = Mockery::mock(WorkflowClientInterface::class);
@@ -467,6 +484,7 @@ class WorkflowControlCommandTest extends TestCase
 
         (new WorkflowControlCommandHandler(
             $client,
+            self::spaceResolver($update),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
         ))->handle(
@@ -518,6 +536,7 @@ class WorkflowControlCommandTest extends TestCase
 
         (new WorkflowControlCommandHandler(
             $client,
+            self::spaceResolver($update, expected: false),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
         ))->handle(
@@ -566,12 +585,46 @@ class WorkflowControlCommandTest extends TestCase
 
         (new ClearCommandHandler(
             $client,
+            self::spaceResolver($update, expected: false),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
         ))->handle(
             $update,
             new TelegramBot('token', $api),
         );
+    }
+
+    private static function spaceResolver(
+        Update $update,
+        bool $expected = true,
+    ): SpaceIdentityResolverInterface {
+        $resolver = Mockery::mock(SpaceIdentityResolverInterface::class);
+
+        if (!$expected) {
+            $resolver->shouldNotReceive('resolve');
+
+            return $resolver;
+        }
+
+        $chat = $update->effectiveChat;
+        self::assertNotNull($chat);
+        $topicId = TelegramTopicRouting::topicId($update->effectiveMessage);
+        $resolver
+            ->shouldReceive('resolve')
+            ->once()
+            ->with($update)
+            ->andReturn(new SpaceIdentity(
+                spaceId: self::SPACE_ID,
+                platform: 'telegram',
+                botInstanceId: 'default',
+                externalConversationId: (string) $chat->id,
+                externalThreadId: $topicId === null ? null : (string) $topicId,
+                chatId: $chat->id,
+                chatType: $chat->type,
+                topicId: $topicId,
+            ));
+
+        return $resolver;
     }
 
     private static function durableReplies(

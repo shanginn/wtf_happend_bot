@@ -15,6 +15,10 @@ use Bot\Llm\Tools\Search\InternetSearchExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiSchemaExecutor;
 use Bot\Memory\ParticipantMemoryStore;
+use Bot\Space\Tools\SpaceCapsuleExecutor;
+use Bot\Space\Tools\SpaceMemoryMutationAuthority;
+use Bot\Space\Tools\SpaceMemoryToolStore;
+use Bot\Telegram\TelegramChatAuthorizationPolicy;
 use Closure;
 use PiPHP\Agent\CancellationToken;
 use PiPHP\Agent\Enum\ToolExecutionMode;
@@ -41,6 +45,9 @@ final readonly class BotToolCatalog
         private UpsertRuntimeToolExecutor $upsertRuntimeTool,
         private SetRuntimeCapabilityStatusExecutor $setRuntimeCapabilityStatus,
         private RuntimeToolExecutor $runtimeTool,
+        private ?SpaceMemoryToolStore $spaceMemoryStore = null,
+        private ?SpaceCapsuleExecutor $spaceCapsules = null,
+        private ?TelegramChatAuthorizationPolicy $spaceMemoryAuthorization = null,
     ) {}
 
     /**
@@ -73,8 +80,11 @@ final readonly class BotToolCatalog
                         'Immutable participant reference from message metadata, such as telegram_user:123.',
                         maximum: 80,
                     ),
-                    'memory'  => self::string('Durable fact in one sentence.', maximum: 1000),
-                    'quote'   => self::string('Short exact supporting quote.', maximum: 1000),
+                    'memory' => self::string('Durable fact in one sentence.', maximum: 1000),
+                    'quote'  => self::string(
+                        'Exact supporting quote from the target participant in the current Telegram batch.',
+                        maximum: 1000,
+                    ),
                     'context' => self::string('Brief surrounding context.', maximum: 2000),
                 ],
                 ['user_identifier', 'memory', 'quote', 'context'],
@@ -92,10 +102,13 @@ final readonly class BotToolCatalog
                 'update_memory',
                 'Replace one existing participant memory with corrected evidence.',
                 [
-                    'memory'          => self::string('Corrected durable fact.', maximum: 1000),
-                    'quote'           => self::string('Short exact supporting quote.', maximum: 1000),
+                    'memory' => self::string('Corrected durable fact.', maximum: 1000),
+                    'quote'  => self::string(
+                        'Exact supporting quote from the current Telegram batch.',
+                        maximum: 1000,
+                    ),
                     'context'         => self::string('Brief surrounding context.', maximum: 2000),
-                    'memory_id'       => self::nullableInteger('Preferred memory id from recall_memory.', 1),
+                    'memory_id'       => self::nullableMemoryId('Preferred memory id from recall_memory.'),
                     'user_identifier' => self::nullableString('Optional immutable participant reference.', 80),
                     'current_memory'  => self::nullableString('Optional exact current fact.', 1000),
                     'query'           => self::nullableString('Optional narrow selector.', 1000),
@@ -106,13 +119,18 @@ final readonly class BotToolCatalog
                 'forget_memory',
                 'Delete saved participant memories from the current chat.',
                 [
-                    'memory_id'                  => self::nullableInteger('Preferred memory id from recall_memory.', 1),
+                    'memory_id'                  => self::nullableMemoryId('Preferred memory id from recall_memory.'),
                     'user_identifier'            => self::nullableString('Optional immutable participant reference.', 80),
                     'query'                      => self::nullableString('Optional narrow selector.', 1000),
                     'forget_all_for_participant' => self::boolean(
                         'Use only for an explicit request to forget every memory for a participant.',
                     ),
+                    'quote' => self::string(
+                        'Exact quote from the current Telegram batch requesting this deletion.',
+                        maximum: 1000,
+                    ),
                 ],
+                ['quote'],
             ),
             self::tool(
                 'search_messages',
@@ -236,6 +254,19 @@ final readonly class BotToolCatalog
                 ],
                 ['name'],
             ),
+            self::tool(
+                'run_space_capsule',
+                'Run one executable capsule from the pinned Space release inside a network-denied Firecracker VM.',
+                [
+                    'name'      => self::string('Capsule name listed in the Space prompt.', maximum: 64),
+                    'arguments' => [
+                        'type'                 => 'object',
+                        'description'          => 'JSON arguments passed to the isolated capsule on stdin.',
+                        'additionalProperties' => true,
+                    ],
+                ],
+                ['name'],
+            ),
         ];
     }
 
@@ -260,10 +291,17 @@ final readonly class BotToolCatalog
         );
     }
 
-    public function registry(): ToolRegistry
+    /**
+     * @param list<string>|null $allowedNames
+     */
+    public function registry(?array $allowedNames = null): ToolRegistry
     {
-        $tools = [];
+        $allowed = $allowedNames === null ? null : array_fill_keys($allowedNames, true);
+        $tools   = [];
         foreach (self::definitions() as $definition) {
+            if ($allowed !== null && !isset($allowed[$definition->name])) {
+                continue;
+            }
             $tools[] = $this->implementation($definition);
         }
 
@@ -371,18 +409,12 @@ final readonly class BotToolCatalog
         ], static fn (mixed $value): bool => $value !== null);
     }
 
-    /**
-     * @param string $description
-     * @param int    $minimum
-     *
-     * @return array<string, mixed>
-     */
-    private static function nullableInteger(string $description, int $minimum): array
+    /** @return array<string, mixed> */
+    private static function nullableMemoryId(string $description): array
     {
         return [
-            'type'        => ['integer', 'null'],
+            'type'        => ['string', 'integer', 'null'],
             'description' => $description,
-            'minimum'     => $minimum,
         ];
     }
 
@@ -445,15 +477,21 @@ final readonly class BotToolCatalog
         return is_int($value) ? $value : $default;
     }
 
-    /**
-     * @param array<string, mixed> $arguments
-     * @param string               $key
-     */
-    private static function nullableIntegerValue(array $arguments, string $key): ?int
+    /** @param array<string, mixed> $arguments */
+    private static function nullableMemoryIdValue(array $arguments, string $key): null|int|string
     {
         $value = $arguments[$key] ?? null;
 
-        return is_int($value) ? $value : null;
+        return is_int($value) || is_string($value) ? $value : null;
+    }
+
+    private static function metadataString(
+        DurableToolExecutionContext $context,
+        string $key,
+    ): ?string {
+        $value = $context->metadata[$key] ?? null;
+
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     /**
@@ -490,6 +528,34 @@ final readonly class BotToolCatalog
         return is_int($value) ? $value : null;
     }
 
+    private static function metadataInteger(
+        DurableToolExecutionContext $context,
+        string $key,
+    ): int {
+        $value = $context->metadata[$key] ?? null;
+        if (is_int($value)) {
+            return $value;
+        }
+        if (is_string($value) && ctype_digit($value)) {
+            return (int) $value;
+        }
+
+        throw new UnexpectedValueException("PiPH tool context is missing integer {$key}.");
+    }
+
+    private function spaceMemoryAuthority(
+        DurableToolExecutionContext $context,
+    ): SpaceMemoryMutationAuthority {
+        if ($this->spaceMemoryAuthorization === null) {
+            throw new UnexpectedValueException('Space memory authorization is not configured.');
+        }
+
+        return SpaceMemoryMutationAuthority::fromMetadata(
+            $context->metadata,
+            $this->spaceMemoryAuthorization,
+        );
+    }
+
     private function implementation(Tool $tool): DurableAgentTool
     {
         return match ($tool->name) {
@@ -499,62 +565,151 @@ final readonly class BotToolCatalog
             )),
             'save_memory' => $this->durable(
                 $tool,
-                fn (int $chatId, array $args): AgentToolResult => self::result(
-                    $this->memoryStore->save(
-                        chatId: $chatId,
-                        userIdentifier: self::requiredString($args, 'user_identifier'),
-                        memory: self::requiredString($args, 'memory'),
-                        quote: self::requiredString($args, 'quote'),
-                        context: self::requiredString($args, 'context'),
-                    ),
-                ),
+                function (int $chatId, array $args, DurableToolExecutionContext $context): AgentToolResult {
+                    $spaceId = self::metadataString($context, 'spaceId');
+                    $text    = $spaceId !== null && $this->spaceMemoryStore !== null
+                        ? $this->spaceMemoryStore->save(
+                            spaceId: $spaceId,
+                            userIdentifier: self::requiredString($args, 'user_identifier'),
+                            memory: self::requiredString($args, 'memory'),
+                            quote: self::requiredString($args, 'quote'),
+                            context: self::requiredString($args, 'context'),
+                            idempotencyKey: $context->idempotencyKey,
+                            authority: $this->spaceMemoryAuthority($context),
+                        )
+                        : $this->memoryStore->save(
+                            chatId: $chatId,
+                            userIdentifier: self::requiredString($args, 'user_identifier'),
+                            memory: self::requiredString($args, 'memory'),
+                            quote: self::requiredString($args, 'quote'),
+                            context: self::requiredString($args, 'context'),
+                        );
+
+                    return self::result($text);
+                },
                 self::executionMode($tool->name),
             ),
-            'recall_memory' => $this->durable($tool, fn (int $chatId, array $args): AgentToolResult => self::result(
-                $this->memoryStore->recall(
-                    chatId: $chatId,
-                    userIdentifier: self::nullableStringValue($args, 'user_identifier'),
-                    query: self::nullableStringValue($args, 'query'),
-                    limit: self::integerValue($args, 'limit', 10),
-                ),
-            )),
+            'recall_memory' => $this->durable($tool, function (
+                int $chatId,
+                array $args,
+                DurableToolExecutionContext $context,
+            ): AgentToolResult {
+                $spaceId = self::metadataString($context, 'spaceId');
+                $text    = $spaceId !== null && $this->spaceMemoryStore !== null
+                    ? $this->spaceMemoryStore->recall(
+                        spaceId: $spaceId,
+                        userIdentifier: self::nullableStringValue($args, 'user_identifier'),
+                        query: self::nullableStringValue($args, 'query'),
+                        limit: self::integerValue($args, 'limit', 10),
+                        atRevision: self::metadataInteger($context, 'memoryRevision'),
+                    )
+                    : $this->memoryStore->recall(
+                        chatId: $chatId,
+                        userIdentifier: self::nullableStringValue($args, 'user_identifier'),
+                        query: self::nullableStringValue($args, 'query'),
+                        limit: self::integerValue($args, 'limit', 10),
+                    );
+
+                return self::result($text);
+            }),
             'update_memory' => $this->durable(
                 $tool,
-                fn (int $chatId, array $args): AgentToolResult => self::result(
-                    $this->memoryStore->update(
-                        chatId: $chatId,
-                        memory: self::requiredString($args, 'memory'),
-                        quote: self::requiredString($args, 'quote'),
-                        context: self::requiredString($args, 'context'),
-                        memoryId: self::nullableIntegerValue($args, 'memory_id'),
-                        userIdentifier: self::nullableStringValue($args, 'user_identifier'),
-                        currentMemory: self::nullableStringValue($args, 'current_memory'),
-                        query: self::nullableStringValue($args, 'query'),
-                    ),
-                ),
+                function (int $chatId, array $args, DurableToolExecutionContext $context): AgentToolResult {
+                    $spaceId  = self::metadataString($context, 'spaceId');
+                    $memoryId = self::nullableMemoryIdValue($args, 'memory_id');
+                    if ($spaceId !== null && $this->spaceMemoryStore !== null) {
+                        $text = $this->spaceMemoryStore->update(
+                            spaceId: $spaceId,
+                            memory: self::requiredString($args, 'memory'),
+                            quote: self::requiredString($args, 'quote'),
+                            context: self::requiredString($args, 'context'),
+                            memoryId: $memoryId === null ? null : (string) $memoryId,
+                            userIdentifier: self::nullableStringValue($args, 'user_identifier'),
+                            currentMemory: self::nullableStringValue($args, 'current_memory'),
+                            query: self::nullableStringValue($args, 'query'),
+                            idempotencyKey: $context->idempotencyKey,
+                            authority: $this->spaceMemoryAuthority($context),
+                            atRevision: self::metadataInteger($context, 'memoryRevision'),
+                        );
+                    } else {
+                        $text = $this->memoryStore->update(
+                            chatId: $chatId,
+                            memory: self::requiredString($args, 'memory'),
+                            quote: self::requiredString($args, 'quote'),
+                            context: self::requiredString($args, 'context'),
+                            memoryId: is_int($memoryId)
+                                ? $memoryId
+                                : (is_string($memoryId) && ctype_digit($memoryId) ? (int) $memoryId : null),
+                            userIdentifier: self::nullableStringValue($args, 'user_identifier'),
+                            currentMemory: self::nullableStringValue($args, 'current_memory'),
+                            query: self::nullableStringValue($args, 'query'),
+                        );
+                    }
+
+                    return self::result($text);
+                },
                 self::executionMode($tool->name),
             ),
             'forget_memory' => $this->durable(
                 $tool,
-                fn (int $chatId, array $args): AgentToolResult => self::result(
-                    $this->memoryStore->forget(
-                        chatId: $chatId,
-                        memoryId: self::nullableIntegerValue($args, 'memory_id'),
-                        userIdentifier: self::nullableStringValue($args, 'user_identifier'),
-                        query: self::nullableStringValue($args, 'query'),
-                        forgetAllForParticipant: self::booleanValue($args, 'forget_all_for_participant'),
-                    ),
-                ),
+                function (int $chatId, array $args, DurableToolExecutionContext $context): AgentToolResult {
+                    $spaceId  = self::metadataString($context, 'spaceId');
+                    $memoryId = self::nullableMemoryIdValue($args, 'memory_id');
+                    if ($spaceId !== null && $this->spaceMemoryStore !== null) {
+                        $text = $this->spaceMemoryStore->forget(
+                            spaceId: $spaceId,
+                            memoryId: $memoryId === null ? null : (string) $memoryId,
+                            userIdentifier: self::nullableStringValue($args, 'user_identifier'),
+                            query: self::nullableStringValue($args, 'query'),
+                            forgetAllForParticipant: self::booleanValue($args, 'forget_all_for_participant'),
+                            evidenceQuote: self::requiredString($args, 'quote'),
+                            idempotencyKey: $context->idempotencyKey,
+                            authority: $this->spaceMemoryAuthority($context),
+                            atRevision: self::metadataInteger($context, 'memoryRevision'),
+                        );
+                    } else {
+                        $text = $this->memoryStore->forget(
+                            chatId: $chatId,
+                            memoryId: is_int($memoryId)
+                                ? $memoryId
+                                : (is_string($memoryId) && ctype_digit($memoryId) ? (int) $memoryId : null),
+                            userIdentifier: self::nullableStringValue($args, 'user_identifier'),
+                            query: self::nullableStringValue($args, 'query'),
+                            forgetAllForParticipant: self::booleanValue($args, 'forget_all_for_participant'),
+                        );
+                    }
+
+                    return self::result($text);
+                },
                 self::executionMode($tool->name),
             ),
-            'search_messages' => $this->durable($tool, fn (int $chatId, array $args): AgentToolResult => self::result(
-                $this->searchMessages->execute(
-                    chatId: $chatId,
-                    queryText: self::stringValue($args, 'query'),
-                    usernameText: self::nullableStringValue($args, 'username'),
-                    resultLimit: self::integerValue($args, 'limit', 10),
-                ),
-            )),
+            'search_messages' => $this->durable($tool, function (
+                int $chatId,
+                array $args,
+                DurableToolExecutionContext $context,
+            ): AgentToolResult {
+                $parameters = [
+                    'queryText'    => self::stringValue($args, 'query'),
+                    'usernameText' => self::nullableStringValue($args, 'username'),
+                    'resultLimit'  => self::integerValue($args, 'limit', 10),
+                ];
+                $text = self::metadataString($context, 'spaceId') === null
+                    ? $this->searchMessages->execute(
+                        chatId: $chatId,
+                        queryText: $parameters['queryText'],
+                        usernameText: $parameters['usernameText'],
+                        resultLimit: $parameters['resultLimit'],
+                    )
+                    : $this->searchMessages->executeInSpace(
+                        chatId: $chatId,
+                        topicId: self::nullableMetadataInteger($context, 'topicId'),
+                        queryText: $parameters['queryText'],
+                        usernameText: $parameters['usernameText'],
+                        resultLimit: $parameters['resultLimit'],
+                    );
+
+                return self::result($text);
+            }),
             'internet_search' => $this->durable($tool, fn (int $_chatId, array $args): AgentToolResult => self::result(
                 $this->internetSearch->execute(
                     query: self::requiredString($args, 'query'),
@@ -662,6 +817,30 @@ final readonly class BotToolCatalog
                     idempotencyKey: $context->idempotencyKey,
                 ),
             )),
+            'run_space_capsule' => $this->durable($tool, function (
+                int $_chatId,
+                array $args,
+                DurableToolExecutionContext $context,
+            ): AgentToolResult {
+                if ($this->spaceCapsules === null) {
+                    return self::result('Space capsule execution is not configured on this worker.');
+                }
+                $spaceId = self::metadataString($context, 'spaceId')
+                    ?? throw new UnexpectedValueException('Space capsule context is missing spaceId.');
+                $releaseId = self::metadataString($context, 'releaseId')
+                    ?? throw new UnexpectedValueException('Space capsule context is missing releaseId.');
+                $releaseDigest = self::metadataString($context, 'releaseDigest')
+                    ?? throw new UnexpectedValueException('Space capsule context is missing releaseDigest.');
+
+                return self::result($this->spaceCapsules->execute(
+                    spaceId: $spaceId,
+                    releaseId: $releaseId,
+                    releaseDigest: $releaseDigest,
+                    name: self::requiredString($args, 'name'),
+                    arguments: self::arrayValue($args, 'arguments'),
+                    idempotencyKey: $context->idempotencyKey,
+                ));
+            }),
             default => throw new UnexpectedValueException("No implementation for tool {$tool->name}."),
         };
     }

@@ -44,63 +44,31 @@ final class SearchMessagesExecutor
         ?string $usernameText = null,
         int $resultLimit = 10,
     ): string {
-        /** @var UpdateRecordRepository $repo */
-        $updateRepo = $this->orm->getRepository(UpdateRecord::class);
-
-        $limit       = max(1, min($resultLimit, self::MAX_RESULTS));
-        $query       = mb_strtolower(trim($queryText));
-        $queryTokens = self::queryTokens($query);
-        $username    = $usernameText === null ? null : mb_strtolower(trim($usernameText));
-        $window      = max($limit, self::RECENT_WINDOW_MIN);
-
-        if ($query === '') {
-            $items = $this->loadUpdateItems($updateRepo->findLastN($chatId, $window));
-        } else {
-            $candidateLimit = min(
-                self::SEARCH_CANDIDATE_LIMIT_PER_SOURCE,
-                max($limit * self::SEARCH_CANDIDATE_MULTIPLIER, $limit),
-            );
-
-            $items = $this->loadUpdateItems(
-                $updateRepo->searchByPayloadText($chatId, $queryTokens, $candidateLimit),
-            );
-        }
-
-        usort(
-            $items,
-            static fn (array $left, array $right): int => [$left['createdAt'], $left['sourceOrder']]
-                <=> [$right['createdAt'], $right['sourceOrder']],
+        return $this->executeScoped(
+            chatId: $chatId,
+            topicId: null,
+            spaceScoped: false,
+            queryText: $queryText,
+            usernameText: $usernameText,
+            resultLimit: $resultLimit,
         );
+    }
 
-        $matches = array_values(array_filter(
-            $items,
-            fn (array $item): bool => $this->matchesUsername($item['participantAliases'], $username)
-                && $this->matchesQuery($item['searchable'], $query),
-        ));
-
-        if ($matches === []) {
-            if ($query === '') {
-                return 'No recent inbound Telegram messages found.';
-            }
-
-            return 'No messages found matching "' . $queryText . '"'
-                . ($usernameText === null ? '' : ' for ' . $usernameText)
-                . '.';
-        }
-
-        $selectedItems = array_slice($matches, -$limit);
-        $selected      = $query === ''
-            ? array_column($selectedItems, 'text')
-            : array_map(
-                fn (array $item): string => $this->formatSearchResult($item, $queryTokens),
-                $selectedItems,
-            );
-
-        $header = $query === ''
-            ? 'Recent inbound Telegram history'
-            : 'Relevant inbound Telegram history (searched persisted updates; showing latest compact matches)';
-
-        return $header . "\n\n" . implode("\n\n---\n\n", $selected);
+    public function executeInSpace(
+        int $chatId,
+        ?int $topicId,
+        string $queryText = '',
+        ?string $usernameText = null,
+        int $resultLimit = 10,
+    ): string {
+        return $this->executeScoped(
+            chatId: $chatId,
+            topicId: $topicId,
+            spaceScoped: true,
+            queryText: $queryText,
+            usernameText: $usernameText,
+            resultLimit: $resultLimit,
+        );
     }
 
     /**
@@ -147,6 +115,82 @@ final class SearchMessagesExecutor
             $tokens,
             static fn (string $token): bool => $token !== '',
         ));
+    }
+
+    private function executeScoped(
+        int $chatId,
+        ?int $topicId,
+        bool $spaceScoped,
+        string $queryText,
+        ?string $usernameText,
+        int $resultLimit,
+    ): string {
+        /** @var UpdateRecordRepository $repo */
+        $updateRepo = $this->orm->getRepository(UpdateRecord::class);
+
+        $limit       = max(1, min($resultLimit, self::MAX_RESULTS));
+        $query       = mb_strtolower(trim($queryText));
+        $queryTokens = self::queryTokens($query);
+        $username    = $usernameText === null ? null : mb_strtolower(trim($usernameText));
+        $window      = max($limit, self::RECENT_WINDOW_MIN);
+
+        if ($query === '') {
+            $records = $spaceScoped
+                ? $updateRepo->findLastNInTopic($chatId, $topicId, $window)
+                : $updateRepo->findLastN($chatId, $window);
+            $items = $this->loadUpdateItems($records);
+        } else {
+            $candidateLimit = min(
+                self::SEARCH_CANDIDATE_LIMIT_PER_SOURCE,
+                max($limit * self::SEARCH_CANDIDATE_MULTIPLIER, $limit),
+            );
+
+            $records = $spaceScoped
+                ? $updateRepo->searchByPayloadTextInTopic(
+                    $chatId,
+                    $topicId,
+                    $queryTokens,
+                    $candidateLimit,
+                )
+                : $updateRepo->searchByPayloadText($chatId, $queryTokens, $candidateLimit);
+            $items = $this->loadUpdateItems($records);
+        }
+
+        usort(
+            $items,
+            static fn (array $left, array $right): int => [$left['createdAt'], $left['sourceOrder']]
+                <=> [$right['createdAt'], $right['sourceOrder']],
+        );
+
+        $matches = array_values(array_filter(
+            $items,
+            fn (array $item): bool => $this->matchesUsername($item['participantAliases'], $username)
+                && $this->matchesQuery($item['searchable'], $query),
+        ));
+
+        if ($matches === []) {
+            if ($query === '') {
+                return 'No recent inbound Telegram messages found.';
+            }
+
+            return 'No messages found matching "' . $queryText . '"'
+                . ($usernameText === null ? '' : ' for ' . $usernameText)
+                . '.';
+        }
+
+        $selectedItems = array_slice($matches, -$limit);
+        $selected      = $query === ''
+            ? array_column($selectedItems, 'text')
+            : array_map(
+                fn (array $item): string => $this->formatSearchResult($item, $queryTokens),
+                $selectedItems,
+            );
+
+        $header = $query === ''
+            ? 'Recent inbound Telegram history'
+            : 'Relevant inbound Telegram history (searched persisted updates; showing latest compact matches)';
+
+        return $header . "\n\n" . implode("\n\n---\n\n", $selected);
     }
 
     /**

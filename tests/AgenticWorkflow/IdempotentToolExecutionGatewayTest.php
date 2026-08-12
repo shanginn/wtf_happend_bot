@@ -6,6 +6,7 @@ namespace Tests\AgenticWorkflow;
 
 use Bot\AgenticWorkflow\IdempotentToolExecutionGateway;
 use Bot\Entity\ToolExecutionRecord;
+use Closure;
 use Cycle\ORM\ORMInterface;
 use Cycle\ORM\RepositoryInterface;
 use PiPHP\Temporal\Contract\ToolExecutionGatewayInterface;
@@ -13,6 +14,7 @@ use PiPHP\Temporal\DTO\ToolActivityInput;
 use PiPHP\Temporal\DTO\ToolActivityResult;
 use RuntimeException;
 use Tests\TestCase;
+use Throwable;
 use UnexpectedValueException;
 
 final class IdempotentToolExecutionGatewayTest extends TestCase
@@ -20,7 +22,7 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
     public function testSideEffectingToolReturnsCachedResultWithoutRepeatingInnerExecution(): void
     {
         $repository = new InMemoryToolExecutionRecordRepository();
-        $inner = new RecordingToolExecutionGateway(new ToolActivityResult(
+        $inner      = new RecordingToolExecutionGateway(new ToolActivityResult(
             callId: 'call-1',
             name: 'telegram_api_call',
             content: [['type' => 'text', 'text' => 'sent']],
@@ -64,7 +66,7 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
         $orm = $this->createMock(ORMInterface::class);
         $orm->expects($this->never())->method('getRepository');
         $gateway = new IdempotentToolExecutionGateway($inner, $orm);
-        $input = new ToolActivityInput(
+        $input   = new ToolActivityInput(
             callId: 'call-time',
             name: 'get_current_time',
             arguments: ['timezone' => 'Asia/Yekaterinburg'],
@@ -87,7 +89,7 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
         $orm = $this->createMock(ORMInterface::class);
         $orm->expects($this->never())->method('getRepository');
         $gateway = new IdempotentToolExecutionGateway($inner, $orm);
-        $input = new ToolActivityInput(
+        $input   = new ToolActivityInput(
             callId: 'call-chat',
             name: 'telegram_api_call',
             arguments: ['method' => 'getChat'],
@@ -103,7 +105,7 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
     public function testOnlyOneTerminalTelegramActionExecutesPerLogicalBatch(): void
     {
         $repository = new InMemoryToolExecutionRecordRepository();
-        $inner = new RecordingToolExecutionGateway(new ToolActivityResult(
+        $inner      = new RecordingToolExecutionGateway(new ToolActivityResult(
             callId: 'call-terminal',
             name: 'telegram_api_call',
             content: [['type' => 'text', 'text' => 'sent']],
@@ -147,7 +149,7 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
         self::assertSame('completed', $suppressed->metadata['terminalActionState']);
     }
 
-    public function testClaimedExecutionWithoutResultReturnsTerminalAmbiguity(): void
+    public function testClaimedAppendOnlyMemoryExecutionWithoutResultIsSafelyReplayed(): void
     {
         $input = new ToolActivityInput(
             callId: 'call-ambiguous',
@@ -156,11 +158,12 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
             idempotencyKey: 'workflow/run/tool/call-ambiguous',
             metadata: ['chatId' => -100123],
         );
-        $repository = new InMemoryToolExecutionRecordRepository();
+        $repository      = new InMemoryToolExecutionRecordRepository();
         $claimingGateway = new IdempotentToolExecutionGateway(
             new ThrowingToolExecutionGateway(new RuntimeException('outcome unavailable')),
             $this->ormReturning($repository),
         );
+
         try {
             $claimingGateway->execute($input);
             self::fail('The simulated side effect must lose its outcome.');
@@ -170,7 +173,7 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
         $inner = new RecordingToolExecutionGateway(new ToolActivityResult(
             callId: $input->callId,
             name: $input->name,
-            content: [['type' => 'text', 'text' => 'must not execute']],
+            content: [['type' => 'text', 'text' => 'recovered idempotently']],
         ));
         $gateway = new IdempotentToolExecutionGateway(
             $inner,
@@ -179,19 +182,16 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
 
         $result = $gateway->execute($input);
 
-        self::assertSame(0, $inner->calls);
-        self::assertTrue($result->isError);
-        self::assertTrue($result->terminate);
-        self::assertStringContainsString('outcome is unknown', $result->content[0]['text']);
-        self::assertSame(-100123, $result->metadata['chatId']);
-        self::assertSame($input->idempotencyKey, $result->metadata['idempotencyKey']);
-        self::assertTrue($result->metadata['ambiguousPriorAttempt']);
+        self::assertSame(1, $inner->calls);
+        self::assertFalse($result->isError);
+        self::assertSame('recovered idempotently', $result->content[0]['text']);
+        self::assertNotNull($repository->findByIdempotencyKey($input->idempotencyKey)?->completedAt);
     }
 
     public function testTerminalReservationIsReleasedWhenSideEffectClaimDefinitelyFails(): void
     {
         $repository = new InMemoryToolExecutionRecordRepository();
-        $inner = new RecordingToolExecutionGateway(new ToolActivityResult(
+        $inner      = new RecordingToolExecutionGateway(new ToolActivityResult(
             callId: 'call-claim',
             name: 'telegram_api_call',
             content: [['type' => 'text', 'text' => 'sent']],
@@ -208,12 +208,13 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
             idempotencyKey: 'workflow/run/tool/call-claim',
             metadata: ['terminalScopeId' => 'claim-failure-batch'],
         );
-        $failClaim = true;
+        $failClaim              = true;
         $repository->beforeSave = static function (
             ToolExecutionRecord $record,
         ) use (&$failClaim, $input): void {
             if ($failClaim && $record->idempotencyKey === $input->idempotencyKey) {
                 $failClaim = false;
+
                 throw new RuntimeException('side-effect claim unavailable');
             }
         };
@@ -244,7 +245,7 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
     public function testCachedSideEffectResultRepairsFailedTerminalCompletionWrite(): void
     {
         $repository = new InMemoryToolExecutionRecordRepository();
-        $inner = new RecordingToolExecutionGateway(new ToolActivityResult(
+        $inner      = new RecordingToolExecutionGateway(new ToolActivityResult(
             callId: 'call-completion',
             name: 'telegram_api_call',
             content: [['type' => 'text', 'text' => 'sent']],
@@ -261,7 +262,7 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
             idempotencyKey: 'workflow/run/tool/call-completion',
             metadata: ['terminalScopeId' => 'completion-failure-batch'],
         );
-        $failCompletion = true;
+        $failCompletion         = true;
         $repository->beforeSave = static function (
             ToolExecutionRecord $record,
         ) use (&$failCompletion): void {
@@ -271,6 +272,7 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
                 && self::terminalState($record) === 'completed'
             ) {
                 $failCompletion = false;
+
                 throw new RuntimeException('terminal completion unavailable');
             }
         };
@@ -295,8 +297,8 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
     public function testReleasedTerminalReservationUsesANewImmutableGeneration(): void
     {
         $repository = new InMemoryToolExecutionRecordRepository();
-        $inner = new RecordingToolExecutionGateway(
-            static fn(ToolActivityInput $input): ToolActivityResult => new ToolActivityResult(
+        $inner      = new RecordingToolExecutionGateway(
+            static fn (ToolActivityInput $input): ToolActivityResult => new ToolActivityResult(
                 callId: $input->callId,
                 name: $input->name,
                 content: [['type' => 'text', 'text' => $input->callId]],
@@ -308,8 +310,8 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
             $inner,
             $this->ormReturning($repository),
         );
-        $released = self::terminalInput('call-released', 'released-key', 'generation-batch');
-        $winner = self::terminalInput('call-winner', 'winner-key', 'generation-batch');
+        $released   = self::terminalInput('call-released', 'released-key', 'generation-batch');
+        $winner     = self::terminalInput('call-winner', 'winner-key', 'generation-batch');
         $suppressed = self::terminalInput('call-suppressed', 'suppressed-key', 'generation-batch');
 
         $gateway->execute($released);
@@ -330,8 +332,8 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
     public function testConcurrentCallsAfterReleaseHaveOneGenerationWinner(): void
     {
         $repository = new InMemoryToolExecutionRecordRepository();
-        $inner = new RecordingToolExecutionGateway(
-            static fn(ToolActivityInput $input): ToolActivityResult => new ToolActivityResult(
+        $inner      = new RecordingToolExecutionGateway(
+            static fn (ToolActivityInput $input): ToolActivityResult => new ToolActivityResult(
                 callId: $input->callId,
                 name: $input->name,
                 content: [['type' => 'text', 'text' => $input->callId]],
@@ -348,10 +350,10 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
             'released-key',
             'concurrent-batch',
         ));
-        $outer = self::terminalInput('call-outer', 'outer-key', 'concurrent-batch');
-        $nested = self::terminalInput('call-nested', 'nested-key', 'concurrent-batch');
-        $nestedResult = null;
-        $interleaved = false;
+        $outer                  = self::terminalInput('call-outer', 'outer-key', 'concurrent-batch');
+        $nested                 = self::terminalInput('call-nested', 'nested-key', 'concurrent-batch');
+        $nestedResult           = null;
+        $interleaved            = false;
         $repository->beforeSave = function (
             ToolExecutionRecord $record,
         ) use (&$interleaved, &$nestedResult, $gateway, $nested, $repository): void {
@@ -361,9 +363,9 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
                 && str_ends_with($record->idempotencyKey, ':1')
                 && !isset($record->id)
             ) {
-                $interleaved = true;
+                $interleaved            = true;
                 $repository->beforeSave = null;
-                $nestedResult = $gateway->execute($nested);
+                $nestedResult           = $gateway->execute($nested);
             }
         };
 
@@ -383,7 +385,7 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
     public function testDuplicateKeyIsBoundToCanonicalToolInput(): void
     {
         $repository = new InMemoryToolExecutionRecordRepository();
-        $inner = new RecordingToolExecutionGateway(new ToolActivityResult(
+        $inner      = new RecordingToolExecutionGateway(new ToolActivityResult(
             callId: 'call-duplicate',
             name: 'telegram_api_call',
             content: [['type' => 'text', 'text' => 'sent']],
@@ -396,7 +398,7 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
             callId: 'call-duplicate',
             name: 'telegram_api_call',
             arguments: [
-                'method' => 'sendMessage',
+                'method'     => 'sendMessage',
                 'parameters' => ['chat_id' => 1, 'text' => 'hello'],
             ],
             idempotencyKey: 'duplicate-key',
@@ -407,7 +409,7 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
             name: 'telegram_api_call',
             arguments: [
                 'parameters' => ['text' => 'hello', 'chat_id' => 1],
-                'method' => 'sendMessage',
+                'method'     => 'sendMessage',
             ],
             idempotencyKey: 'duplicate-key',
             metadata: ['chatId' => 1, 'topicId' => 2],
@@ -416,7 +418,7 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
             callId: 'call-duplicate',
             name: 'telegram_api_call',
             arguments: [
-                'method' => 'sendMessage',
+                'method'     => 'sendMessage',
                 'parameters' => ['chat_id' => 1, 'text' => 'different'],
             ],
             idempotencyKey: 'duplicate-key',
@@ -433,17 +435,6 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
             self::assertStringContainsString('different tool input', $failure->getMessage());
         }
         self::assertSame(1, $inner->calls);
-    }
-
-    private function ormReturning(RepositoryInterface $repository): ORMInterface
-    {
-        $orm = $this->createMock(ORMInterface::class);
-        $orm
-            ->method('getRepository')
-            ->with(ToolExecutionRecord::class)
-            ->willReturn($repository);
-
-        return $orm;
     }
 
     private static function terminalInput(
@@ -472,6 +463,17 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
             ? $data['status']
             : 'invalid';
     }
+
+    private function ormReturning(RepositoryInterface $repository): ORMInterface
+    {
+        $orm = $this->createMock(ORMInterface::class);
+        $orm
+            ->method('getRepository')
+            ->with(ToolExecutionRecord::class)
+            ->willReturn($repository);
+
+        return $orm;
+    }
 }
 
 final class RecordingToolExecutionGateway implements ToolExecutionGatewayInterface
@@ -479,14 +481,14 @@ final class RecordingToolExecutionGateway implements ToolExecutionGatewayInterfa
     public int $calls = 0;
 
     public function __construct(
-        private readonly ToolActivityResult|\Closure $result,
+        private readonly Closure|ToolActivityResult $result,
     ) {}
 
     public function execute(ToolActivityInput $input): ToolActivityResult
     {
         ++$this->calls;
 
-        return $this->result instanceof \Closure
+        return $this->result instanceof Closure
             ? ($this->result)($input)
             : $this->result;
     }
@@ -495,7 +497,7 @@ final class RecordingToolExecutionGateway implements ToolExecutionGatewayInterfa
 final readonly class ThrowingToolExecutionGateway implements ToolExecutionGatewayInterface
 {
     public function __construct(
-        private \Throwable $failure,
+        private Throwable $failure,
     ) {}
 
     public function execute(ToolActivityInput $input): ToolActivityResult
@@ -509,11 +511,10 @@ final readonly class ThrowingToolExecutionGateway implements ToolExecutionGatewa
  */
 final class InMemoryToolExecutionRecordRepository implements RepositoryInterface
 {
+    public ?Closure $beforeSave = null;
     /** @var array<string, ToolExecutionRecord> */
     private array $records = [];
-    private int $nextId = 1;
-
-    public ?\Closure $beforeSave = null;
+    private int $nextId    = 1;
 
     /**
      * @param list<ToolExecutionRecord> $records
@@ -571,7 +572,7 @@ final class InMemoryToolExecutionRecordRepository implements RepositoryInterface
     public function findAll(array $scope = []): iterable
     {
         return array_map(
-            static fn(ToolExecutionRecord $record): ToolExecutionRecord => clone $record,
+            static fn (ToolExecutionRecord $record): ToolExecutionRecord => clone $record,
             array_values($this->records),
         );
     }
@@ -583,8 +584,7 @@ final class InMemoryToolExecutionRecordRepository implements RepositoryInterface
     {
         return array_values(array_filter(
             $this->findAll(),
-            static fn(ToolExecutionRecord $record): bool =>
-                str_starts_with($record->idempotencyKey, 'terminal-action:'),
+            static fn (ToolExecutionRecord $record): bool => str_starts_with($record->idempotencyKey, 'terminal-action:'),
         ));
     }
 

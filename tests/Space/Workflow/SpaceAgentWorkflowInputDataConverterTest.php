@@ -1,0 +1,89 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Space\Workflow;
+
+use Bot\Space\Runtime\SpaceRuntimeSnapshot;
+use Bot\Space\Workflow\QueuedSpaceUpdate;
+use Bot\Space\Workflow\SpaceAgentWorkflowInput;
+use Bot\Space\Workflow\SpaceAgentWorkflowInputDataConverter;
+use Bot\Telegram\Update;
+use Phenogram\Bindings\Factories\ChatFactory;
+use Phenogram\Bindings\Factories\MessageFactory;
+use Phenogram\Bindings\Factories\UpdateFactory;
+use Temporal\DataConverter\Type;
+use Tests\TestCase;
+
+final class SpaceAgentWorkflowInputDataConverterTest extends TestCase
+{
+    public function testContinuationRoundTripPreservesPinnedRuntimeAndPendingUpdates(): void
+    {
+        $update = UpdateFactory::make(
+            updateId: 1001,
+            message: MessageFactory::make(
+                chat: ChatFactory::make(id: 7001, type: 'private'),
+                text: 'hello',
+            ),
+        );
+        assert($update instanceof Update);
+
+        $snapshot = self::snapshot();
+        $input    = new SpaceAgentWorkflowInput(
+            spaceId: $snapshot->spaceId,
+            platform: 'telegram',
+            botInstanceId: 'primary-bot',
+            externalConversationId: '7001',
+            externalThreadId: null,
+            chatId: 7001,
+            chatType: 'private',
+            topicId: null,
+            messages: [[
+                'role'    => 'user',
+                'content' => [['type' => 'text', 'text' => 'hello']],
+            ]],
+            pendingUpdates: [new QueuedSpaceUpdate($update, true, 'ingestion-1')],
+            pendingBatchMessageCount: 1,
+            pendingBatchId: 'batch-1',
+            pendingActorUserIds: [7001],
+            pendingRuntimeSnapshot: $snapshot,
+        );
+
+        $converter = new SpaceAgentWorkflowInputDataConverter();
+        $payload   = $converter->toPayload($input);
+        self::assertNotNull($payload);
+
+        $decoded = $converter->fromPayload(
+            $payload,
+            Type::create(SpaceAgentWorkflowInput::class),
+        );
+
+        self::assertSame('batch-1', $decoded->pendingBatchId);
+        self::assertSame('release-7', $decoded->pendingRuntimeSnapshot?->releaseId);
+        self::assertSame('sha256:capsule', $decoded->pendingRuntimeSnapshot?->capsuleArtifactRefs[0]['digest']);
+        self::assertSame(
+            '00000000-0000-4000-8000-000000000000',
+            $decoded->pendingRuntimeSnapshot?->capsuleRuntimeImageBuildId,
+        );
+        self::assertCount(1, $decoded->pendingUpdates);
+        self::assertSame(1001, $decoded->pendingUpdates[0]->update->updateId);
+        self::assertSame($converter->encodedBytes($input), strlen($payload->getData()));
+    }
+
+    private static function snapshot(): SpaceRuntimeSnapshot
+    {
+        return new SpaceRuntimeSnapshot(
+            snapshotId: 'snapshot-7',
+            spaceId: 'spc_0123456789abcdef0123456789abcdef01234567',
+            releaseId: 'release-7',
+            releaseDigest: 'sha256:release',
+            model: 'test/model',
+            systemPrompt: 'Pinned prompt',
+            tools: [['name' => 'stay_silent']],
+            capsuleArtifactRefs: [['name' => 'calculator', 'digest' => 'sha256:capsule']],
+            capsuleRuntimeImageBuildId: '00000000-0000-4000-8000-000000000000',
+            memoryRevision: 'memory-3',
+            capabilityPolicyRevision: 'policy-2',
+        );
+    }
+}

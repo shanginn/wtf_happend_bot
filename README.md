@@ -1,211 +1,209 @@
 # WTF Happened Bot
 
-An autonomous Telegram group-chat agent built on
-[PiPH](https://github.com/shanginn/pihp), TrueAsync, and Temporal.
+A long-lived Telegram agent platform built on PiPH, TrueAsync, PostgreSQL, and
+Temporal. Each Telegram conversation has an isolated **Space** with its own
+personality, prompt overlay, memories, and skills. Every night, each Space
+reviews recent experience in a governed **Dream** and may promote a better
+immutable release.
 
-The bot decides whether a message needs a response, gathers context with tools,
-performs the requested work, and either acts through the Telegram Bot API or
-deliberately stays silent.
+The design follows the separation used by
+[Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent): the host owns
+execution, policy, evaluation, credentials, and lifecycle while the agent owns
+bounded, versioned refinements. This production release is deliberately
+no-code: a Space cannot generate, load, or execute programs.
 
-## Architecture
+## Space model
 
-Each Telegram chat topic (including the root/general topic) has one long-lived
-`AgenticWorkflow`:
+A root chat and every Telegram forum topic resolve to separate opaque Space
+IDs. They never share prompt state, skills, memory, search results, release
+state, or workflow history.
 
-1. The durable long-polling ingress reads Telegram updates in `update_id` order.
-   It advances the polling offset only after every matching handler has
-   completed successfully, so a failed handler is retried before later updates.
-2. Accepted updates arrive through `signalWithStart`.
-3. The workflow persists and batches updates for five seconds.
-4. A `PiPHP.DurableAgent` child workflow runs the PiPH agent loop.
-5. Model calls and tools execute only in Temporal activities.
-6. The child returns its portable Pi message snapshot to the topic workflow.
-7. The topic workflow continues as new after 100 ingested updates.
-
-The agent uses `deepseek/deepseek-v4-flash` by default. Its tool catalog is made
-from PiPH `Tool`, `DurableAgentTool`, and `ToolRegistry` primitives; there is no
-bot-specific OpenAI client, serializer, decision agent, response agent, or
-working-memory loop.
+The durable identity lives in PostgreSQL, not in a permanent VM:
 
 ```text
-Telegram update
-    -> AgenticWorkflow (one per chat topic)
-        -> PiPHP.DurableAgent (one child per batch)
-            -> model activity
-            -> durable tool activities
-        -> portable Pi message snapshot
+Telegram chat/topic
+  -> Space binding
+  -> active immutable release
+       prompt overlay + personality
+       versioned skills
+       immutable host capability policy
+  -> append-only memory revisions
+  -> SpaceAgentWorkflowV1
 ```
 
-### Built-in tools
+One incoming batch pins a complete runtime snapshot: release, model, prompt,
+skills, tool schemas, memory revision, and capability-policy digest. Retries
+keep that snapshot even if a Dream promotes a new release in the meantime. The
+next batch sees the new active release.
 
-- Safe Telegram Bot API schema discovery and calls bound to the current topic
-- Persisted inbound Telegram-history search
+The host base prompt and authority boundary are not self-editable. The live
+agent cannot mutate its own release. Existing legacy runtime-mutation tools are
+excluded from both the model-visible catalog and the execution registry.
+
+## Nightly Dream
+
+Temporal installs one nightly schedule, by default around `03:17` in
+`Asia/Yekaterinburg` with up to 30 minutes of jitter. A coordinator starts one
+bounded child workflow per eligible Space:
+
+```text
+sanitized recent evidence
+  -> author candidate from the first time slice
+  -> deterministic validation
+  -> independent held-out judge on the later time slice
+  -> same-authority gate
+  -> atomic compare-and-swap promotion
+  -> pointer rollback remains available
+```
+
+A candidate may refine the prompt overlay, personality, skills, and memories
+within the nightly edit budget. Memory changes are append-only and carry Dream
+provenance; updates and forgetting create new revisions. Promotion is rejected
+if the release or memory baseline changed while the Dream was running.
+
+The candidate cannot change tests, thresholds, policy, credentials, tool
+authority, or promotion logic. High-risk or authority-expanding proposals are
+rejected automatically. Evaluations, proposals, and promotion events are
+durable and idempotent, so retries reconcile a committed result instead of
+silently producing a second outcome.
+
+## No-code trust boundary
+
+The host never exposes a code-execution tool to a Space. Release manifests and
+cached runtime snapshots containing executable artifacts fail closed. The
+dormant `sandbox-broker` sources and PHP contracts remain in the repository for
+a possible future release, but CI, Docker Compose, Helm, and runtime
+configuration do not build, deploy, or enable them. Old `SANDBOX_*` environment
+variables cannot reactivate code execution.
+
+## Built-in Space tools
+
+- Telegram API schema discovery and same-chat/topic actions
+- Same-Space inbound-message search
 - SearXNG internet search
 - Current time by timezone
-- Participant memory save, recall, update, and deletion
-- Chat-scoped runtime skill and runtime tool management
+- Append, recall, correct, and forget Space memories
 - Explicit `stay_silent` completion
 
-Mutating tools are marked sequential in the durable workflow. Their stable PiPH
-idempotency keys are claimed in PostgreSQL before an external action, and
-completed results are reused on activity retry. A second terminal Telegram
-action in the same logical batch is suppressed by a separate durable batch
-claim, including parent fallbacks after a failed child workflow. Safe Telegram
-reads bypass the mutation ledger and can use normal Temporal retries.
+Telegram side effects remain host-mediated and idempotent. `/pause`, `/resume`,
+and `/clear` resolve the same Space identity and retain the existing
+authorization rules.
 
-The direct confirmation path for `/pause`, `/resume`, and `/clear` uses the
-same PostgreSQL ledger with separate command and reply claims derived from the
-full canonical Telegram update identity: `update_id`, action, chat, topic, and
-message. Authorization and the Temporal mutation are never repeated after an
-ambiguous command outcome. A Telegram reply whose request may have been
-accepted before the response was lost is likewise not sent again; the failed
-handler attempt is retried once, then the persisted ambiguous claim allows the
-ingress cursor to advance without risking a duplicate reply.
+## Persistence
 
-Only one bot ingress process may long-poll a Telegram token. The shipped Helm
-Deployment hardcodes one replica and uses the `Recreate` strategy so old and new
-pollers cannot overlap during rollout. Concurrent long-poll bot processes are
-unsupported because an incomplete command or reply claim deliberately represents
-a conservative ambiguous external outcome.
+The Space schema stores bindings, immutable releases, versioned skills,
+append-only memories, pinned batch snapshots, Dream runs, proposals,
+evaluations, and promotions. Database constraints keep release and component
+references inside one Space; immutable-content triggers prevent release history
+from being rewritten.
 
-Model completions are cached after the provider result is stored. A provider
-call can still repeat if the worker dies after the provider succeeds but before
-that result reaches the database; Temporal cannot make a third-party API
-exactly-once.
-
-Idempotency rows must outlive every open workflow and the Temporal namespace's
-history-retention window. Operational cleanup may delete only completed tool
-rows and model-completion rows after the corresponding workflows are closed and
-older than that retention window. Incomplete tool claims require reconciliation
-and must not be removed by an automatic age-based job.
-
-### Data handling and guardrails
-
-Routed message text, captions, quoted fragments, participant identity, chat
-metadata, and relevant Telegram event metadata are sent to the configured
-external DeepSeek model. Structured contact, location, and venue details are
-withheld from model context. Telegram image attachments are described by
-metadata only; their private bytes are not forwarded to the model.
-
-Inbound updates accepted by the workflow are stored as serialized Telegram
-update JSON in PostgreSQL for durable ingestion and history search. That stored
-record can contain fields which are deliberately excluded from model context.
-Participant memories and chat-scoped runtime capabilities are also stored in
-PostgreSQL.
-
-The model-facing Telegram API tool is bound to the current chat and topic. Its
-allowlist excludes cross-chat targeting, moderation, webhook and bot
-configuration, payments and refunds, and message mutation. Shipping and
-pre-checkout queries are rejected because bot payments are disabled.
-
-`/pause`, `/resume`, `/clear`, and model-requested runtime capability mutations
-fail closed unless they come from the private-chat user or from identifiable,
-non-anonymous owners or administrators in a group, supergroup, or channel.
-
-### Runtime capabilities
-
-The agent may create durable, chat-specific:
-
-- **runtime skills**, which are injected into its system prompt; and
-- **runtime tools**, whose stored argument schema is validated by PiPH before a
-  separate model completion executes their instructions.
-
-Runtime capabilities cannot replace built-in PHP tools. Definitions are bounded
-to 20 skills and 20 tools per chat, 8 KB per body, instructions, or schema, and
-a 50 KB enabled-context budget. Runtime skills enter the main system prompt;
-runtime tools execute as separate, schema-validated model calls and cannot
-directly invoke built-in tools.
+The Space migration deliberately makes a clean runtime cut. It preserves
+legacy chat-level skills and participant memories by importing them into each
+chat's root Space. Topic Spaces start isolated instead of inheriting chat-wide
+private state. The old tables remain for recovery, but Space v2 does not read
+them at runtime.
 
 ## Requirements
 
-- PHP 8.6 ZTS
-- `ext-true_async` 0.8.2 or newer
-- `ext-temporal`
-- PostgreSQL
-- Temporal Server
-- a Telegram bot token
-- a DeepSeek API key
+- PHP 8.6 ZTS with `ext-true_async >= 0.8.2` and `ext-temporal`
+- PostgreSQL 15+ and Temporal Server
+- a Telegram bot token and DeepSeek API key
+- SearXNG for internet search
 
-The project uses the TrueAsync branches of Phenogram and the Temporal PHP SDK,
-plus the three independent PiPH packages:
-
-- [pihp](https://github.com/shanginn/pihp)
-- [pihp-agent-core](https://github.com/shanginn/pihp-agent-core)
-- [pihp-ai](https://github.com/shanginn/pihp-ai)
-
-## Setup
+## Local setup
 
 ```bash
 cp .env.sample .env
 composer install --ignore-platform-req=php+
+temporal server start-dev
+docker compose up -d
 ```
 
-The temporary `php+` override ignores only dependency upper bounds that have
-not yet declared PHP 8.6 support; minimum PHP and extension requirements remain
-enforced. The production image uses the same narrow override.
+The narrow Composer override ignores only dependency upper bounds that have
+not yet declared PHP 8.6 support. Minimum PHP and extension requirements remain
+enforced by the production image.
 
-Configure at least:
+Core settings:
 
 ```dotenv
 TELEGRAM_BOT_TOKEN=
 DEEPSEEK_API_KEY=
-TEMPORAL_ADDRESS=localhost:7233
+TEMPORAL_ADDRESS=host.docker.internal:7233
 TEMPORAL_NAMESPACE=default
+BOT_INSTANCE_ID=default
 
-DB_HOST=localhost
+DB_HOST=db
 DB_PORT=5432
 DB_DATABASE=wtf_happend_bot
 DB_USERNAME=postgres
 DB_PASSWORD=postgres
 
-SEARCH_BASE_URL=http://localhost:38080
-SEARCH_TIMEOUT_SECONDS=10
-SEARXNG_SECRET=replace-with-a-random-secret
+SPACE_AGENT_TASK_QUEUE=space-agent-v1
+SPACE_DREAM_TASK_QUEUE=space-dream-v1
+SPACE_DREAM_TIME_ZONE=Asia/Yekaterinburg
+SPACE_DREAM_HOUR=3
+SPACE_DREAM_MINUTE=17
+SPACE_DREAM_JITTER_MINUTES=30
 ```
 
-With a Temporal development server already running on the host, start the bot,
-worker, PostgreSQL, and SearXNG containers:
+The interactive agent and Dream queues must run in separate worker processes:
 
 ```bash
-docker compose up -d
-```
-
-Or run the processes separately:
-
-```bash
-temporal server start-dev
-php src/worker.php
+WORKER_PACKAGE=space-agent-v1 php src/worker.php
+WORKER_PACKAGE=space-dream-v1 php src/worker.php
 php src/bot.php
 ```
 
-SearXNG is exposed at `http://localhost:38080` by Docker Compose.
+Docker Compose already starts those workers separately.
 
-## Temporal rollout
+## Clean cutover
 
-This rewrite intentionally does not preserve replay compatibility with workflow
-histories produced by the previous agent implementation. Before deploying it,
-terminate or reset every open legacy `AgenticWorkflow` execution, and terminate
-the retired `RouterWorkflow` executions. Do this before starting the new worker;
-the next accepted Telegram update starts a clean PiPH-backed workflow for its
-topic.
+No Temporal replay compatibility with the old `AgenticWorkflow` or
+`RouterWorkflow` is provided. Terminate those executions, deploy the Space v2
+workers, and let the next Telegram update start
+`space-agent/{spaceId}/v1/release/{imageDigest}`. The admin commands remain
+available for diagnostics, but production release does not depend on an admin
+running them:
 
-The production Helm chart expects the Temporal namespace configured by
-`TEMPORAL_NAMESPACE` to exist before deployment. Its default is
-`wtf-happend-bot`; local development defaults to `default`.
+```bash
+php src/space-v2-admin.php cutover
+php src/space-v2-admin.php cutover --apply
+php src/space-v2-admin.php install-dream-schedule
+```
 
-The workflow controls remain:
+Production CI serializes releases and deploys only an image addressed by its
+OCI digest. Before changing the application Deployment it installs and probes a
+release-qualified recovery controller. The application uses `Recreate`: the old
+Telegram poller stops, the migration/import runs, and the candidate starts with
+Telegram ingress gated while both release-qualified Temporal workers are
+checked.
 
-- `/pause` pauses the current topic; updates received while paused are persisted
-  for history/search but are not processed retroactively;
-- `/resume` resumes new-message processing in the current topic; and
-- `/clear` terminates the current topic workflow.
+Before authorization, a failure or abandoned CI runner durably tombstones the
+candidate and restores the exact previous Helm revision. After authorization,
+rollback is forbidden: the in-cluster controller repeatedly converges forward
+by pausing the old Dream schedule, terminating old workflow families, installing
+and verifying the new schedule, and finally opening Telegram polling through a
+database-backed activation marker. The controller survives CI loss and retries
+transient Kubernetes, PostgreSQL, Telegram, and Temporal failures without an
+administrator.
 
-## Development
+The first legacy adoption uses Helm ownership transfer for the old hook-created
+ServiceAccount. Application Pods never mount its Kubernetes token. Recovery is
+allowed to recreate only the two exact legacy RoleBindings required by the
+previous revision; controller RBAC and its Helm 3.17.3 image are immutable and
+kept across rollback.
+
+`Recreate` deliberately prevents old and new Telegram pollers from overlapping.
+It does imply a bounded no-poller interval while the old pod stops, the final
+legacy state is imported, and the new pod starts; Telegram keeps pending updates
+for the new ingress process.
+
+## Verification
 
 ```bash
 php vendor/bin/phpunit
 composer fix
 ```
 
-The unit test command requires the PHP 8.6 TrueAsync runtime. Tests that exercise
-coroutines additionally require the `true_async` extension to be loaded.
+The full PHP suite requires the PHP 8.6 TrueAsync runtime. Tests exercising
+coroutines also require the `true_async` extension.

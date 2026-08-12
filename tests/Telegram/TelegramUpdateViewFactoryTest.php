@@ -33,6 +33,8 @@ class TelegramUpdateViewFactoryTest extends TestCase
 
         $this->assertSame('telegram_user:7', $view->participantReference);
         $this->assertSame(0, $view->imageAttachmentCount);
+        $this->assertSame(42, $view->updateId);
+        $this->assertSame("hello\nthere", $view->memoryEvidenceText);
         $this->assertStringContainsString('Telegram update: message', $view->text);
         $this->assertStringContainsString('From: Alice (@alice, id 7)', $view->text);
         $this->assertStringContainsString("Text:\nhello\nthere", $view->text);
@@ -176,8 +178,8 @@ class TelegramUpdateViewFactoryTest extends TestCase
     public function testStructuredContactAndLocationDetailsAreWithheld(): void
     {
         $factory = new TelegramUpdateViewFactory();
-        $chat = new Chat(id: -100555, type: 'supergroup', title: 'Visual Lab');
-        $sender = new User(id: 14, isBot: false, firstName: 'Alice');
+        $chat    = new Chat(id: -100555, type: 'supergroup', title: 'Visual Lab');
+        $sender  = new User(id: 14, isBot: false, firstName: 'Alice');
 
         $contactView = $factory->create(new Update(
             updateId: 93,

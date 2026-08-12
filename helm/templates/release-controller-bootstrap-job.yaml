@@ -1,0 +1,80 @@
+{{- if .Values.releaseControllerBootstrap.enabled }}
+{{- $releaseId := required "releaseControllerBootstrap.id is required" .Values.releaseControllerBootstrap.id -}}
+{{- if not (regexMatch "^[a-f0-9]{64}$" $releaseId) -}}
+{{- fail "releaseControllerBootstrap.id must be a 64-character lowercase SHA-256 digest" -}}
+{{- end -}}
+{{- $reconcilerName := printf "%s-release-reconciler-%s" (include "app.fullname" . | trunc 31 | trimSuffix "-") ($releaseId | trunc 12) -}}
+{{- $helmMarkerName := printf "%s-helm-committed-%s" (include "app.fullname" . | trunc 34 | trimSuffix "-") ($releaseId | trunc 12) -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-release-bootstrap-%s" (include "app.fullname" . | trunc 35 | trimSuffix "-") ($releaseId | trunc 12) }}
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: release-bootstrap
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
+spec:
+  activeDeadlineSeconds: 600
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "app.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: release-bootstrap
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "app.fullname" . }}-release-controller
+      automountServiceAccountToken: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: migrate-release-state
+          image: "{{ .Values.image.repository }}{{ if .Values.image.digest }}@{{ .Values.image.digest }}{{ else }}:{{ .Values.image.tag | default .Chart.AppVersion }}{{ end }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef: {name: {{ include "app.fullname" . }}-env}
+            - secretRef: {name: {{ include "app.fullname" . }}-secret}
+          command: ["php", "-r", "require 'config/orm.php';"]
+      containers:
+        - name: release-bootstrap
+          image: "{{ .Values.image.repository }}{{ if .Values.image.digest }}@{{ .Values.image.digest }}{{ else }}:{{ .Values.image.tag | default .Chart.AppVersion }}{{ end }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef: {name: {{ include "app.fullname" . }}-env}
+            - secretRef: {name: {{ include "app.fullname" . }}-secret}
+          env:
+            - name: SKIP_MIGRATIONS
+              value: "true"
+            - name: HOST_RELEASE_ID
+              value: {{ $releaseId | quote }}
+            - name: SPACE_AGENT_TASK_QUEUE
+              value: {{ .Values.env.SPACE_AGENT_TASK_QUEUE | quote }}
+            - name: SPACE_DREAM_TASK_QUEUE
+              value: {{ .Values.env.SPACE_DREAM_TASK_QUEUE | quote }}
+            - name: RELEASE_AUTO_AUTHORIZE_AFTER
+              value: {{ required "releaseReconciler.autoAuthorizeAfterEpoch is required" .Values.releaseReconciler.autoAuthorizeAfterEpoch | quote }}
+            - name: RELEASE_DEPLOYMENT
+              value: {{ include "app.fullname" . | quote }}
+            - name: RELEASE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: RELEASE_CONTROLLER_CRONJOB
+              value: {{ $reconcilerName | quote }}
+            - name: RELEASE_HELM_COMMIT_MARKER
+              value: {{ $helmMarkerName | quote }}
+            - name: RELEASE_PREVIOUS_BOT_IMAGE
+              value: {{ .Values.releaseReconciler.previousBotImage | quote }}
+            - name: RELEASE_PREVIOUS_HELM_REVISION
+              value: {{ required "releaseReconciler.previousHelmRevision is required" .Values.releaseReconciler.previousHelmRevision | quote }}
+            - name: RELEASE_HELM_NAME
+              value: {{ .Release.Name | quote }}
+            - name: RELEASE_BOOTSTRAP_ONLY
+              value: "true"
+          command: ["bash", "scripts/reconcile-host-release.sh"]
+{{- end }}

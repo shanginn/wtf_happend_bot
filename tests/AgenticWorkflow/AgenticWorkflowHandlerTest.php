@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\AgenticWorkflow;
 
+use Bot\AgenticWorkflow\AgenticWorkflow;
 use Bot\AgenticWorkflow\AgenticWorkflowHandler;
 use Bot\AgenticWorkflow\AgenticWorkflowInput;
 use Bot\Telegram\PaymentQueryAnswer;
@@ -14,6 +15,7 @@ use Phenogram\Bindings\Factories\ChatFactory;
 use Phenogram\Bindings\Factories\MessageFactory;
 use Phenogram\Bindings\Factories\PreCheckoutQueryFactory;
 use Phenogram\Bindings\Factories\UpdateFactory;
+use stdClass;
 use Temporal\Client\WorkflowClientInterface;
 use Temporal\Client\WorkflowOptions;
 use Temporal\Common\IdReusePolicy;
@@ -74,14 +76,14 @@ class AgenticWorkflowHandlerTest extends TestCase
             isTopicMessage: true,
         );
 
-        $client = Mockery::mock(WorkflowClientInterface::class);
-        $workflowStub = new \stdClass();
+        $client       = Mockery::mock(WorkflowClientInterface::class);
+        $workflowStub = new stdClass();
 
         $client
             ->shouldReceive('newWorkflowStub')
             ->once()
             ->withArgs(function (string $class, WorkflowOptions $options): bool {
-                return $class === \Bot\AgenticWorkflow\AgenticWorkflow::class
+                return $class === AgenticWorkflow::class
                     && $options->workflowId === 'Chat -100123456 [Topic 789]'
                     && (int) CarbonInterval::instance($options->workflowTaskTimeout)->totalSeconds === 60
                     && $options->workflowIdReusePolicy === IdReusePolicy::AllowDuplicate->value;

@@ -1,14 +1,46 @@
-imagePullSecrets:
-  - name: dockerconfigjson-github-com
+imagePullSecrets: []
 
 image:
   repository: ghcr.io/shanginn/wtf_happend_bot
   pullPolicy: Always
   tag: latest
+  # Production passes the immutable OCI digest. A local empty digest keeps the
+  # familiar repository:tag development render.
+  digest: ""
+
+release:
+  # Immutable host-code identity. Production overrides this with the 64 hex
+  # characters from image.digest.
+  id: local
 
 serviceAccount:
   create: true
   name: "wtf-happend-bot"
+
+ingress:
+  # The ingress process is present in phase one but waits on the durable host
+  # release marker before polling Telegram.
+  gated: false
+
+releaseReconciler:
+  # This release-qualified controller owns both pre-authorization rollback and
+  # forward recovery after the boundary: old schedule quiesce, workflow cut,
+  # new schedule, and the durable marker which opens Telegram ingress.
+  enabled: false
+  schedule: "*/5 * * * *"
+  startingDeadlineSeconds: 300
+  autoAuthorizeAfterEpoch: ""
+  autoAuthorizeDelaySeconds: 2700
+  previousBotImage: ""
+  previousHelmRevision: ""
+  helmImage: alpine/helm@sha256:d899e6316789fec04ee95300a18e454b7942539cbb3d89bde3e0655d6ca2e895
+
+releaseControllerBootstrap:
+  # CI enables this one-shot probe before the app Deployment is allowed to
+  # change. It proves the candidate image can migrate/read DB state and use
+  # the controller's deliberately narrow Kubernetes credentials.
+  enabled: false
+  id: ""
 
 env:
   APP_NAME: wtf_happend_bot
@@ -26,12 +58,27 @@ env:
   SEARCH_TIMEOUT_SECONDS: 10
   TEMPORAL_ADDRESS: temporal-frontend.temporal:7233
   TEMPORAL_NAMESPACE: wtf-happend-bot
+  BOT_INSTANCE_ID: default
+  HOST_RELEASE_ID: local
+  SPACE_AGENT_TASK_QUEUE: space-agent-v1
+  SPACE_DREAM_TASK_QUEUE: space-dream-v1
+  SPACE_DREAM_TIME_ZONE: Asia/Yekaterinburg
+  SPACE_DREAM_HOUR: 3
+  SPACE_DREAM_MINUTE: 17
+  SPACE_DREAM_JITTER_MINUTES: 30
 
 envSecrets:
   DB_PASSWORD: ""
   SEARXNG_SECRET: "change-me-searxng-secret"
   TELEGRAM_BOT_TOKEN: ""
   DEEPSEEK_API_KEY: ""
+
+releaseOperation:
+  # CI renders and applies one operation at a time only after the new
+  # Deployment and both Temporal worker queues pass their readiness gates.
+  enabled: false
+  id: ""
+  operation: ""
 
 searxng:
   enabled: true

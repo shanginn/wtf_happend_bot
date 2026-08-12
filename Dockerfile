@@ -43,6 +43,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && make install \
     && cp third_party/sdk-rust/target/release/libtemporalio_sdk_core_c_bridge.so /usr/local/lib/
 
+FROM registry.k8s.io/kubectl:v1.28.3 AS kubectl
+
 FROM trueasync/php-true-async:0.8.4-php8.6 AS runtime
 
 RUN apt-get update \
@@ -50,12 +52,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=composer /usr/bin/composer /usr/local/bin/composer
+COPY --from=kubectl /bin/kubectl /usr/local/bin/kubectl
 COPY --from=temporal-builder /usr/local/lib/php/extensions/ /usr/local/lib/php/extensions/
 COPY --from=temporal-builder /usr/local/lib/libtemporalio_sdk_core_c_bridge.so /usr/local/lib/
 COPY docker/php/temporal.ini /etc/php.d/20-temporal.ini
 
 RUN ldconfig \
-    && php -r "if (PHP_VERSION_ID < 80600 || !extension_loaded('true_async') || !extension_loaded('temporal')) { exit(1); }"
+    && php -r "if (PHP_VERSION_ID < 80600 || !extension_loaded('true_async') || !extension_loaded('temporal')) { exit(1); }" \
+    && kubectl version --client=true --output=yaml | grep -Fq 'gitVersion: v1.28.3'
 
 RUN groupadd --gid 1337 bot \
     && useradd --uid 1337 --gid 1337 --create-home --shell /bin/bash bot

@@ -53,6 +53,7 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
             return new InputMessageView(
                 text: $this->describeNonMessageUpdate($update),
                 participantReference: $this->resolveNonMessageParticipantReference($update),
+                updateId: $update->updateId,
             );
         }
 
@@ -67,7 +68,19 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
             ),
             participantReference: $this->resolveParticipantReference($message),
             imageAttachmentCount: $this->countImageAttachments($message),
+            updateId: $update->updateId,
+            memoryEvidenceText: $this->memoryEvidenceText($message),
         );
+    }
+
+    private function memoryEvidenceText(MessageInterface $message): ?string
+    {
+        $evidence = array_values(array_filter([
+            $this->normalizeText($message->text),
+            $this->normalizeText($message->caption),
+        ], static fn (?string $value): bool => $value !== null));
+
+        return $evidence === [] ? null : implode("\n", $evidence);
     }
 
     /**

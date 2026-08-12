@@ -18,6 +18,7 @@ spec:
         {{- include "app.selectorLabels" . | nindent 8 }}
         service: searxng
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: searxng
           image: "{{ .Values.searxng.image }}"

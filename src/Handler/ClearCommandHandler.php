@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Bot\Handler;
 
-use Bot\AgenticWorkflow\AgenticWorkflowHandler;
 use Bot\Durability\DurableCommandReplyGateway;
+use Bot\Space\Runtime\SpaceIdentityResolverInterface;
+use Bot\Space\Workflow\SpaceAgentWorkflow;
+use Bot\Space\Workflow\SpaceAgentWorkflowHandler;
 use Bot\Telegram\TelegramChatAuthorizationPolicy;
 use Bot\Telegram\TelegramTopicRouting;
+use Bot\Telegram\Update;
 use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
 use Phenogram\Framework\Handler\AbstractCommandHandler;
 use Phenogram\Framework\TelegramBot;
@@ -15,6 +18,7 @@ use Temporal\Client\GRPC\StatusCode;
 use Temporal\Client\WorkflowClientInterface;
 use Temporal\Exception\Client\ServiceClientException;
 use Throwable;
+use UnexpectedValueException;
 
 class ClearCommandHandler extends AbstractCommandHandler
 {
@@ -29,8 +33,10 @@ class ClearCommandHandler extends AbstractCommandHandler
 
     public function __construct(
         private readonly WorkflowClientInterface $client,
+        private readonly SpaceIdentityResolverInterface $spaces,
         private readonly TelegramChatAuthorizationPolicy $authorization,
         private readonly DurableCommandReplyGateway $durableReplies,
+        private readonly string $hostReleaseId = 'local',
     ) {}
 
     public static function supports(UpdateInterface $update): bool
@@ -64,7 +70,7 @@ class ClearCommandHandler extends AbstractCommandHandler
             chatId: $message->chat->id,
             messageThreadId: $topicId,
             messageId: $message->messageId,
-            resolveReply: function () use ($message, $update, $topicId): string {
+            resolveReply: function () use ($message, $update): string {
                 try {
                     $authorized = $this->authorization->isMessageActorAuthorized($message);
                 } catch (Throwable) {
@@ -77,10 +83,9 @@ class ClearCommandHandler extends AbstractCommandHandler
 
                 try {
                     $workflow = $this->client->newUntypedRunningWorkflowStub(
-                        AgenticWorkflowHandler::generateWorkflowIdForChat(
-                            $message->chat->id,
-                            $topicId,
-                        ),
+                        $this->workflowId($update),
+                        null,
+                        SpaceAgentWorkflow::WORKFLOW_TYPE,
                     );
                     $workflow->terminate(
                         reason: 'Cleared by /clear command',
@@ -103,6 +108,20 @@ class ClearCommandHandler extends AbstractCommandHandler
                     messageThreadId: $topicId,
                 );
             },
+        );
+    }
+
+    private function workflowId(UpdateInterface $update): string
+    {
+        if (!$update instanceof Update) {
+            throw new UnexpectedValueException(
+                'Space workflow commands require the bot Telegram update type.',
+            );
+        }
+
+        return SpaceAgentWorkflowHandler::workflowId(
+            $this->spaces->resolve($update),
+            $this->hostReleaseId,
         );
     }
 }

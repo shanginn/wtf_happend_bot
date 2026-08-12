@@ -11,6 +11,9 @@ use Cycle\ORM\EntityManagerInterface;
 use Cycle\ORM\ORMInterface;
 use Cycle\ORM\RepositoryInterface;
 use Cycle\ORM\Transaction\StateInterface;
+use Phenogram\Bindings\Factories\ChatFactory;
+use Phenogram\Bindings\Factories\MessageFactory;
+use Phenogram\Bindings\Factories\UpdateFactory;
 use Phenogram\Bindings\SerializerInterface;
 use RuntimeException;
 use Temporal\Exception\Failure\ApplicationFailure;
@@ -20,8 +23,8 @@ final class TelegramActivitySaveUpdatesTest extends TestCase
 {
     public function testNewRecordUsesTrustedWorkflowChatWhenUpdateHasNoEffectiveChat(): void
     {
-        $repository = new InMemoryUpdateRecordRepository();
-        $persisted = null;
+        $repository    = new InMemoryUpdateRecordRepository();
+        $persisted     = null;
         $entityManager = $this->createMock(EntityManagerInterface::class);
         $entityManager
             ->expects($this->once())
@@ -77,6 +80,52 @@ final class TelegramActivitySaveUpdatesTest extends TestCase
         self::assertTrue($saved);
     }
 
+    public function testOnlyRealTelegramTopicsArePersistedAsTopics(): void
+    {
+        foreach ([
+            'generic reply thread' => [506, 193132, null, null],
+            'forum topic'          => [507, 42, true, 42],
+        ] as $case => [$updateId, $messageThreadId, $isTopicMessage, $expectedTopicId]) {
+            $repository    = new InMemoryUpdateRecordRepository();
+            $persisted     = null;
+            $entityManager = $this->createMock(EntityManagerInterface::class);
+            $entityManager
+                ->expects($this->once())
+                ->method('persist')
+                ->willReturnCallback(
+                    function (object $entity) use ($entityManager, $repository, &$persisted): EntityManagerInterface {
+                        self::assertInstanceOf(UpdateRecord::class, $entity);
+                        $persisted = $entity;
+                        $repository->store($entity);
+
+                        return $entityManager;
+                    },
+                );
+            $entityManager
+                ->expects($this->once())
+                ->method('run')
+                ->willReturn($this->createStub(StateInterface::class));
+            $update = UpdateFactory::make(
+                updateId: $updateId,
+                message: MessageFactory::make(
+                    chat: ChatFactory::make(id: -100123, type: 'supergroup'),
+                    messageThreadId: $messageThreadId,
+                    isTopicMessage: $isTopicMessage,
+                ),
+            );
+            self::assertInstanceOf(Update::class, $update);
+
+            $this->activity($repository, $entityManager)->saveUpdates(
+                $update,
+                workflowChatId: -100123,
+                ingestionRunId: "workflow/run-1/{$case}",
+            );
+
+            self::assertInstanceOf(UpdateRecord::class, $persisted);
+            self::assertSame($expectedTopicId, $persisted->topicId, $case);
+        }
+    }
+
     public function testRecordOwnedByAnotherIngestionRunReturnsFalse(): void
     {
         $repository = new InMemoryUpdateRecordRepository([
@@ -102,7 +151,7 @@ final class TelegramActivitySaveUpdatesTest extends TestCase
 
     public function testDeterministicSerializationFailureIsNonRetryable(): void
     {
-        $repository = new InMemoryUpdateRecordRepository();
+        $repository    = new InMemoryUpdateRecordRepository();
         $entityManager = $this->createMock(EntityManagerInterface::class);
         $entityManager->expects($this->never())->method('persist');
         $entityManager->expects($this->never())->method('run');
@@ -127,7 +176,7 @@ final class TelegramActivitySaveUpdatesTest extends TestCase
 
     public function testDatabaseFailureRemainsRetryableByTemporal(): void
     {
-        $repository = new InMemoryUpdateRecordRepository();
+        $repository    = new InMemoryUpdateRecordRepository();
         $entityManager = $this->createMock(EntityManagerInterface::class);
         $entityManager
             ->expects($this->once())

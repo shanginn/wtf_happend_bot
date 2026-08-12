@@ -53,6 +53,12 @@ final readonly class IdempotentToolExecutionGateway implements ToolExecutionGate
             $record = $repository->findByIdempotencyKey($input->idempotencyKey);
 
             if ($record !== null) {
+                if ($record->resultJson === null && self::isAppendOnlyMemoryMutation($input)) {
+                    self::assertExecutionIdentity($input, $record);
+
+                    return $this->replayAppendOnlyMemoryMutation($repository, $input, $record);
+                }
+
                 return $this->existingExecutionResult(
                     $repository,
                     $input,
@@ -146,6 +152,15 @@ final readonly class IdempotentToolExecutionGateway implements ToolExecutionGate
             'upsert_runtime_skill',
             'upsert_runtime_tool',
             'set_runtime_capability_status',
+        ], true);
+    }
+
+    private static function isAppendOnlyMemoryMutation(ToolActivityInput $input): bool
+    {
+        return in_array($input->name, [
+            'save_memory',
+            'update_memory',
+            'forget_memory',
         ], true);
     }
 
@@ -307,6 +322,29 @@ final readonly class IdempotentToolExecutionGateway implements ToolExecutionGate
         }
 
         return $value;
+    }
+
+    /**
+     * Space memory persistence has its own payload-checked idempotency key and
+     * append-only transaction. It is therefore safe to recover a gateway
+     * crash window by re-entering the store, unlike Telegram sends and other
+     * arbitrary side effects.
+     *
+     * @param ToolExecutionRecordRepository&RepositoryInterface<ToolExecutionRecord> $repository
+     * @param ToolActivityInput                                                      $input
+     * @param ToolExecutionRecord                                                    $record
+     */
+    private function replayAppendOnlyMemoryMutation(
+        RepositoryInterface $repository,
+        ToolActivityInput $input,
+        ToolExecutionRecord $record,
+    ): ToolActivityResult {
+        $result              = $this->inner->execute($input);
+        $record->resultJson  = self::encode($result);
+        $record->completedAt = time();
+        $repository->save($record);
+
+        return $result;
     }
 
     /**

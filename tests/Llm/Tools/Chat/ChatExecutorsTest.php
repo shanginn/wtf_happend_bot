@@ -110,6 +110,32 @@ class ChatExecutorsTest extends TestCase
                 return array_slice($records, 0, $limit);
             }
 
+            /** @return list<UpdateRecord> */
+            public function findLastNInTopic(int $chatId, ?int $topicId, int $limit): array
+            {
+                return array_slice(array_values(array_filter(
+                    $this->records,
+                    static fn (UpdateRecord $record): bool => $record->chatId === $chatId
+                        && $record->topicId === $topicId,
+                )), 0, $limit);
+            }
+
+            /**
+             * @param list<string> $tokens
+             * @return list<UpdateRecord>
+             */
+            public function searchByPayloadTextInTopic(
+                int $chatId,
+                ?int $topicId,
+                array $tokens,
+                int $limit,
+            ): array {
+                return array_slice(array_values(array_filter(
+                    $this->searchByPayloadText($chatId, $tokens, $limit),
+                    static fn (UpdateRecord $record): bool => $record->topicId === $topicId,
+                )), 0, $limit);
+            }
+
             public function findByPK(mixed $id): ?object
             {
                 return null;
@@ -131,6 +157,7 @@ class ChatExecutorsTest extends TestCase
     {
         $orm = Mockery::mock(ORMInterface::class);
         $orm->shouldReceive('getRepository')
+            ->atLeast()
             ->once()
             ->with(UpdateRecord::class)
             ->andReturn($updateRepo);
@@ -212,6 +239,27 @@ class ChatExecutorsTest extends TestCase
 
         self::assertStringContainsString('general message', $result);
         self::assertStringContainsString('topic message', $result);
+    }
+
+    public function testSpaceSearchNeverCrossesTheTopicBoundary(): void
+    {
+        $chatId = -100123;
+        $repo = $this->makeUpdateRepo([
+            $this->makeUpdateRecord(3, $chatId, 'private topic 99 note', 300, 'eve', topicId: 99),
+            $this->makeUpdateRecord(2, $chatId, 'private topic 42 note', 200, 'bob', topicId: 42),
+            $this->makeUpdateRecord(1, $chatId, 'root private note', 100, 'alice'),
+        ]);
+        $executor = new SearchMessagesExecutor($this->makeOrm($repo));
+
+        $topic = $executor->executeInSpace($chatId, 42, 'private', resultLimit: 10);
+        self::assertStringContainsString('topic 42', $topic);
+        self::assertStringNotContainsString('topic 99', $topic);
+        self::assertStringNotContainsString('root private', $topic);
+
+        $root = $executor->executeInSpace($chatId, null, 'private', resultLimit: 10);
+        self::assertStringContainsString('root private', $root);
+        self::assertStringNotContainsString('topic 42', $root);
+        self::assertStringNotContainsString('topic 99', $root);
     }
 
     public function testSearchMessagesExecutorReturnsAUsefulNoMatchMessage(): void

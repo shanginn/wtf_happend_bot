@@ -19,13 +19,24 @@ $factory = WorkerFactory::create(
     namespace: $config->temporalNamespace,
 );
 
-$worker = $factory->newWorker();
-
 $declarationPath = realpath(__DIR__ . '/../config/declarations.php');
 
-$declarations = is_file($declarationPath) ? include $declarationPath : [];
+$declarations  = is_file($declarationPath) ? include $declarationPath : [];
+$packageFilter = trim((string) (getenv('WORKER_PACKAGE') ?: ''));
+if ($packageFilter !== '') {
+    if (!array_key_exists($packageFilter, $declarations)) {
+        throw new InvalidArgumentException("Unknown WORKER_PACKAGE {$packageFilter}.");
+    }
+    $declarations = [$packageFilter => $declarations[$packageFilter]];
+}
 
 foreach ($declarations as $package => $declaration) {
+    $taskQueue = $declaration['taskQueue'] ?? $package;
+    if (!is_string($taskQueue) || trim($taskQueue) === '') {
+        throw new InvalidArgumentException("Worker package {$package} has no task queue.");
+    }
+    $worker = $factory->newWorker($taskQueue);
+
     foreach ($declaration['workflows'] ?? [] as $workflow) {
         $worker->registerWorkflowTypes($workflow);
     }

@@ -4,14 +4,22 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use Bot\AgenticWorkflow\AgenticWorkflowHandler;
 use Bot\Bot\DurableTelegramBot;
 use Bot\Bot\ExtendedApi;
 use Bot\Config\TemporalConfig;
 use Bot\Durability\CycleIdempotencyLedger;
 use Bot\Durability\DurableCommandReplyGateway;
+use Bot\Entity\Space;
 use Bot\Handler\ClearCommandHandler;
 use Bot\Handler\WorkflowControlCommandHandler;
+use Bot\Space\Operations\HostReleaseActivationGate;
+use Bot\Space\Operations\HostReleaseStateStore;
+use Bot\Space\Persistence\SpaceReleaseSeed;
+use Bot\Space\Persistence\SpaceStore;
+use Bot\Space\Runtime\SpaceCapabilityPolicy;
+use Bot\Space\Runtime\TelegramSpaceIdentityResolver;
+use Bot\Space\Workflow\SpaceAgentRuntime;
+use Bot\Space\Workflow\SpaceAgentWorkflowHandler;
 use Bot\Telegram\Factory;
 use Bot\Telegram\TelegramChatAuthorizationPolicy;
 use Bot\Telegram\Update;
@@ -53,8 +61,27 @@ $workflowClient = new WorkflowClient(
     converter: $temporalConfig->dataConverter
 );
 
-$agenticWorkflowHandler = new AgenticWorkflowHandler(
+$spaceStore = new SpaceStore(
+    $orm,
+    $orm->getSource(Space::class)->getDatabase(),
+);
+$spaceResolver = new TelegramSpaceIdentityResolver(
+    botInstanceId: $temporalConfig->botInstanceId,
+    store: $spaceStore,
+    initialRelease: new SpaceReleaseSeed(
+        model: SpaceAgentRuntime::MODEL,
+        prompt: 'Learn this Space gradually while respecting the host policy and explicit user requests.',
+        personalityJson: '{}',
+        manifestJson: '{"schemaVersion":1,"capsules":[]}',
+        capabilityPolicyJson: SpaceCapabilityPolicy::JSON,
+        createdBy: 'space-bootstrap-v1',
+    ),
+);
+$spaceWorkflowHandler = new SpaceAgentWorkflowHandler(
     client: $workflowClient,
+    spaces: $spaceResolver,
+    taskQueue: $temporalConfig->agentTaskQueue,
+    hostReleaseId: $temporalConfig->hostReleaseId,
 );
 $authorization  = new TelegramChatAuthorizationPolicy($bot->api);
 $durableReplies = new DurableCommandReplyGateway(
@@ -62,13 +89,17 @@ $durableReplies = new DurableCommandReplyGateway(
 );
 $clearCommandHandler = new ClearCommandHandler(
     $workflowClient,
+    $spaceResolver,
     $authorization,
     $durableReplies,
+    $temporalConfig->hostReleaseId,
 );
 $workflowControlCommandHandler = new WorkflowControlCommandHandler(
     $workflowClient,
+    $spaceResolver,
     $authorization,
     $durableReplies,
+    $temporalConfig->hostReleaseId,
 );
 
 $bot
@@ -80,12 +111,12 @@ $bot
     ->supports($workflowControlCommandHandler::supports(...));
 
 $bot
-    ->addHandler(function (UpdateInterface $update, TelegramBot $bot) use ($agenticWorkflowHandler) {
+    ->addHandler(function (UpdateInterface $update, TelegramBot $bot) use ($spaceWorkflowHandler) {
         if (!$update instanceof Update) {
             throw new UnexpectedValueException('Telegram update factory returned an unsupported update type.');
         }
 
-        $paymentAnswer = $agenticWorkflowHandler->handleUpdate($update);
+        $paymentAnswer = $spaceWorkflowHandler->handleUpdate($update);
 
         if ($update->callbackQuery !== null) {
             try {
@@ -134,5 +165,11 @@ $gracefulShutdown = function (int $signal) use ($bot, &$pressedCtrlC, $em): void
 pcntl_signal(SIGTERM, $gracefulShutdown);
 pcntl_signal(SIGINT, $gracefulShutdown);
 pcntl_async_signals(true);
+
+if ($temporalConfig->releaseIngressGate) {
+    (new HostReleaseActivationGate(new HostReleaseStateStore(
+        $orm->getSource(Space::class)->getDatabase(),
+    )))->await($temporalConfig->hostReleaseId);
+}
 
 $bot->run();

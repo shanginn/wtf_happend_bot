@@ -4,4 +4,6 @@ vendor
 .php-cs-fixer.cache
 database.sqlite
 .phpunit.cache
+.phpunit.result.cache
 rr
+.pnpm-store/

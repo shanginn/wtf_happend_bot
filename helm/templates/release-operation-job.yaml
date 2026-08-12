@@ -1,0 +1,110 @@
+{{- if .Values.releaseOperation.enabled }}
+{{- $releaseId := required "releaseOperation.id is required" .Values.releaseOperation.id -}}
+{{- $operation := required "releaseOperation.operation is required" .Values.releaseOperation.operation -}}
+{{- $operations := list "prepare-release" "abort-release" "preflight-workers" "preflight-ingress" "authorize-release" "release-status" "confirm-ingress-retired" "reconcile-release" "cutover" "install-dream-schedule" -}}
+{{- if not (has $operation $operations) -}}
+{{- fail (printf "unsupported releaseOperation.operation %q" $operation) -}}
+{{- end -}}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9.-]{0,127}$" $releaseId) -}}
+{{- fail "releaseOperation.id must be a lowercase release identifier" -}}
+{{- end -}}
+{{- $releaseLabel := $releaseId | trunc 63 | trimSuffix "-" -}}
+{{- $name := printf "%s-%s-%s" (include "app.fullname" . | trunc 24 | trimSuffix "-") $operation ($releaseId | trunc 12) -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "app.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/managed-by: release-pipeline
+    app.kubernetes.io/component: release-operation
+    app.kubernetes.io/release-id: {{ $releaseLabel | quote }}
+    app.kubernetes.io/release-operation: {{ $operation | quote }}
+  annotations:
+    app.kubernetes.io/release-id-full: {{ $releaseId | quote }}
+spec:
+  activeDeadlineSeconds: 300
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "app.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: release-operation
+        app.kubernetes.io/release-id: {{ $releaseLabel | quote }}
+        app.kubernetes.io/release-operation: {{ $operation | quote }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "app.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $operation }}
+          image: "{{ .Values.image.repository }}{{ if .Values.image.digest }}@{{ .Values.image.digest }}{{ else }}:{{ .Values.image.tag | default .Chart.AppVersion }}{{ end }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "app.fullname" . }}-env
+            - secretRef:
+                name: {{ include "app.fullname" . }}-secret
+          env:
+            - name: SKIP_MIGRATIONS
+              value: "true"
+          {{- if eq $operation "preflight-workers" }}
+          command:
+            - php
+            - src/space-v2-admin.php
+            - preflight-workers
+            - {{ printf "--release-id=%s" $releaseId | quote }}
+          {{- else if eq $operation "preflight-ingress" }}
+          command: ["php", "src/space-v2-admin.php", "preflight-ingress"]
+          {{- else if eq $operation "prepare-release" }}
+          command:
+            - php
+            - src/space-v2-admin.php
+            - prepare-release
+            - {{ printf "--release-id=%s" $releaseId | quote }}
+          {{- else if eq $operation "abort-release" }}
+          command:
+            - php
+            - src/space-v2-admin.php
+            - abort-release
+            - {{ printf "--release-id=%s" $releaseId | quote }}
+          {{- else if eq $operation "authorize-release" }}
+          command:
+            - php
+            - src/space-v2-admin.php
+            - authorize-release
+            - {{ printf "--release-id=%s" $releaseId | quote }}
+          {{- else if eq $operation "reconcile-release" }}
+          command:
+            - php
+            - src/space-v2-admin.php
+            - reconcile-release
+            - {{ printf "--release-id=%s" $releaseId | quote }}
+          {{- else if eq $operation "confirm-ingress-retired" }}
+          command:
+            - php
+            - src/space-v2-admin.php
+            - confirm-ingress-retired
+            - {{ printf "--release-id=%s" $releaseId | quote }}
+          {{- else if eq $operation "release-status" }}
+          # A valid non-active release exits 3 at the application boundary.
+          # Keep the Kubernetes Job successful so the runner can read the JSON
+          # immediately and faithfully translate that state back to exit 3.
+          command: ["bash", "-lc"]
+          args:
+            - >-
+              php src/space-v2-admin.php release-status {{ printf "--release-id=%s" $releaseId }};
+              code=$?;
+              if [ "$code" -eq 0 ] || [ "$code" -eq 3 ]; then exit 0; fi;
+              exit "$code"
+          {{- else if eq $operation "cutover" }}
+          command: ["php", "src/space-v2-admin.php", "cutover", "--apply"]
+          {{- else }}
+          command: ["php", "src/space-v2-admin.php", "install-dream-schedule"]
+          {{- end }}
+{{- end }}

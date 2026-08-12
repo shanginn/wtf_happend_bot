@@ -1,0 +1,27 @@
+{
+  "name": "wtf-happend-sandbox-broker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:gondolin": "pnpm --dir vendor/gondolin-firecracker --filter @earendil-works/gondolin build",
+    "install:gondolin": "pnpm --dir vendor/gondolin-firecracker install --frozen-lockfile",
+    "hash-capsule": "node dist/hash-capsule.js",
+    "start": "node dist/server.js",
+    "test": "node --test --import=tsx test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/gondolin": "link:vendor/gondolin-firecracker/host"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "packageManager": "pnpm@9.15.9"
+}

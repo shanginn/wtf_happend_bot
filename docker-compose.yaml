@@ -1,4 +1,18 @@
 services:
+  migrate:
+    env_file:
+      - .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["php", "-r", "require 'config/orm.php';"]
+
   bot:
     env_file:
       - .env
@@ -10,11 +24,12 @@ services:
     volumes:
       - .:/app
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       searxng:
         condition: service_started
     environment:
+      - SKIP_MIGRATIONS=true
       - TEMPORAL_ADDRESS=host.docker.internal:7233
       - SEARCH_BASE_URL=${SEARCH_BASE_URL:-http://searxng:8080}
       - SEARCH_TIMEOUT_SECONDS=${SEARCH_TIMEOUT_SECONDS:-10}
@@ -33,17 +48,39 @@ services:
     volumes:
       - .:/app
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       searxng:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
       - SKIP_MIGRATIONS=true
+      - WORKER_PACKAGE=space-agent-v1
       - TEMPORAL_ADDRESS=host.docker.internal:7233
       - SEARCH_BASE_URL=${SEARCH_BASE_URL:-http://searxng:8080}
       - SEARCH_TIMEOUT_SECONDS=${SEARCH_TIMEOUT_SECONDS:-10}
+    command: ["php", "src/worker.php"]
+
+  dream-worker:
+    env_file:
+      - .env
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    volumes:
+      - .:/app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - SKIP_MIGRATIONS=true
+      - WORKER_PACKAGE=space-dream-v1
+      - TEMPORAL_ADDRESS=host.docker.internal:7233
     command: ["php", "src/worker.php"]
 
   db:

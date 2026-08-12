@@ -97,6 +97,39 @@ final class UpdateRecordRepository extends Repository
     }
 
     /**
+     * Search persisted Telegram updates without crossing a Space's topic boundary.
+     * A null topic is the root chat Space and therefore excludes forum topics.
+     *
+     * @param list<string> $tokens
+     * @param int          $chatId
+     * @param ?int         $topicId
+     * @param int          $limit
+     */
+    public function searchByPayloadTextInTopic(
+        int $chatId,
+        ?int $topicId,
+        array $tokens,
+        int $limit,
+    ): array {
+        $query = $this->select()->where('chatId', $chatId);
+        $query = $topicId === null
+            ? $query->where('topicId', null)
+            : $query->where('topicId', $topicId);
+        foreach ($tokens as $token) {
+            $query = $query->where(new Fragment(
+                '("update")::jsonb::text ILIKE ? ESCAPE \'!\'',
+                self::likePattern($token),
+            ));
+        }
+
+        return $query
+            ->orderBy('createdAt', 'DESC')
+            ->orderBy('updateId', 'DESC')
+            ->limit($limit)
+            ->fetchAll();
+    }
+
+    /**
      * @param int  $chatId
      * @param ?int $topicId
      * @param int  $limit

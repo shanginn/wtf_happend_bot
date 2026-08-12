@@ -4,17 +4,20 @@ declare(strict_types=1);
 
 namespace Bot\Handler;
 
-use Bot\AgenticWorkflow\AgenticWorkflow;
-use Bot\AgenticWorkflow\AgenticWorkflowHandler;
 use Bot\Durability\DurableCommandReplyGateway;
+use Bot\Space\Runtime\SpaceIdentityResolverInterface;
+use Bot\Space\Workflow\SpaceAgentWorkflow;
+use Bot\Space\Workflow\SpaceAgentWorkflowHandler;
 use Bot\Telegram\TelegramChatAuthorizationPolicy;
 use Bot\Telegram\TelegramTopicRouting;
+use Bot\Telegram\Update;
 use Phenogram\Bindings\Types\Interfaces\UpdateInterface;
 use Phenogram\Framework\Handler\AbstractCommandHandler;
 use Phenogram\Framework\TelegramBot;
 use Temporal\Client\WorkflowClientInterface;
 use Temporal\Exception\Client\WorkflowNotFoundException;
 use Throwable;
+use UnexpectedValueException;
 
 class WorkflowControlCommandHandler extends AbstractCommandHandler
 {
@@ -30,8 +33,10 @@ class WorkflowControlCommandHandler extends AbstractCommandHandler
 
     public function __construct(
         private readonly WorkflowClientInterface $client,
+        private readonly SpaceIdentityResolverInterface $spaces,
         private readonly TelegramChatAuthorizationPolicy $authorization,
         private readonly DurableCommandReplyGateway $durableReplies,
+        private readonly string $hostReleaseId = 'local',
     ) {}
 
     public static function supports(UpdateInterface $update): bool
@@ -56,7 +61,7 @@ class WorkflowControlCommandHandler extends AbstractCommandHandler
             chatId: $message->chat->id,
             messageThreadId: $topicId,
             messageId: $message->messageId,
-            resolveReply: function () use ($message, $command, $topicId): string {
+            resolveReply: function () use ($message, $command, $update): string {
                 try {
                     $authorized = $this->authorization->isMessageActorAuthorized($message);
                 } catch (Throwable) {
@@ -67,18 +72,15 @@ class WorkflowControlCommandHandler extends AbstractCommandHandler
                     return self::DENIED_MESSAGE;
                 }
 
-                $responseText = $command === AgenticWorkflow::PAUSE_SIGNAL_NAME
+                $responseText = $command === SpaceAgentWorkflow::PAUSE_SIGNAL_NAME
                     ? self::PAUSED_MESSAGE
                     : self::RESUMED_MESSAGE;
 
                 try {
                     $workflow = $this->client->newUntypedRunningWorkflowStub(
-                        AgenticWorkflowHandler::generateWorkflowIdForChat(
-                            $message->chat->id,
-                            $topicId,
-                        ),
+                        $this->workflowId($update),
                         null,
-                        AgenticWorkflow::WORKFLOW_TYPE,
+                        SpaceAgentWorkflow::WORKFLOW_TYPE,
                     );
                     $workflow->signal($command);
                 } catch (WorkflowNotFoundException) {
@@ -105,14 +107,28 @@ class WorkflowControlCommandHandler extends AbstractCommandHandler
 
         foreach (self::extractCommands($update->message) as $command) {
             if (preg_match(self::PAUSE_COMMAND_PATTERN, $command) === 1) {
-                return AgenticWorkflow::PAUSE_SIGNAL_NAME;
+                return SpaceAgentWorkflow::PAUSE_SIGNAL_NAME;
             }
 
             if (preg_match(self::RESUME_COMMAND_PATTERN, $command) === 1) {
-                return AgenticWorkflow::RESUME_SIGNAL_NAME;
+                return SpaceAgentWorkflow::RESUME_SIGNAL_NAME;
             }
         }
 
         return null;
+    }
+
+    private function workflowId(UpdateInterface $update): string
+    {
+        if (!$update instanceof Update) {
+            throw new UnexpectedValueException(
+                'Space workflow commands require the bot Telegram update type.',
+            );
+        }
+
+        return SpaceAgentWorkflowHandler::workflowId(
+            $this->spaces->resolve($update),
+            $this->hostReleaseId,
+        );
     }
 }
