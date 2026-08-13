@@ -30,6 +30,121 @@ final readonly class SpaceRuntimeSnapshotLoaderActivity implements SpaceRuntimeS
         private string $fallbackModel = SpaceAgentRuntime::MODEL,
     ) {}
 
+    /**
+     * Builds and validates the exact payload that a future batch will pin.
+     * Publication uses this same path before changing the active release, so
+     * no release can be activated if the loader would reject it afterward.
+     *
+     * @param array<string, mixed>       $release
+     * @param list<mixed>                $skillRows
+     * @param list<array<string, mixed>> $tools
+     * @param string                     $spaceId
+     * @param string                     $batchId
+     * @param int                        $releaseGeneration
+     * @param string                     $memoryRevision
+     * @param string                     $fallbackModel
+     *
+     * @return array<string, mixed>
+     */
+    public static function materializePayload(
+        string $spaceId,
+        string $batchId,
+        int $releaseGeneration,
+        string $memoryRevision,
+        array $release,
+        array $skillRows,
+        array $tools,
+        string $fallbackModel = SpaceAgentRuntime::MODEL,
+    ): array {
+        $personality = self::objectJson((string) ($release['personality_json'] ?? ''), 'personality');
+        $manifest    = self::objectJson((string) ($release['manifest_json'] ?? ''), 'manifest');
+
+        $skills       = [];
+        $skillContent = [];
+        $skillBytes   = 0;
+        foreach ($skillRows as $skill) {
+            if (!is_array($skill)) {
+                throw new RuntimeException('The active Space release has an invalid skill row.');
+            }
+            $normalized = [
+                'name'        => (string) ($skill['name'] ?? ''),
+                'description' => (string) ($skill['description'] ?? ''),
+                'body'        => (string) ($skill['body'] ?? ''),
+                'enabled'     => self::databaseBoolean($skill['enabled'] ?? null),
+            ];
+            $skillContent[] = $normalized;
+            if ($normalized['enabled']) {
+                $skills[] = [
+                    'name'        => $normalized['name'],
+                    'description' => $normalized['description'],
+                    'body'        => $normalized['body'],
+                ];
+                $skillBytes += strlen($normalized['description']) + strlen($normalized['body']);
+            }
+        }
+        self::assertSkillsIntegrity($manifest, $skillContent);
+        if (count($skillContent) > self::MAX_SKILLS || $skillBytes > self::MAX_ENABLED_SKILL_BYTES) {
+            throw new RuntimeException('The active Space release exceeds the enabled skill budget.');
+        }
+
+        $commands                   = self::commands($manifest);
+        $capsules                   = self::capsules($manifest);
+        $capsuleRuntimeImageBuildId = null;
+        $releaseDigest              = (string) ($release['release_digest'] ?? '');
+        if (!preg_match('/\Asha256:[a-f0-9]{64}\z/D', $releaseDigest)) {
+            throw new RuntimeException('The active Space release has an invalid digest.');
+        }
+
+        $capabilityPolicyJson = (string) ($release['capability_policy_json'] ?? '');
+        SpaceCapabilityPolicy::assertFixed($capabilityPolicyJson);
+        $computedReleaseDigest = (new SpaceReleaseSeed(
+            model: (string) ($release['model'] ?? ''),
+            prompt: (string) ($release['prompt'] ?? ''),
+            personalityJson: (string) ($release['personality_json'] ?? ''),
+            manifestJson: (string) ($release['manifest_json'] ?? ''),
+            capabilityPolicyJson: $capabilityPolicyJson,
+            artifactDigest: ($release['artifact_digest'] ?? null) === null
+                ? null
+                : (string) $release['artifact_digest'],
+            createdBy: (string) ($release['created_by'] ?? ''),
+        ))->digest();
+        if (!hash_equals($releaseDigest, $computedReleaseDigest)) {
+            throw new RuntimeException('The active Space release content does not match its digest.');
+        }
+
+        $releaseId = (string) ($release['id'] ?? '');
+        $payload   = [
+            'snapshotId' => 'snp_' . substr(hash('sha256', implode("\0", [
+                $spaceId,
+                $batchId,
+                $releaseId,
+                (string) $releaseGeneration,
+                $memoryRevision,
+            ])), 0, 40),
+            'spaceId'       => $spaceId,
+            'releaseId'     => $releaseId,
+            'releaseDigest' => $releaseDigest,
+            'model'         => trim((string) ($release['model'] ?? '')) ?: $fallbackModel,
+            'systemPrompt'  => SpacePrompt::build(
+                releaseId: $releaseId,
+                overlay: (string) ($release['prompt'] ?? ''),
+                personality: $personality,
+                skills: $skills,
+                capsules: $capsules,
+                commands: $commands,
+            ),
+            'tools'                      => $tools,
+            'commands'                   => $commands,
+            'capsuleArtifactRefs'        => $capsules,
+            'capsuleRuntimeImageBuildId' => $capsuleRuntimeImageBuildId,
+            'memoryRevision'             => $memoryRevision,
+            'capabilityPolicyRevision'   => 'sha256:' . hash('sha256', $capabilityPolicyJson),
+        ];
+        self::encodePayload($payload);
+
+        return $payload;
+    }
+
     public function loadSnapshot(SpaceRuntimeSnapshotRequest $request): SpaceRuntimeSnapshot
     {
         $cached = $this->cached($request);
@@ -55,102 +170,23 @@ final readonly class SpaceRuntimeSnapshotLoaderActivity implements SpaceRuntimeS
             throw new RuntimeException('The active Space release is missing.');
         }
 
-        $personality = self::objectJson((string) $release['personality_json'], 'personality');
-        $manifest    = self::objectJson((string) $release['manifest_json'], 'manifest');
-        $skillRows   = $this->database->query(<<<'SQL'
+        $skillRows = $this->database->query(<<<'SQL'
             SELECT name, description, body, enabled
             FROM space_skill_versions
             WHERE release_id = ? AND space_id = ?
             ORDER BY name ASC
             SQL, [$release['id'], $request->spaceId])->fetchAll();
-
-        $skills       = [];
-        $skillContent = [];
-        $skillBytes   = 0;
-        foreach ($skillRows as $skill) {
-            if (!is_array($skill)) {
-                continue;
-            }
-            $normalized = [
-                'name'        => (string) $skill['name'],
-                'description' => (string) $skill['description'],
-                'body'        => (string) $skill['body'],
-                'enabled'     => self::databaseBoolean($skill['enabled']),
-            ];
-            $skillContent[] = $normalized;
-            if ($normalized['enabled']) {
-                $skills[] = [
-                    'name'        => $normalized['name'],
-                    'description' => $normalized['description'],
-                    'body'        => $normalized['body'],
-                ];
-                $skillBytes += strlen($normalized['description']) + strlen($normalized['body']);
-            }
-        }
-        self::assertSkillsIntegrity($manifest, $skillContent);
-        if (count($skillContent) > self::MAX_SKILLS || $skillBytes > self::MAX_ENABLED_SKILL_BYTES) {
-            throw new RuntimeException('The active Space release exceeds the enabled skill budget.');
-        }
-
-        $commands                   = self::commands($manifest);
-        $capsules                   = self::capsules($manifest);
-        $capsuleRuntimeImageBuildId = null;
-        $releaseDigest              = (string) ($release['release_digest'] ?? '');
-        if (!preg_match('/\Asha256:[a-f0-9]{64}\z/D', $releaseDigest)) {
-            throw new RuntimeException('The active Space release has an invalid digest.');
-        }
-
-        $capabilityPolicyJson = (string) $release['capability_policy_json'];
-        SpaceCapabilityPolicy::assertFixed($capabilityPolicyJson);
-        $computedReleaseDigest = (new SpaceReleaseSeed(
-            model: (string) $release['model'],
-            prompt: (string) $release['prompt'],
-            personalityJson: (string) $release['personality_json'],
-            manifestJson: (string) $release['manifest_json'],
-            capabilityPolicyJson: $capabilityPolicyJson,
-            artifactDigest: $release['artifact_digest'] === null
-                ? null
-                : (string) $release['artifact_digest'],
-            createdBy: (string) $release['created_by'],
-        ))->digest();
-        if (!hash_equals($releaseDigest, $computedReleaseDigest)) {
-            throw new RuntimeException('The active Space release content does not match its digest.');
-        }
-        $payload = [
-            'snapshotId' => 'snp_' . substr(hash('sha256', implode("\0", [
-                $request->spaceId,
-                $request->batchId,
-                (string) $release['id'],
-                (string) $space['release_generation'],
-                (string) $space['memory_revision'],
-            ])), 0, 40),
-            'spaceId'       => $request->spaceId,
-            'releaseId'     => (string) $release['id'],
-            'releaseDigest' => $releaseDigest,
-            'model'         => trim((string) ($release['model'] ?? '')) ?: $this->fallbackModel,
-            'systemPrompt'  => SpacePrompt::build(
-                releaseId: (string) $release['id'],
-                overlay: (string) $release['prompt'],
-                personality: $personality,
-                skills: $skills,
-                capsules: $capsules,
-                commands: $commands,
-            ),
-            'tools'                      => $this->tools,
-            'commands'                   => $commands,
-            'capsuleArtifactRefs'        => $capsules,
-            'capsuleRuntimeImageBuildId' => $capsuleRuntimeImageBuildId,
-            'memoryRevision'             => (string) $space['memory_revision'],
-            'capabilityPolicyRevision'   => 'sha256:' . hash('sha256', $capabilityPolicyJson),
-        ];
-
-        $encoded = json_encode(
-            $payload,
-            \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE,
+        $payload = self::materializePayload(
+            spaceId: $request->spaceId,
+            batchId: $request->batchId,
+            releaseGeneration: (int) $space['release_generation'],
+            memoryRevision: (string) $space['memory_revision'],
+            release: $release,
+            skillRows: $skillRows,
+            tools: $this->tools,
+            fallbackModel: $this->fallbackModel,
         );
-        if (strlen($encoded) > self::MAX_SNAPSHOT_BYTES) {
-            throw new RuntimeException('The active Space runtime snapshot exceeds the safe payload budget.');
-        }
+        $encoded    = self::encodePayload($payload);
         $parameters = [
             $payload['snapshotId'],
             $request->spaceId,
@@ -171,6 +207,22 @@ final readonly class SpaceRuntimeSnapshotLoaderActivity implements SpaceRuntimeS
 
         return $this->cached($request)
             ?? throw new RuntimeException('The pinned Space runtime snapshot was not persisted.');
+    }
+
+    /** @param array<string, mixed> $payload */
+    private static function encodePayload(array $payload): string
+    {
+        $encoded = json_encode(
+            $payload,
+            \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE,
+        );
+        if (strlen($encoded) > self::MAX_SNAPSHOT_BYTES) {
+            throw new SpaceRuntimeSnapshotPayloadTooLarge(
+                'The active Space runtime snapshot exceeds the safe payload budget.',
+            );
+        }
+
+        return $encoded;
     }
 
     /** @return array<string, mixed> */

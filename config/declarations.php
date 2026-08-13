@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Bot\Activity\TelegramActivity;
 use Bot\AgenticWorkflow\BotToolCatalog;
 use Bot\AgenticWorkflow\CycleModelCompletionResultStore;
+use Bot\AgenticWorkflow\DeepSeekReasoningReplayTransport;
 use Bot\AgenticWorkflow\IdempotentToolExecutionGateway;
 use Bot\AgenticWorkflow\ReplyTypingModelGateway;
 use Bot\AgenticWorkflow\RuntimeCapabilityAuthorizationGateway;
@@ -30,6 +31,9 @@ use Bot\Space\Operations\AgentWorkerHealthWorkflow;
 use Bot\Space\Operations\DreamWorkerHealthWorkflow;
 use Bot\Space\Persistence\SpaceMemoryStore;
 use Bot\Space\Persistence\SpaceStore;
+use Bot\Space\Publication\SpaceCapabilityPublicationTool;
+use Bot\Space\Publication\SpaceCapabilityPublicationRejectionGateway;
+use Bot\Space\Publication\SpaceCapabilityPublisher;
 use Bot\Space\Runtime\SpaceCommandInspector;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotLoaderActivity;
 use Bot\Space\Tools\SpaceMemoryToolStore;
@@ -64,7 +68,9 @@ $ormData = (static fn (): array => require __DIR__ . '/orm.php')();
 $ormScope = $ormData[2];
 
 $models = new Models(new ProviderRegistry([
-    OpenAICompatiblePreset::deepSeek()->provider(),
+    OpenAICompatiblePreset::deepSeek()->provider(
+        transport: new DeepSeekReasoningReplayTransport(),
+    ),
 ]));
 $modelGateway = new ModelsGateway(
     models: $models,
@@ -142,18 +148,33 @@ return [
             SpaceCommandActivity::class => fn (): SpaceCommandActivity => new SpaceCommandActivity(
                 $replyTypingModelGateway,
             ),
-            DurableAgentActivities::class => fn (): DurableAgentActivities => new DurableAgentActivities(
-                models: $replyTypingModelGateway,
-                tools: new RuntimeCapabilityAuthorizationGateway(
-                    inner: new IdempotentToolExecutionGateway(
-                        inner: new ToolRegistryGateway($toolCatalog()->registry(
-                            SpaceToolCatalog::toolNames(),
-                        )),
-                        orm: $ormScope->current()->orm,
-                    ),
+            DurableAgentActivities::class => function () use (
+                $database,
+                $ormScope,
+                $replyTypingModelGateway,
+                $telegramAuthorization,
+                $toolCatalog,
+            ): DurableAgentActivities {
+                $orm      = $ormScope->current()->orm;
+                $registry = $toolCatalog()->registry(SpaceToolCatalog::baseToolNames());
+                $registry->add((new SpaceCapabilityPublicationTool(
+                    publisher: new SpaceCapabilityPublisher($database($orm)),
                     authorization: $telegramAuthorization,
-                ),
-            ),
+                ))->durable());
+
+                return new DurableAgentActivities(
+                    models: $replyTypingModelGateway,
+                    tools: new RuntimeCapabilityAuthorizationGateway(
+                        inner: new IdempotentToolExecutionGateway(
+                            inner: new SpaceCapabilityPublicationRejectionGateway(
+                                new ToolRegistryGateway($registry),
+                            ),
+                            orm: $orm,
+                        ),
+                        authorization: $telegramAuthorization,
+                    ),
+                );
+            },
             SpaceRuntimeSnapshotLoaderActivity::class => function () use (
                 $database,
                 $ormScope,

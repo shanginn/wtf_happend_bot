@@ -17,6 +17,10 @@ final class ReplyTypingConfigurationTest extends TestCase
             '$replyTypingModelGateway = new ReplyTypingModelGateway(',
             $declarations,
         );
+        self::assertStringContainsString(
+            'transport: new DeepSeekReasoningReplayTransport(),',
+            $declarations,
+        );
         self::assertStringContainsString('models: $replyTypingModelGateway,', $declarations);
         self::assertStringContainsString(
             'new SpaceCommandActivity(' . "\n" . '                $replyTypingModelGateway,',
@@ -28,6 +32,18 @@ final class ReplyTypingConfigurationTest extends TestCase
         );
         self::assertDoesNotMatchRegularExpression(
             '/DreamActivities\(\s*database:.*?models: \$replyTypingModelGateway,/s',
+            $declarations,
+        );
+        self::assertStringContainsString(
+            'new SpaceCapabilityPublicationTool(',
+            $declarations,
+        );
+        self::assertStringContainsString(
+            'new SpaceCapabilityPublisher($database($orm))',
+            $declarations,
+        );
+        self::assertMatchesRegularExpression(
+            '/IdempotentToolExecutionGateway\(\s*inner: new SpaceCapabilityPublicationRejectionGateway\(/s',
             $declarations,
         );
     }

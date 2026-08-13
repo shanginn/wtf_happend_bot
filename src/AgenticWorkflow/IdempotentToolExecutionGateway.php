@@ -53,7 +53,7 @@ final readonly class IdempotentToolExecutionGateway implements ToolExecutionGate
             $record = $repository->findByIdempotencyKey($input->idempotencyKey);
 
             if ($record !== null) {
-                if ($record->resultJson === null && self::isAppendOnlyMemoryMutation($input)) {
+                if ($record->resultJson === null && self::isReplaySafeMutation($input)) {
                     self::assertExecutionIdentity($input, $record);
 
                     return $this->replayAppendOnlyMemoryMutation($repository, $input, $record);
@@ -152,15 +152,17 @@ final readonly class IdempotentToolExecutionGateway implements ToolExecutionGate
             'upsert_runtime_skill',
             'upsert_runtime_tool',
             'set_runtime_capability_status',
+            'publish_space_capability',
         ], true);
     }
 
-    private static function isAppendOnlyMemoryMutation(ToolActivityInput $input): bool
+    private static function isReplaySafeMutation(ToolActivityInput $input): bool
     {
         return in_array($input->name, [
             'save_memory',
             'update_memory',
             'forget_memory',
+            'publish_space_capability',
         ], true);
     }
 
@@ -325,10 +327,9 @@ final readonly class IdempotentToolExecutionGateway implements ToolExecutionGate
     }
 
     /**
-     * Space memory persistence has its own payload-checked idempotency key and
-     * append-only transaction. It is therefore safe to recover a gateway
-     * crash window by re-entering the store, unlike Telegram sends and other
-     * arbitrary side effects.
+     * Space memory and capability publication stores have their own
+     * payload-checked durable idempotency. They are safe to re-enter after the
+     * gateway reserved a key but crashed before recording its result.
      *
      * @param ToolExecutionRecordRepository&RepositoryInterface<ToolExecutionRecord> $repository
      * @param ToolActivityInput                                                      $input

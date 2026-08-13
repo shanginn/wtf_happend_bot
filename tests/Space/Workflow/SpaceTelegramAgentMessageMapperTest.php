@@ -27,6 +27,10 @@ final class SpaceTelegramAgentMessageMapperTest extends TestCase
             'Participant reference: telegram_user:7',
             $message['content'][0]['text'],
         );
+        self::assertStringContainsString(
+            'Telegram update reference: 42',
+            $message['content'][0]['text'],
+        );
         self::assertSame(1, $message['metadata']['imageAttachmentCount']);
         self::assertSame(42, $message['metadata']['telegramUpdateId']);
         self::assertSame('What happened?', $message['metadata']['telegramMemoryEvidence']);

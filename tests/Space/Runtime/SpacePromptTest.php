@@ -25,10 +25,12 @@ final class SpacePromptTest extends TestCase
         self::assertStringNotContainsStringIgnoringCase('sandbox', $prompt);
         self::assertStringNotContainsString('run_space_capsule', $prompt);
         self::assertStringContainsString(
-            'Prompt, personality, skills, and memories are versioned.',
+            'Prompt, personality, skills, commands, and memories are versioned.',
             $prompt,
         );
         self::assertStringContainsString('commit_to_reply alone', $prompt);
+        self::assertStringContainsString('use publish_space_capability', $prompt);
+        self::assertStringContainsString('exact Telegram owner or', $prompt);
     }
 
     public function testNonEmptyCapsulesFailClosed(): void

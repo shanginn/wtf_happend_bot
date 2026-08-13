@@ -6,12 +6,24 @@ namespace Tests\AgenticWorkflow;
 
 use Bot\AgenticWorkflow\IdempotentToolExecutionGateway;
 use Bot\Entity\ToolExecutionRecord;
+use Bot\Space\Publication\SpaceCapabilityPublicationRejectionGateway;
+use Bot\Space\Publication\SpaceCapabilityPublicationRejected;
+use Bot\Space\Publication\SpaceCapabilityPublicationTool;
+use Bot\Space\Publication\SpaceCapabilityPublisher;
+use Bot\Telegram\TelegramChatAuthorizationPolicy;
 use Closure;
+use Cycle\Database\DatabaseInterface;
+use Cycle\Database\StatementInterface;
 use Cycle\ORM\ORMInterface;
 use Cycle\ORM\RepositoryInterface;
+use Phenogram\Bindings\ApiInterface;
+use Phenogram\Bindings\Factories\ChatMemberMemberFactory;
+use Phenogram\Bindings\Factories\UserFactory;
+use PiPHP\Agent\Tool\ToolRegistry;
 use PiPHP\Temporal\Contract\ToolExecutionGatewayInterface;
 use PiPHP\Temporal\DTO\ToolActivityInput;
 use PiPHP\Temporal\DTO\ToolActivityResult;
+use PiPHP\Temporal\Gateway\ToolRegistryGateway;
 use RuntimeException;
 use Tests\TestCase;
 use Throwable;
@@ -186,6 +198,128 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
         self::assertFalse($result->isError);
         self::assertSame('recovered idempotently', $result->content[0]['text']);
         self::assertNotNull($repository->findByIdempotencyKey($input->idempotencyKey)?->completedAt);
+    }
+
+    public function testClaimedSpacePublicationWithoutGatewayResultReentersDurablePublisher(): void
+    {
+        $input = new ToolActivityInput(
+            callId: 'call-publication',
+            name: 'publish_space_capability',
+            arguments: ['kind' => 'command', 'name' => 'punish'],
+            idempotencyKey: 'workflow/run/tool/call-publication',
+            metadata: ['spaceId' => 'spc_example'],
+        );
+        $repository      = new InMemoryToolExecutionRecordRepository();
+        $claimingGateway = new IdempotentToolExecutionGateway(
+            new ThrowingToolExecutionGateway(new RuntimeException('result write lost')),
+            $this->ormReturning($repository),
+        );
+
+        try {
+            $claimingGateway->execute($input);
+            self::fail('The simulated publication must lose its gateway result.');
+        } catch (RuntimeException $failure) {
+            self::assertSame('result write lost', $failure->getMessage());
+        }
+
+        $inner = new RecordingToolExecutionGateway(new ToolActivityResult(
+            callId: $input->callId,
+            name: $input->name,
+            content: [['type' => 'text', 'text' => 'publication replayed']],
+        ));
+        $gateway = new IdempotentToolExecutionGateway($inner, $this->ormReturning($repository));
+
+        $result = $gateway->execute($input);
+
+        self::assertSame(1, $inner->calls);
+        self::assertSame('publication replayed', $result->content[0]['text']);
+        self::assertNotNull($repository->findByIdempotencyKey($input->idempotencyKey)?->completedAt);
+    }
+
+    public function testExpectedSpacePublicationDenialIsReturnedAndCachedAsAnInBandToolError(): void
+    {
+        $statement = $this->createMock(StatementInterface::class);
+        $statement->expects($this->once())->method('fetch')->willReturn(false);
+        $database = $this->createMock(DatabaseInterface::class);
+        $database->expects($this->once())->method('query')->willReturn($statement);
+
+        $api = $this->createMock(ApiInterface::class);
+        $api
+            ->expects($this->once())
+            ->method('getChatMember')
+            ->with(-10042, 7)
+            ->willReturn(ChatMemberMemberFactory::make(
+                status: 'member',
+                user: UserFactory::make(id: 7),
+            ));
+
+        $registry = new ToolRegistry([new SpaceCapabilityPublicationTool(
+            publisher: new SpaceCapabilityPublisher($database),
+            authorization: new TelegramChatAuthorizationPolicy($api),
+        )->durable()]);
+        $repository = new InMemoryToolExecutionRecordRepository();
+        $gateway    = new IdempotentToolExecutionGateway(
+            inner: new SpaceCapabilityPublicationRejectionGateway(
+                new ToolRegistryGateway($registry),
+            ),
+            orm: $this->ormReturning($repository),
+        );
+        $input = self::spacePublicationInput();
+
+        $first = $gateway->execute($input);
+        $retry = $gateway->execute($input);
+
+        self::assertTrue($first->isError);
+        self::assertFalse($first->terminate);
+        self::assertTrue($first->metadata['publicationRejected']);
+        self::assertStringContainsString('owner or administrator', $first->content[0]['text']);
+        self::assertSame($first->content, $retry->content);
+        self::assertSame($first->metadata, $retry->metadata);
+        self::assertNotNull($repository->findByIdempotencyKey($input->idempotencyKey)?->completedAt);
+    }
+
+    public function testSpacePublicationDatabaseFailureRemainsThrowableForActivityRetry(): void
+    {
+        $database = $this->createMock(DatabaseInterface::class);
+        $database
+            ->expects($this->once())
+            ->method('query')
+            ->willThrowException(new RuntimeException('publication database unavailable'));
+        $api = $this->createMock(ApiInterface::class);
+        $api->expects($this->never())->method('getChatMember');
+
+        $registry = new ToolRegistry([new SpaceCapabilityPublicationTool(
+            publisher: new SpaceCapabilityPublisher($database),
+            authorization: new TelegramChatAuthorizationPolicy($api),
+        )->durable()]);
+        $gateway = new IdempotentToolExecutionGateway(
+            inner: new SpaceCapabilityPublicationRejectionGateway(
+                new ToolRegistryGateway($registry),
+            ),
+            orm: $this->ormReturning(new InMemoryToolExecutionRecordRepository()),
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('publication database unavailable');
+
+        $gateway->execute(self::spacePublicationInput());
+    }
+
+    public function testPublicationRejectionBoundaryDoesNotHideFailuresFromOtherTools(): void
+    {
+        $rejection = new SpaceCapabilityPublicationRejected('not a publication tool');
+        $gateway   = new SpaceCapabilityPublicationRejectionGateway(
+            new ThrowingToolExecutionGateway($rejection),
+        );
+
+        $this->expectExceptionObject($rejection);
+
+        $gateway->execute(new ToolActivityInput(
+            callId: 'call-memory-rejected',
+            name: 'save_memory',
+            arguments: ['memory' => 'test'],
+            idempotencyKey: 'workflow/run/tool/memory-rejected',
+        ));
     }
 
     public function testTerminalReservationIsReleasedWhenSideEffectClaimDefinitelyFails(): void
@@ -448,6 +582,36 @@ final class IdempotentToolExecutionGatewayTest extends TestCase
             arguments: ['method' => 'sendMessage'],
             idempotencyKey: $idempotencyKey,
             metadata: ['terminalScopeId' => $scopeId],
+        );
+    }
+
+    private static function spacePublicationInput(): ToolActivityInput
+    {
+        return new ToolActivityInput(
+            callId: 'call-publication-denied',
+            name: SpaceCapabilityPublicationTool::NAME,
+            arguments: [
+                'request_update_id' => 101,
+                'request_quote'     => 'добавь команду /punish',
+                'kind'              => 'command',
+                'name'              => 'punish',
+            ],
+            idempotencyKey: 'workflow/run/tool/publication-denied',
+            metadata: [
+                'spaceId'              => 'spc_0123456789abcdef0123456789abcdef01234567',
+                'runtimeSnapshotId'    => 'snp_publication_denied',
+                'terminalScopeId'      => 'batch-publication-denied',
+                'batchId'              => 'batch-publication-denied',
+                'chatId'               => -10042,
+                'chatType'             => 'supergroup',
+                'actorUserIds'         => [7],
+                'actorIdentityComplete' => true,
+                'memoryEvidence'       => [[
+                    'updateId'       => 101,
+                    'participantKey' => 'telegram_user:7',
+                    'text'           => 'добавь команду /punish',
+                ]],
+            ],
         );
     }
 

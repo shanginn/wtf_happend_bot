@@ -1547,7 +1547,7 @@ final class SpaceAgentWorkflow
     private function trackPendingActor(Update $update): void
     {
         $sender = $update->effectiveSender;
-        if (!$sender instanceof UserInterface || $sender->id <= 0) {
+        if (!$sender instanceof UserInterface || $sender->id <= 0 || $sender->isBot) {
             $this->pendingActorIdentityComplete = false;
 
             return;
