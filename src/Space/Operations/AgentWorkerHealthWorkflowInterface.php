@@ -14,5 +14,5 @@ interface AgentWorkerHealthWorkflowInterface
     public const RESPONSE_PREFIX = 'space-agent-worker-ready/v1';
 
     #[WorkflowMethod(name: self::TYPE)]
-    public function check(string $releaseId, string $attemptId): string;
+    public function check(string $releaseId, string $attemptId, ?string $spaceId): string;
 }

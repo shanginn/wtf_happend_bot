@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Bot\Space\Operations;
 
+use Bot\Space\Persistence\SpaceId;
 use Carbon\CarbonInterval;
+use Cycle\Database\DatabaseInterface;
 use InvalidArgumentException;
 use RuntimeException;
 use Temporal\Client\WorkflowClientInterface;
@@ -18,7 +20,13 @@ final readonly class ReleaseWorkerPreflight
 
     public function __construct(
         private WorkflowClientInterface $client,
-    ) {}
+        private DatabaseInterface $database,
+        private string $botInstanceId,
+    ) {
+        if (trim($botInstanceId) === '') {
+            throw new InvalidArgumentException('Bot instance ID cannot be empty.');
+        }
+    }
 
     /**
      * @param string $releaseId
@@ -39,6 +47,8 @@ final readonly class ReleaseWorkerPreflight
         self::assertTaskQueue($agentTaskQueue, 'agentTaskQueue');
         self::assertTaskQueue($dreamTaskQueue, 'dreamTaskQueue');
 
+        $runtimeSpaceId = $this->activeRootSpaceId();
+
         return [
             $this->check(
                 lane: 'agent',
@@ -47,6 +57,7 @@ final readonly class ReleaseWorkerPreflight
                 taskQueue: $agentTaskQueue,
                 releaseId: $releaseId,
                 attemptId: $attemptId,
+                startArgs: [$releaseId, $attemptId, $runtimeSpaceId],
             ),
             $this->check(
                 lane: 'dream',
@@ -55,6 +66,7 @@ final readonly class ReleaseWorkerPreflight
                 taskQueue: $dreamTaskQueue,
                 releaseId: $releaseId,
                 attemptId: $attemptId,
+                startArgs: [$releaseId, $attemptId],
             ),
         ];
     }
@@ -73,6 +85,34 @@ final readonly class ReleaseWorkerPreflight
         }
     }
 
+    private function activeRootSpaceId(): ?string
+    {
+        $row = $this->database->query(<<<'SQL'
+            SELECT space.id
+            FROM agent_spaces AS space
+            JOIN space_bindings AS binding ON binding.space_id = space.id
+            JOIN space_releases AS release
+                ON release.id = space.active_release_id
+                AND release.space_id = space.id
+            WHERE
+                space.status = 'active'
+                AND binding.bot_instance_id = ?
+                AND binding.platform = 'telegram'
+                AND binding.external_thread_id = ''
+            ORDER BY space.created_at ASC, space.id ASC
+            LIMIT 1
+            SQL, [$this->botInstanceId])->fetch();
+        $spaceId = is_array($row) ? ($row['id'] ?? null) : null;
+        if ($spaceId === null) {
+            return null;
+        }
+        if (!is_string($spaceId) || trim($spaceId) === '') {
+            throw new RuntimeException('Agent worker preflight found an invalid Space identity.');
+        }
+
+        return SpaceId::assert($spaceId);
+    }
+
     /**
      * @param class-string $workflowClass
      * @param string       $lane
@@ -80,8 +120,15 @@ final readonly class ReleaseWorkerPreflight
      * @param string       $taskQueue
      * @param string       $releaseId
      * @param string       $attemptId
+     * @param list<string> $startArgs
      *
-     * @return array{lane: string, taskQueue: string, workflowId: string, runId: ?string}
+     * @return array{
+     *     lane: string,
+     *     taskQueue: string,
+     *     workflowId: string,
+     *     runId: ?string,
+     *     runtimeSnapshotChecked?: bool
+     * }
      */
     private function check(
         string $lane,
@@ -90,6 +137,7 @@ final readonly class ReleaseWorkerPreflight
         string $taskQueue,
         string $releaseId,
         string $attemptId,
+        array $startArgs,
     ): array {
         $workflowId = sprintf('release-preflight/%s/%s/%s', $releaseId, $lane, $attemptId);
         $workflow   = $this->client->newWorkflowStub(
@@ -102,7 +150,7 @@ final readonly class ReleaseWorkerPreflight
                 ->withWorkflowTaskTimeout(CarbonInterval::seconds(10))
                 ->withWorkflowIdReusePolicy(IdReusePolicy::AllowDuplicate),
         );
-        $run      = $this->client->start($workflow, $releaseId, $attemptId);
+        $run      = $this->client->start($workflow, ...$startArgs);
         $expected = implode(':', [$responsePrefix, $releaseId, $attemptId]);
         $actual   = $run->getResult('string', self::RESULT_TIMEOUT_SECONDS);
         if (!is_string($actual) || !hash_equals($expected, $actual)) {
@@ -112,11 +160,16 @@ final readonly class ReleaseWorkerPreflight
             ));
         }
 
-        return [
+        $report = [
             'lane'       => $lane,
             'taskQueue'  => $taskQueue,
             'workflowId' => $workflowId,
             'runId'      => $run->getExecution()->getRunID(),
         ];
+        if ($lane === 'agent') {
+            $report['runtimeSnapshotChecked'] = ($startArgs[2] ?? null) !== null;
+        }
+
+        return $report;
     }
 }

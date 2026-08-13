@@ -47,12 +47,20 @@ $releaseArgument = static function (array $arguments) use ($config): string {
 if ($command === 'preflight-workers') {
     $releaseId = $releaseArgument($argv);
 
+    /** @var ORMInterface $orm */
+    [, $orm]  = require __DIR__ . '/../config/orm.php';
+    $database = $orm->getSource(Space::class)->getDatabase();
+
     $client = new WorkflowClient(
         serviceClient: $service,
         options: $config->temporalClientOptions,
         converter: $config->dataConverter,
     );
-    $report = (new ReleaseWorkerPreflight($client))->run(
+    $report = (new ReleaseWorkerPreflight(
+        $client,
+        $database,
+        $config->botInstanceId,
+    ))->run(
         releaseId: $releaseId,
         attemptId: bin2hex(random_bytes(12)),
         agentTaskQueue: $config->agentTaskQueue,
