@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\AgenticWorkflow;
 
+use Bot\AgenticWorkflow\AgenticWorkflowInput;
 use Bot\AgenticWorkflow\AgentPrompt;
 use Bot\AgenticWorkflow\AgentRuntime;
-use Bot\AgenticWorkflow\AgenticWorkflowInput;
 use Bot\AgenticWorkflow\BotToolCatalog;
 use Bot\AgenticWorkflow\TelegramAgentMessageMapper;
 use Bot\Llm\Runtime\RuntimeCapabilityValidator;
@@ -48,6 +48,7 @@ final class PiPHPAgentRuntimeTest extends TestCase
         self::assertStringContainsString('use tools as needed', $prompt);
         self::assertStringContainsString('telegram_api_call', $prompt);
         self::assertStringContainsString('stay_silent', $prompt);
+        self::assertStringContainsString('commit_to_reply alone', $prompt);
         self::assertStringContainsString('Keep replies short.', $prompt);
         self::assertStringNotContainsString('decision agent', strtolower($prompt));
     }
@@ -77,7 +78,7 @@ final class PiPHPAgentRuntimeTest extends TestCase
     public function testCatalogPublishesUniquePortableSchemas(): void
     {
         $validator = new ToolValidator();
-        $names = [];
+        $names     = [];
 
         foreach (BotToolCatalog::definitions() as $tool) {
             $validator->assertSupportedSchema($tool);
@@ -87,12 +88,14 @@ final class PiPHPAgentRuntimeTest extends TestCase
         self::assertSame($names, array_values(array_unique($names)));
         self::assertContains('telegram_api_call', $names);
         self::assertContains('stay_silent', $names);
+        self::assertContains('commit_to_reply', $names);
         self::assertContains('run_runtime_tool', $names);
         $wire = BotToolCatalog::wireDefinitions();
         self::assertCount(count($names), $wire);
 
         $wireByName = array_column($wire, null, 'name');
         self::assertSame('sequential', $wireByName['stay_silent']['executionMode']);
+        self::assertSame('sequential', $wireByName['commit_to_reply']['executionMode']);
         self::assertSame('sequential', $wireByName['telegram_api_call']['executionMode']);
         self::assertSame('sequential', $wireByName['save_memory']['executionMode']);
         self::assertArrayNotHasKey('executionMode', $wireByName['internet_search']);
@@ -118,6 +121,26 @@ final class PiPHPAgentRuntimeTest extends TestCase
         self::assertSame('The agent deliberately stayed silent.', $result->content[0]->text);
     }
 
+    public function testReplyCommitmentIsDurableAndNonTerminal(): void
+    {
+        $tool = $this->catalog()->registry()->get('commit_to_reply');
+        self::assertInstanceOf(DurableAgentToolInterface::class, $tool);
+
+        $result = $tool->executeDurably(
+            new DurableToolExecutionContext(
+                toolCallId: 'call-1',
+                toolName: 'commit_to_reply',
+                arguments: [],
+                idempotencyKey: 'stable-key',
+                metadata: ['chatId' => -100123],
+            ),
+            new CancellationToken(),
+        );
+
+        self::assertFalse($result->terminate);
+        self::assertStringContainsString('Reply commitment accepted', $result->content[0]->text);
+    }
+
     public function testToolExecutionRequiresTrustedChatMetadata(): void
     {
         $tool = $this->catalog()->registry()->get('stay_silent');
@@ -135,8 +158,8 @@ final class PiPHPAgentRuntimeTest extends TestCase
     public function testRuntimeSchemasFailClosedOnUnsupportedKeywords(): void
     {
         $error = RuntimeCapabilityValidator::parametersSchemaError([
-            'type' => 'object',
-            'properties' => [],
+            'type'                  => 'object',
+            'properties'            => [],
             'unevaluatedProperties' => false,
         ]);
 
@@ -165,7 +188,7 @@ final class PiPHPAgentRuntimeTest extends TestCase
 
     private function catalog(): BotToolCatalog
     {
-        $orm = Mockery::mock(ORMInterface::class);
+        $orm    = Mockery::mock(ORMInterface::class);
         $client = Mockery::mock(ClientInterface::class);
         $models = Mockery::mock(ModelCompletionGatewayInterface::class);
 

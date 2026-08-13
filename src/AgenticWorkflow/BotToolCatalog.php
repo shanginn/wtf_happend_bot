@@ -15,6 +15,7 @@ use Bot\Llm\Tools\Search\InternetSearchExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiSchemaExecutor;
 use Bot\Memory\ParticipantMemoryStore;
+use Bot\Space\Runtime\SpaceCommandInspector;
 use Bot\Space\Tools\SpaceCapsuleExecutor;
 use Bot\Space\Tools\SpaceMemoryMutationAuthority;
 use Bot\Space\Tools\SpaceMemoryToolStore;
@@ -48,6 +49,7 @@ final readonly class BotToolCatalog
         private ?SpaceMemoryToolStore $spaceMemoryStore = null,
         private ?SpaceCapsuleExecutor $spaceCapsules = null,
         private ?TelegramChatAuthorizationPolicy $spaceMemoryAuthorization = null,
+        private ?SpaceCommandInspector $spaceCommandInspector = null,
     ) {}
 
     /**
@@ -70,6 +72,11 @@ final readonly class BotToolCatalog
             self::tool(
                 'stay_silent',
                 'Finish this run without sending anything to Telegram.',
+                [],
+            ),
+            self::tool(
+                'commit_to_reply',
+                'Commit to sending a visible Telegram reply. Call this alone, only after deciding to reply and before composing or sending it.',
                 [],
             ),
             self::tool(
@@ -144,6 +151,17 @@ final readonly class BotToolCatalog
                     'username' => self::nullableString('Optional immutable participant filter.', 80),
                     'limit'    => self::integer('Maximum results.', 1, 30),
                 ],
+            ),
+            self::tool(
+                'inspect_space_command',
+                'Read the complete immutable specification and enabled state of one command from the current pinned Space release.',
+                [
+                    'name' => self::string(
+                        'Command name with or without a leading slash.',
+                        maximum: 64,
+                    ),
+                ],
+                ['name'],
             ),
             self::tool(
                 'internet_search',
@@ -320,6 +338,7 @@ final readonly class BotToolCatalog
     {
         return in_array($toolName, [
             'stay_silent',
+            'commit_to_reply',
             'save_memory',
             'update_memory',
             'forget_memory',
@@ -563,6 +582,13 @@ final readonly class BotToolCatalog
                 'The agent deliberately stayed silent.',
                 terminate: true,
             )),
+            'commit_to_reply' => $this->durable(
+                $tool,
+                static fn (): AgentToolResult => self::result(
+                    'Reply commitment accepted. Compose and send the promised Telegram reply now.',
+                ),
+                self::executionMode($tool->name),
+            ),
             'save_memory' => $this->durable(
                 $tool,
                 function (int $chatId, array $args, DurableToolExecutionContext $context): AgentToolResult {
@@ -704,6 +730,25 @@ final readonly class BotToolCatalog
                 );
 
                 return self::result($text);
+            }),
+            'inspect_space_command' => $this->durable($tool, function (
+                int $_chatId,
+                array $args,
+                DurableToolExecutionContext $context,
+            ): AgentToolResult {
+                if ($this->spaceCommandInspector === null) {
+                    throw new UnexpectedValueException('Space command inspection is not configured.');
+                }
+
+                return self::result($this->spaceCommandInspector->inspect(
+                    snapshotId: self::metadataString($context, 'runtimeSnapshotId')
+                        ?? throw new UnexpectedValueException('Space command context is missing runtimeSnapshotId.'),
+                    spaceId: self::metadataString($context, 'spaceId')
+                        ?? throw new UnexpectedValueException('Space command context is missing spaceId.'),
+                    releaseId: self::metadataString($context, 'releaseId')
+                        ?? throw new UnexpectedValueException('Space command context is missing releaseId.'),
+                    name: self::requiredString($args, 'name'),
+                ));
             }),
             'internet_search' => $this->durable($tool, fn (int $_chatId, array $args): AgentToolResult => self::result(
                 $this->internetSearch->execute(

@@ -49,6 +49,7 @@ upgrade_line="$(grep -nF 'helm upgrade stable' "$scenario_log" | head -1 | cut -
 [[ -n "$sa_protect_line" && -n "$upgrade_line" && "$sa_protect_line" -lt "$upgrade_line" ]] \
   || fail 'legacy ServiceAccount was not protected before the first Helm mutation'
 has 'operation preflight-workers' "$scenario_log"; has 'operation abort-release' "$scenario_log"
+missing 'operation migrate-legacy-commands' "$scenario_log"
 has 'operation release-status' "$scenario_log"
 has 'helm rollback wtf-happend-bot 7' "$scenario_log"; missing 'operation authorize-release' "$scenario_log"
 
@@ -77,11 +78,15 @@ missing 'helm rollback wtf-happend-bot 8' "$scenario_log"
 prepare authorize_failure; out="${scenario_dir}/out"
 if run authorize-failure "$out"; then fail 'authorize failure succeeded'; fi
 has 'operation preflight-workers' "$scenario_log"; has 'operation preflight-ingress' "$scenario_log"
+has 'operation migrate-legacy-commands' "$scenario_log"
+before 'operation preflight-ingress' 'operation migrate-legacy-commands' "$scenario_log"
+before 'operation migrate-legacy-commands' 'operation authorize-release' "$scenario_log"
 has 'operation authorize-release' "$scenario_log"; missing 'helm rollback' "$scenario_log"
 has 'refusing to roll back' "$out"
 
 prepare success; out="${scenario_dir}/out"; run success "$out"
 has 'kubectl rollout' "$scenario_log"; has 'operation prepare-release' "$scenario_log"
+has 'operation migrate-legacy-commands' "$scenario_log"
 has 'operation authorize-release' "$scenario_log"; has 'operation release-status' "$scenario_log"
 missing 'helm rollback' "$scenario_log"
 

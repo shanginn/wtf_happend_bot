@@ -14,6 +14,8 @@ final class SpaceToolCatalogTest extends TestCase
         $names = SpaceToolCatalog::toolNames();
 
         self::assertContains('save_memory', $names);
+        self::assertContains('commit_to_reply', $names);
+        self::assertContains('inspect_space_command', $names);
         self::assertNotContains('run_space_capsule', $names);
         self::assertNotContains('list_runtime_capabilities', $names);
         self::assertNotContains('upsert_runtime_skill', $names);

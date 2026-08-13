@@ -1,7 +1,7 @@
 {{- if .Values.releaseOperation.enabled }}
 {{- $releaseId := required "releaseOperation.id is required" .Values.releaseOperation.id -}}
 {{- $operation := required "releaseOperation.operation is required" .Values.releaseOperation.operation -}}
-{{- $operations := list "prepare-release" "abort-release" "preflight-workers" "preflight-ingress" "authorize-release" "release-status" "confirm-ingress-retired" "reconcile-release" "cutover" "install-dream-schedule" -}}
+{{- $operations := list "prepare-release" "abort-release" "preflight-workers" "preflight-ingress" "migrate-legacy-commands" "authorize-release" "release-status" "confirm-ingress-retired" "reconcile-release" "cutover" "install-dream-schedule" -}}
 {{- if not (has $operation $operations) -}}
 {{- fail (printf "unsupported releaseOperation.operation %q" $operation) -}}
 {{- end -}}
@@ -67,6 +67,13 @@ spec:
             - src/space-v2-admin.php
             - prepare-release
             - {{ printf "--release-id=%s" $releaseId | quote }}
+          {{- else if eq $operation "migrate-legacy-commands" }}
+          command:
+            - php
+            - src/space-v2-admin.php
+            - migrate-legacy-commands
+            - {{ printf "--release-id=%s" $releaseId | quote }}
+            - --apply
           {{- else if eq $operation "abort-release" }}
           command:
             - php

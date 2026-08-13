@@ -38,6 +38,9 @@ case "$command" in
     fi
     exit 4
     ;;
+  migrate-legacy-commands)
+    if [[ "${RECONCILE_FAIL_MIGRATION:-false}" = true ]]; then exit 10; fi
+    ;;
   prepare-release|authorize-release|confirm-ingress-retired|reconcile-release) ;;
   *) exit 64 ;;
 esac
@@ -115,7 +118,7 @@ future=$(( $(date +%s) + 3600 )); past=$(( $(date +%s) - 1 ))
 
 setup missing_grace; run missing "$future"; has 'php release-status' "$log"; missing 'php prepare-release' "$log"; missing 'kubectl rollout' "$log"
 
-setup missing_recovery; run missing "$past"; has 'kubectl --namespace wtfhappendbot rollout status' "$log"; has 'php preflight-workers' "$log"; has 'php prepare-release' "$log"; has 'php authorize-release' "$log"; has 'php confirm-ingress-retired' "$log"; has 'php reconcile-release' "$log"
+setup missing_recovery; run missing "$past"; has 'kubectl --namespace wtfhappendbot rollout status' "$log"; has 'php preflight-workers' "$log"; has 'php prepare-release' "$log"; has 'php migrate-legacy-commands' "$log"; has 'php authorize-release' "$log"; has 'php confirm-ingress-retired' "$log"; has 'php reconcile-release' "$log"
 
 # Runner loss during Helm has no marker. The controller must never authorize;
 # it aborts any prepared state, restores one prior ReplicaSet, and proves the
@@ -165,6 +168,8 @@ has 'patch cronjob/wtf-happend-bot-release-reconciler-abcdefabcdef' "$log"
 setup missing_failure; if run missing "$past" RECONCILE_FAIL_PREFLIGHT=preflight-workers RECONCILE_OTHER_STATUS=active; then fail 'missing preflight failure succeeded'; fi; has 'php abort-release' "$log"; has 'helm rollback wtf-happend-bot 94' "$log"; missing 'php authorize-release' "$log"; has 'detectable Helm drift' "$dir/out"
 
 setup prepared_failure; if run prepared "$past" RECONCILE_FAIL_PREFLIGHT=preflight-ingress RECONCILE_OTHER_STATUS=active; then fail 'prepared preflight failure succeeded'; fi; has 'php abort-release' "$log"; has 'helm rollback wtf-happend-bot 94' "$log"; missing 'php authorize-release' "$log"; has 'restoring the previous runtime' "$dir/out"
+
+setup prepared_migration_failure; if run prepared "$past" RECONCILE_FAIL_MIGRATION=true RECONCILE_OTHER_STATUS=active; then fail 'prepared migration failure succeeded'; fi; has 'php migrate-legacy-commands' "$log"; has 'php abort-release' "$log"; has 'helm rollback wtf-happend-bot 94' "$log"; missing 'php authorize-release' "$log"
 
 setup authorized; run authorized "$past" RECONCILE_ABORT_STATUS=authorized; has 'php confirm-ingress-retired' "$log"; has 'php reconcile-release' "$log"; missing 'rollout undo' "$log"
 

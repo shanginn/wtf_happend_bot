@@ -199,4 +199,5 @@ final class DreamCandidateValidatorTest extends TestCase
             DreamCandidateValidator::resultingSkillViolations($current, $patch),
         );
     }
+
 }

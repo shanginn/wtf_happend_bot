@@ -44,7 +44,6 @@ final class TelegramApiMethodCatalog
         'getUserChatBoosts',
         'sendAnimation',
         'sendAudio',
-        'sendChatAction',
         'sendContact',
         'sendDice',
         'sendDocument',

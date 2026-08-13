@@ -51,6 +51,10 @@ class TelegramApiExecutorsTest extends TestCase
             'Unknown Telegram Bot API method',
             $executor->execute(methodName: 'editMessageText'),
         );
+        self::assertStringContainsString(
+            'Unknown Telegram Bot API method',
+            $executor->execute(methodName: 'sendChatAction'),
+        );
     }
 
     public function testCallExecutorInjectsCurrentChatAndSendsRawRequest(): void

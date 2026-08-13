@@ -4,16 +4,19 @@ declare(strict_types=1);
 
 namespace Tests\Space\Workflow;
 
+use Bot\Activity\TelegramActivity;
 use Bot\Space\Runtime\SpaceRuntimeSnapshot;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotLoaderActivityInterface;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotRequest;
 use Bot\Space\Workflow\QueuedSpaceUpdate;
 use Bot\Space\Workflow\SpaceAgentWorkflow;
 use Bot\Space\Workflow\SpaceAgentWorkflowInput;
+use Bot\Space\Workflow\SpaceCommandInvocation;
 use Bot\Space\Workflow\SpaceMessageQueue;
 use Bot\Telegram\Update;
 use Mockery;
 use Phenogram\Bindings\Factories\ChatFactory;
+use Phenogram\Bindings\Factories\MessageEntityFactory;
 use Phenogram\Bindings\Factories\MessageFactory;
 use Phenogram\Bindings\Factories\UpdateFactory;
 use ReflectionClass;
@@ -168,6 +171,78 @@ final class SpaceAgentWorkflowStateTest extends TestCase
         );
     }
 
+    public function testSlashCommandIsIsolatedFromOrdinaryMessages(): void
+    {
+        $ordinary = new QueuedSpaceUpdate(self::update(7001), true, 'ordinary');
+        $command  = new QueuedSpaceUpdate(self::commandUpdate('/dimannews', 9001), true, 'command');
+        $method   = new ReflectionMethod(SpaceAgentWorkflow::class, 'nextIngestionBatch');
+
+        [$selected, $remaining] = $method->invoke(
+            null,
+            [$ordinary, $command],
+            null,
+            false,
+        );
+        self::assertSame([$ordinary], $selected);
+        self::assertSame([$command], $remaining);
+
+        $earlierCommand = new QueuedSpaceUpdate(
+            self::commandUpdate('/dimannews', 7001),
+            true,
+            'earlier-command',
+        );
+        [$selected, $remaining] = $method->invoke(
+            null,
+            [$ordinary, $earlierCommand],
+            null,
+            false,
+        );
+        self::assertSame([$earlierCommand], $selected);
+        self::assertSame([$ordinary], $remaining);
+    }
+
+    public function testPendingSlashCommandRunsImmediately(): void
+    {
+        $reflection = new ReflectionClass(SpaceAgentWorkflow::class);
+        $workflow   = $reflection->newInstanceWithoutConstructor();
+        $reflection->getProperty('updatesQueue')->setValue($workflow, new SpaceMessageQueue());
+        $reflection->getProperty('pipelinePendingSince')->setValue($workflow, 100);
+        $reflection->getProperty('pendingCommandInvocation')->setValue(
+            $workflow,
+            new SpaceCommandInvocation('dimannews'),
+        );
+
+        self::assertTrue(
+            (new ReflectionMethod(SpaceAgentWorkflow::class, 'shouldRunAgentImmediately'))
+                ->invoke($workflow),
+        );
+    }
+
+    public function testForeignTargetCommandIsPersistedButNeverEntersAgentPipeline(): void
+    {
+        $update   = self::commandUpdate('/dimannews@otherbot', 9002);
+        $telegram = Mockery::mock(TelegramActivity::class);
+        $telegram->shouldReceive('saveUpdates')->once()->andReturn(true);
+        $telegram->shouldNotReceive('updateToView');
+
+        $reflection = new ReflectionClass(SpaceAgentWorkflow::class);
+        $workflow   = $reflection->newInstanceWithoutConstructor();
+        $queue      = new SpaceMessageQueue();
+        $queue->push(new QueuedSpaceUpdate($update, true, 'foreign-command'));
+        $reflection->getProperty('input')->setValue($workflow, self::input());
+        $reflection->getProperty('updatesQueue')->setValue($workflow, $queue);
+        $reflection->getProperty('telegramActivity')->setValue($workflow, $telegram);
+
+        (new ReflectionMethod(SpaceAgentWorkflow::class, 'ingestQueuedUpdates'))->invoke($workflow);
+
+        self::assertSame(0, $reflection->getProperty('pipelinePendingSince')->getValue($workflow));
+        self::assertNull($reflection->getProperty('pendingBatchId')->getValue($workflow));
+        self::assertNull($reflection->getProperty('pendingCommandInvocation')->getValue($workflow));
+        self::assertSame(0, $reflection->getProperty('pendingBatchMessageCount')->getValue($workflow));
+        self::assertSame([], $reflection->getProperty('messages')->getValue($workflow));
+        self::assertSame(1, $reflection->getProperty('processedCount')->getValue($workflow));
+    }
+
     private static function input(): SpaceAgentWorkflowInput
     {
         return new SpaceAgentWorkflowInput(
@@ -179,6 +254,7 @@ final class SpaceAgentWorkflowStateTest extends TestCase
             chatId: 7001,
             chatType: 'supergroup',
             topicId: null,
+            botUsername: 'wtf_happend_bot',
         );
     }
 
@@ -197,6 +273,25 @@ final class SpaceAgentWorkflowStateTest extends TestCase
                 ),
                 messageThreadId: $messageThreadId,
                 isTopicMessage: $isTopicMessage,
+            ),
+        );
+        assert($update instanceof Update);
+
+        return $update;
+    }
+
+    private static function commandUpdate(string $text, int $updateId): Update
+    {
+        $update = UpdateFactory::make(
+            updateId: $updateId,
+            message: MessageFactory::make(
+                chat: ChatFactory::make(id: 7001, type: 'supergroup'),
+                text: $text,
+                entities: [MessageEntityFactory::make(
+                    type: 'bot_command',
+                    offset: 0,
+                    length: strlen($text),
+                )],
             ),
         );
         assert($update instanceof Update);

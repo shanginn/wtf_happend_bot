@@ -16,7 +16,7 @@ chart_dir="${5:-${script_dir}/../helm}"
 image_digest="${RELEASE_IMAGE_DIGEST:-}"
 
 case "$operation" in
-    prepare-release | abort-release | preflight-workers | preflight-ingress | authorize-release | release-status | confirm-ingress-retired | reconcile-release | cutover | install-dream-schedule) ;;
+    prepare-release | abort-release | preflight-workers | preflight-ingress | migrate-legacy-commands | authorize-release | release-status | confirm-ingress-retired | reconcile-release | cutover | install-dream-schedule) ;;
     *)
         echo "Unsupported release operation: ${operation}" >&2
         exit 64

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Space\Runtime;
 
+use Bot\Space\Runtime\SpaceCommandBinding;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotLoaderActivity;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotRequest;
 use Cycle\Database\DatabaseInterface;
@@ -103,6 +104,138 @@ final class SpaceRuntimeSnapshotLoaderActivityTest extends TestCase
                 'body'        => 'Must be rejected.',
                 'enabled'     => true,
             ]],
+        );
+    }
+
+    public function testCommandBindingsPinCompleteInlineSpecifications(): void
+    {
+        $commands = (new ReflectionMethod(SpaceRuntimeSnapshotLoaderActivity::class, 'commands'))->invoke(
+            null,
+            ['commandBindings' => [[
+                'command'          => 'dimannews',
+                'description'      => 'Генерирует Диман Ньюс по полной спецификации.',
+                'instructions'     => 'Follow every section of the Diman News format.',
+                'parametersSchema' => [
+                    'type'                 => 'object',
+                    'properties'           => [],
+                    'additionalProperties' => false,
+                ],
+            ]]],
+        );
+
+        self::assertCount(1, $commands);
+        self::assertInstanceOf(SpaceCommandBinding::class, $commands[0]);
+        self::assertSame('dimannews', $commands[0]->name);
+        self::assertSame('Follow every section of the Diman News format.', $commands[0]->instructions);
+    }
+
+    public function testCommandBindingNeedsCompleteInlineInstructions(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('unsupported or missing fields');
+
+        (new ReflectionMethod(SpaceRuntimeSnapshotLoaderActivity::class, 'commands'))->invoke(
+            null,
+            ['commandBindings' => [[
+                'command'          => 'dimannews',
+                'description'      => 'Incomplete.',
+                'parametersSchema' => ['type' => 'object'],
+            ]]],
+        );
+    }
+
+    public function testCommandBindingsMustBeCanonicalSortedAndExact(): void
+    {
+        $method = new ReflectionMethod(SpaceRuntimeSnapshotLoaderActivity::class, 'commands');
+
+        try {
+            $method->invoke(null, ['commandBindings' => [[
+                'command'          => '/news',
+                'description'      => 'News.',
+                'instructions'     => 'Generate news.',
+                'parametersSchema' => ['type' => 'object'],
+            ]]]);
+            self::fail('A command name with a slash should fail closed.');
+        } catch (RuntimeException $error) {
+            self::assertStringContainsString('not canonical', $error->getMessage());
+        }
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('unsupported or missing fields');
+        $method->invoke(null, ['commandBindings' => [[
+            'command'          => 'news',
+            'description'      => 'News.',
+            'instructions'     => 'Generate news.',
+            'parametersSchema' => ['type' => 'object'],
+            'legacyToolId'     => 1,
+        ]]]);
+    }
+
+    public function testAbsentCommandBindingsProduceAnEmptyRegistry(): void
+    {
+        self::assertSame(
+            [],
+            (new ReflectionMethod(SpaceRuntimeSnapshotLoaderActivity::class, 'commands'))->invoke(
+                null,
+                ['capsules' => []],
+            ),
+        );
+    }
+
+    public function testCommandBindingsMustBeUniquelySorted(): void
+    {
+        $binding = static fn (string $name): array => [
+            'command'          => $name,
+            'description'      => 'Command.',
+            'instructions'     => 'Execute this command.',
+            'parametersSchema' => ['type' => 'object'],
+        ];
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('uniquely sorted');
+        (new ReflectionMethod(SpaceRuntimeSnapshotLoaderActivity::class, 'commands'))->invoke(
+            null,
+            ['commandBindings' => [$binding('news'), $binding('dimannews')]],
+        );
+    }
+
+    public function testCommandBindingsEnforceAggregateBudgets(): void
+    {
+        $bindings = [];
+        foreach (range(1, 20) as $index) {
+            $bindings[] = [
+                'command'          => sprintf('command_%02d', $index),
+                'description'      => 'Command.',
+                'instructions'     => str_repeat('x', 2_500),
+                'parametersSchema' => ['type' => 'object'],
+            ];
+        }
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('50 KB');
+        (new ReflectionMethod(SpaceRuntimeSnapshotLoaderActivity::class, 'commands'))->invoke(
+            null,
+            ['commandBindings' => $bindings],
+        );
+    }
+
+    public function testCommandBindingsRejectMoreThanTwentySpecifications(): void
+    {
+        $bindings = [];
+        foreach (range(1, 21) as $index) {
+            $bindings[] = [
+                'command'          => sprintf('command_%02d', $index),
+                'description'      => 'Command.',
+                'instructions'     => 'Execute this command.',
+                'parametersSchema' => ['type' => 'object'],
+            ];
+        }
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('more than 20');
+        (new ReflectionMethod(SpaceRuntimeSnapshotLoaderActivity::class, 'commands'))->invoke(
+            null,
+            ['commandBindings' => $bindings],
         );
     }
 }

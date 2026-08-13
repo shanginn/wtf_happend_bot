@@ -8,6 +8,7 @@ use Bot\Durability\DurableCommandReplyGateway;
 use Bot\Space\Runtime\SpaceIdentityResolverInterface;
 use Bot\Space\Workflow\SpaceAgentWorkflow;
 use Bot\Space\Workflow\SpaceAgentWorkflowHandler;
+use Bot\Space\Workflow\SpaceCommandInvocation;
 use Bot\Telegram\TelegramChatAuthorizationPolicy;
 use Bot\Telegram\TelegramTopicRouting;
 use Bot\Telegram\Update;
@@ -21,12 +22,10 @@ use UnexpectedValueException;
 
 class WorkflowControlCommandHandler extends AbstractCommandHandler
 {
-    private const string PAUSE_COMMAND_PATTERN  = '/^\/pause(?:@[\pL\pN_]+)?$/u';
-    private const string RESUME_COMMAND_PATTERN = '/^\/resume(?:@[\pL\pN_]+)?$/u';
-    private const string PAUSED_MESSAGE         = 'Workflow чата приостановлен. Новые сообщения сохраняются в историю, но не обрабатываются задним числом.';
-    private const string RESUMED_MESSAGE        = 'Workflow чата продолжил работу. Новые сообщения снова обрабатываются.';
-    private const string NO_WORKFLOW_MESSAGE    = 'Активного workflow для этого чата нет.';
-    private const string DENIED_MESSAGE         = 'Недостаточно прав: в личном чате команду может выполнить '
+    private const string PAUSED_MESSAGE      = 'Workflow чата приостановлен. Новые сообщения сохраняются в историю, но не обрабатываются задним числом.';
+    private const string RESUMED_MESSAGE     = 'Workflow чата продолжил работу. Новые сообщения снова обрабатываются.';
+    private const string NO_WORKFLOW_MESSAGE = 'Активного workflow для этого чата нет.';
+    private const string DENIED_MESSAGE      = 'Недостаточно прав: в личном чате команду может выполнить '
         . 'только его пользователь, а в группе — владелец или администратор.';
     private const string AUTHORIZATION_FAILURE_MESSAGE = 'Не удалось проверить права в Telegram. '
         . 'Workflow не изменён; попробуйте ещё раз позже.';
@@ -36,18 +35,23 @@ class WorkflowControlCommandHandler extends AbstractCommandHandler
         private readonly SpaceIdentityResolverInterface $spaces,
         private readonly TelegramChatAuthorizationPolicy $authorization,
         private readonly DurableCommandReplyGateway $durableReplies,
+        private readonly string $botUsername,
         private readonly string $hostReleaseId = 'local',
-    ) {}
+    ) {
+        if (preg_match('/\A[a-zA-Z0-9_]{5,64}\z/D', $botUsername) !== 1) {
+            throw new UnexpectedValueException('Workflow control handler bot username is invalid.');
+        }
+    }
 
-    public static function supports(UpdateInterface $update): bool
+    public function supportsUpdate(UpdateInterface $update): bool
     {
-        return self::commandFor($update) !== null;
+        return $this->commandFor($update) !== null;
     }
 
     public function handle(UpdateInterface $update, TelegramBot $bot): void
     {
         $message = $update->message;
-        $command = self::commandFor($update);
+        $command = $this->commandFor($update);
 
         if ($message === null || $command === null) {
             return;
@@ -99,23 +103,22 @@ class WorkflowControlCommandHandler extends AbstractCommandHandler
         );
     }
 
-    private static function commandFor(UpdateInterface $update): ?string
+    private function commandFor(UpdateInterface $update): ?string
     {
-        if ($update->message === null) {
+        if (!$update instanceof Update) {
             return null;
         }
 
-        foreach (self::extractCommands($update->message) as $command) {
-            if (preg_match(self::PAUSE_COMMAND_PATTERN, $command) === 1) {
-                return SpaceAgentWorkflow::PAUSE_SIGNAL_NAME;
-            }
-
-            if (preg_match(self::RESUME_COMMAND_PATTERN, $command) === 1) {
-                return SpaceAgentWorkflow::RESUME_SIGNAL_NAME;
-            }
+        $command = SpaceCommandInvocation::fromUpdate($update);
+        if ($command === null || !$command->isForBot($this->botUsername)) {
+            return null;
         }
 
-        return null;
+        return match ($command->name) {
+            SpaceAgentWorkflow::PAUSE_SIGNAL_NAME  => SpaceAgentWorkflow::PAUSE_SIGNAL_NAME,
+            SpaceAgentWorkflow::RESUME_SIGNAL_NAME => SpaceAgentWorkflow::RESUME_SIGNAL_NAME,
+            default                                => null,
+        };
     }
 
     private function workflowId(UpdateInterface $update): string

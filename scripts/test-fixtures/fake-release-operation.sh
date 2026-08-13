@@ -47,6 +47,9 @@ case "$operation" in
         printf '{"status":"%s"}\n' "$state"
         [[ "$state" == active ]] || exit 3
         ;;
+    migrate-legacy-commands)
+        echo '{"mode":"applied","migratedSpaces":1}'
+        ;;
     authorize-release)
         echo authorized > "$state_file"
         echo '{"status":"authorized"}'

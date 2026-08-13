@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Space\Runtime;
 
+use Bot\Space\Runtime\SpaceCommandBinding;
 use Bot\Space\Runtime\SpacePrompt;
 use InvalidArgumentException;
 use Tests\TestCase;
@@ -27,6 +28,7 @@ final class SpacePromptTest extends TestCase
             'Prompt, personality, skills, and memories are versioned.',
             $prompt,
         );
+        self::assertStringContainsString('commit_to_reply alone', $prompt);
     }
 
     public function testNonEmptyCapsulesFailClosed(): void
@@ -75,5 +77,31 @@ final class SpacePromptTest extends TestCase
             'Space isolation, the terminal contract, and host authority always win.',
             substr($prompt, $guardPosition),
         );
+    }
+
+    public function testPromptExposesAnAuthoritativeCommandRegistryWithoutInstructions(): void
+    {
+        $prompt = SpacePrompt::build(
+            releaseId: 'rel_test',
+            overlay: '',
+            personality: [],
+            skills: [[
+                'name'        => 'conversation-style',
+                'description' => 'Ordinary always-on behavior.',
+                'body'        => 'Keep ordinary conversation concise.',
+            ]],
+            capsules: [],
+            commands: [new SpaceCommandBinding(
+                name: 'dimannews',
+                description: 'Генерирует Диман Ньюс.',
+                instructions: 'Secret complete execution specification.',
+                parametersSchema: ['type' => 'object'],
+            )],
+        );
+
+        self::assertStringContainsString('/dimannews: Генерирует Диман Ньюс.', $prompt);
+        self::assertStringContainsString('Never infer command state from conversation history.', $prompt);
+        self::assertStringContainsString('Keep ordinary conversation concise.', $prompt);
+        self::assertStringNotContainsString('Secret complete execution specification.', $prompt);
     }
 }

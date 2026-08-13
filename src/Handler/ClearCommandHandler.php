@@ -8,6 +8,7 @@ use Bot\Durability\DurableCommandReplyGateway;
 use Bot\Space\Runtime\SpaceIdentityResolverInterface;
 use Bot\Space\Workflow\SpaceAgentWorkflow;
 use Bot\Space\Workflow\SpaceAgentWorkflowHandler;
+use Bot\Space\Workflow\SpaceCommandInvocation;
 use Bot\Telegram\TelegramChatAuthorizationPolicy;
 use Bot\Telegram\TelegramTopicRouting;
 use Bot\Telegram\Update;
@@ -23,7 +24,6 @@ use UnexpectedValueException;
 class ClearCommandHandler extends AbstractCommandHandler
 {
     private const string COMMAND         = '/clear';
-    private const string COMMAND_PATTERN = '/^\/clear(?:@[\pL\pN_]+)?$/u';
     private const string SUCCESS_MESSAGE = 'Текущий workflow чата остановлен. Следующее сообщение запустит новый.';
     private const string NOOP_MESSAGE    = 'Активного workflow для этого чата уже нет.';
     private const string DENIED_MESSAGE  = 'Недостаточно прав: в личном чате команду может выполнить '
@@ -36,26 +36,30 @@ class ClearCommandHandler extends AbstractCommandHandler
         private readonly SpaceIdentityResolverInterface $spaces,
         private readonly TelegramChatAuthorizationPolicy $authorization,
         private readonly DurableCommandReplyGateway $durableReplies,
+        private readonly string $botUsername,
         private readonly string $hostReleaseId = 'local',
-    ) {}
+    ) {
+        if (preg_match('/\A[a-zA-Z0-9_]{5,64}\z/D', $botUsername) !== 1) {
+            throw new UnexpectedValueException('Clear command handler bot username is invalid.');
+        }
+    }
 
-    public static function supports(UpdateInterface $update): bool
+    public function supportsUpdate(UpdateInterface $update): bool
     {
-        if ($update->message === null) {
+        if (!$update instanceof Update) {
             return false;
         }
 
-        foreach (self::extractCommands($update->message) as $command) {
-            if (preg_match(self::COMMAND_PATTERN, $command) === 1) {
-                return true;
-            }
-        }
+        $command = SpaceCommandInvocation::fromUpdate($update);
 
-        return false;
+        return $command?->name === 'clear' && $command->isForBot($this->botUsername);
     }
 
     public function handle(UpdateInterface $update, TelegramBot $bot): void
     {
+        if (!$this->supportsUpdate($update)) {
+            return;
+        }
         $message = $update->message;
 
         if ($message === null) {

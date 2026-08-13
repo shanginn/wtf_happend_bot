@@ -255,6 +255,11 @@ case "$phase" in
             exit 1
         fi
         "${admin[@]}" prepare-release "${release[@]}"
+        if ! "${admin[@]}" migrate-legacy-commands "${release[@]}" --apply; then
+            echo 'Candidate legacy command migration failed; aborting and restoring the previous runtime.' >&2
+            abort_and_restore_previous_runtime
+            exit 1
+        fi
         phase=prepared
         ;;
     prepared)
@@ -288,6 +293,11 @@ if ! "${admin[@]}" preflight-workers "${release[@]}" \
     exit 1
 fi
 
+if ! "${admin[@]}" migrate-legacy-commands "${release[@]}" --apply; then
+    echo 'Prepared candidate legacy command migration failed; aborting and restoring the previous runtime.' >&2
+    abort_and_restore_previous_runtime
+    exit 1
+fi
 "${admin[@]}" authorize-release "${release[@]}"
 "${admin[@]}" confirm-ingress-retired "${release[@]}"
 "${admin[@]}" reconcile-release "${release[@]}"

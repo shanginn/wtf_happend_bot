@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Bot\Space\Workflow;
 
+use Bot\Space\Runtime\SpaceCommandBinding;
 use Bot\Space\Runtime\SpaceRuntimeSnapshot;
 use Bot\Telegram\Factory;
 use Bot\Telegram\Update;
@@ -65,6 +66,7 @@ final readonly class SpaceAgentWorkflowInputDataConverter implements PayloadConv
             chatId: self::integer($data, 'chatId'),
             chatType: self::string($data, 'chatType'),
             topicId: self::nullableInteger($data, 'topicId'),
+            botUsername: self::string($data, 'botUsername'),
             messages: self::array($data, 'messages'),
             processedCount: self::integer($data, 'processedCount'),
             agentRun: self::integer($data, 'agentRun'),
@@ -80,6 +82,9 @@ final readonly class SpaceAgentWorkflowInputDataConverter implements PayloadConv
             pendingBatchMessageCount: self::integer($data, 'pendingBatchMessageCount'),
             pendingBatchId: self::nullableString($data, 'pendingBatchId'),
             pendingTopicId: self::nullableInteger($data, 'pendingTopicId'),
+            pendingCommandInvocation: self::commandInvocation(
+                $data['pendingCommandInvocation'] ?? null,
+            ),
             pendingActorUserIds: self::integerList($data, 'pendingActorUserIds'),
             pendingActorIdentityComplete: self::boolean($data, 'pendingActorIdentityComplete'),
             pendingRuntimeSnapshot: self::snapshot($data['pendingRuntimeSnapshot'] ?? null),
@@ -93,13 +98,22 @@ final readonly class SpaceAgentWorkflowInputDataConverter implements PayloadConv
     private static function snapshotData(SpaceRuntimeSnapshot $snapshot): array
     {
         return [
-            'snapshotId'                 => $snapshot->snapshotId,
-            'spaceId'                    => $snapshot->spaceId,
-            'releaseId'                  => $snapshot->releaseId,
-            'releaseDigest'              => $snapshot->releaseDigest,
-            'model'                      => $snapshot->model,
-            'systemPrompt'               => $snapshot->systemPrompt,
-            'tools'                      => $snapshot->tools,
+            'snapshotId'    => $snapshot->snapshotId,
+            'spaceId'       => $snapshot->spaceId,
+            'releaseId'     => $snapshot->releaseId,
+            'releaseDigest' => $snapshot->releaseDigest,
+            'model'         => $snapshot->model,
+            'systemPrompt'  => $snapshot->systemPrompt,
+            'tools'         => $snapshot->tools,
+            'commands'      => array_map(
+                static fn (SpaceCommandBinding $command): array => [
+                    'name'             => $command->name,
+                    'description'      => $command->description,
+                    'instructions'     => $command->instructions,
+                    'parametersSchema' => $command->parametersSchema,
+                ],
+                $snapshot->commands,
+            ),
             'capsuleArtifactRefs'        => $snapshot->capsuleArtifactRefs,
             'capsuleRuntimeImageBuildId' => $snapshot->capsuleRuntimeImageBuildId,
             'memoryRevision'             => $snapshot->memoryRevision,
@@ -124,10 +138,57 @@ final readonly class SpaceAgentWorkflowInputDataConverter implements PayloadConv
             model: self::string($value, 'model'),
             systemPrompt: self::string($value, 'systemPrompt'),
             tools: self::array($value, 'tools'),
+            commands: self::commandBindings(self::array($value, 'commands')),
             capsuleArtifactRefs: self::array($value, 'capsuleArtifactRefs'),
             capsuleRuntimeImageBuildId: self::nullableString($value, 'capsuleRuntimeImageBuildId'),
             memoryRevision: self::string($value, 'memoryRevision'),
             capabilityPolicyRevision: self::string($value, 'capabilityPolicyRevision'),
+        );
+    }
+
+    /** @param array<mixed> $values @return list<SpaceCommandBinding> */
+    private static function commandBindings(array $values): array
+    {
+        if (!array_is_list($values)) {
+            throw new UnexpectedValueException(
+                'Pending Space runtime commands must be a list.',
+            );
+        }
+
+        $commands = [];
+        foreach ($values as $index => $value) {
+            if (!is_array($value)) {
+                throw new UnexpectedValueException(sprintf(
+                    'Pending Space runtime command %d must be an object.',
+                    $index,
+                ));
+            }
+            $commands[] = new SpaceCommandBinding(
+                name: self::string($value, 'name'),
+                description: self::string($value, 'description'),
+                instructions: self::string($value, 'instructions'),
+                parametersSchema: self::array($value, 'parametersSchema'),
+            );
+        }
+
+        return $commands;
+    }
+
+    private static function commandInvocation(mixed $value): ?SpaceCommandInvocation
+    {
+        if ($value === null) {
+            return null;
+        }
+        if (!is_array($value)) {
+            throw new UnexpectedValueException(
+                'Pending Space command invocation must be an object or null.',
+            );
+        }
+
+        return new SpaceCommandInvocation(
+            name: self::string($value, 'name'),
+            argumentText: self::string($value, 'argumentText'),
+            targetUsername: self::nullableString($value, 'targetUsername'),
         );
     }
 
@@ -229,29 +290,37 @@ final readonly class SpaceAgentWorkflowInputDataConverter implements PayloadConv
     private function encode(SpaceAgentWorkflowInput $value): string
     {
         return json_encode([
-            'spaceId'                      => $value->spaceId,
-            'platform'                     => $value->platform,
-            'botInstanceId'                => $value->botInstanceId,
-            'externalConversationId'       => $value->externalConversationId,
-            'externalThreadId'             => $value->externalThreadId,
-            'chatId'                       => $value->chatId,
-            'chatType'                     => $value->chatType,
-            'topicId'                      => $value->topicId,
-            'messages'                     => $value->messages,
-            'processedCount'               => $value->processedCount,
-            'agentRun'                     => $value->agentRun,
-            'pipelinePendingSince'         => $value->pipelinePendingSince,
-            'pendingUpdates'               => $this->serializePendingUpdates($value->pendingUpdates),
-            'paused'                       => $value->paused,
-            'callbackPending'              => $value->callbackPending,
-            'droppedUpdateCount'           => $value->droppedUpdateCount,
-            'lastNotificationFailure'      => $value->lastNotificationFailure,
-            'ingestionFailureCount'        => $value->ingestionFailureCount,
-            'runtimeSnapshotFailureCount'  => $value->runtimeSnapshotFailureCount,
-            'ingestionRetryPending'        => $value->ingestionRetryPending,
-            'pendingBatchMessageCount'     => $value->pendingBatchMessageCount,
-            'pendingBatchId'               => $value->pendingBatchId,
-            'pendingTopicId'               => $value->pendingTopicId,
+            'spaceId'                     => $value->spaceId,
+            'platform'                    => $value->platform,
+            'botInstanceId'               => $value->botInstanceId,
+            'externalConversationId'      => $value->externalConversationId,
+            'externalThreadId'            => $value->externalThreadId,
+            'chatId'                      => $value->chatId,
+            'chatType'                    => $value->chatType,
+            'topicId'                     => $value->topicId,
+            'botUsername'                 => $value->botUsername,
+            'messages'                    => $value->messages,
+            'processedCount'              => $value->processedCount,
+            'agentRun'                    => $value->agentRun,
+            'pipelinePendingSince'        => $value->pipelinePendingSince,
+            'pendingUpdates'              => $this->serializePendingUpdates($value->pendingUpdates),
+            'paused'                      => $value->paused,
+            'callbackPending'             => $value->callbackPending,
+            'droppedUpdateCount'          => $value->droppedUpdateCount,
+            'lastNotificationFailure'     => $value->lastNotificationFailure,
+            'ingestionFailureCount'       => $value->ingestionFailureCount,
+            'runtimeSnapshotFailureCount' => $value->runtimeSnapshotFailureCount,
+            'ingestionRetryPending'       => $value->ingestionRetryPending,
+            'pendingBatchMessageCount'    => $value->pendingBatchMessageCount,
+            'pendingBatchId'              => $value->pendingBatchId,
+            'pendingTopicId'              => $value->pendingTopicId,
+            'pendingCommandInvocation'    => $value->pendingCommandInvocation === null
+                ? null
+                : [
+                    'name'           => $value->pendingCommandInvocation->name,
+                    'argumentText'   => $value->pendingCommandInvocation->argumentText,
+                    'targetUsername' => $value->pendingCommandInvocation->targetUsername,
+                ],
             'pendingActorUserIds'          => $value->pendingActorUserIds,
             'pendingActorIdentityComplete' => $value->pendingActorIdentityComplete,
             'pendingRuntimeSnapshot'       => $value->pendingRuntimeSnapshot === null

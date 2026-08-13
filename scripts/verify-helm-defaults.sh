@@ -84,7 +84,7 @@ if grep -Fq 'ingress-' <<< "$release_render" || grep -Fq 'preserved-for-cutover'
     echo 'Release chart still contains the split/preserved deployment design.' >&2; exit 1
 fi
 
-for operation in prepare-release abort-release preflight-workers preflight-ingress authorize-release confirm-ingress-retired reconcile-release release-status; do
+for operation in prepare-release abort-release preflight-workers preflight-ingress migrate-legacy-commands authorize-release confirm-ingress-retired reconcile-release release-status; do
     operation_render="$(helm template wtf-happend-bot "$chart_dir" --namespace wtfhappendbot \
       --show-only templates/release-operation-job.yaml --set releaseOperation.enabled=true \
       --set-string releaseOperation.id=abcdef123456 --set-string releaseOperation.operation="$operation")"

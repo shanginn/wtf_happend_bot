@@ -42,13 +42,13 @@ Dotenv\Dotenv::createUnsafeImmutable(__DIR__ . '/..')->safeLoad();
 $temporalConfig = require __DIR__ . '/../config/temporal.php';
 $botToken       = $temporalConfig->botToken;
 
-$bot = new DurableTelegramBot(
-    $botToken,
-    api: new ExtendedApi(
-        client: new TelegramBotApiClient($botToken),
-        serializer: new Serializer(new Factory()),
-    )
+$telegramApi = new ExtendedApi(
+    client: new TelegramBotApiClient($botToken),
+    serializer: new Serializer(new Factory()),
 );
+$bot         = new DurableTelegramBot($botToken, api: $telegramApi);
+$botUsername = $telegramApi->getMe()->username
+    ?? throw new RuntimeException('Telegram getMe returned no bot username.');
 
 /** @var ORMInterface $orm */
 /** @var Container $container */
@@ -84,6 +84,7 @@ $spaceWorkflowHandler = new SpaceAgentWorkflowHandler(
     spaces: $spaceResolver,
     taskQueue: $temporalConfig->agentTaskQueue,
     hostReleaseId: $temporalConfig->hostReleaseId,
+    botUsername: $botUsername,
 );
 $spaceMembershipLifecycleHandler = new SpaceMembershipLifecycleHandler(
     states: new SpaceMembershipStateStore(
@@ -103,6 +104,7 @@ $clearCommandHandler = new ClearCommandHandler(
     $spaceResolver,
     $authorization,
     $durableReplies,
+    $botUsername,
     $temporalConfig->hostReleaseId,
 );
 $workflowControlCommandHandler = new WorkflowControlCommandHandler(
@@ -110,6 +112,7 @@ $workflowControlCommandHandler = new WorkflowControlCommandHandler(
     $spaceResolver,
     $authorization,
     $durableReplies,
+    $botUsername,
     $temporalConfig->hostReleaseId,
 );
 
@@ -119,11 +122,11 @@ $bot
 
 $bot
     ->addHandler($clearCommandHandler)
-    ->supports($clearCommandHandler::supports(...));
+    ->supports($clearCommandHandler->supportsUpdate(...));
 
 $bot
     ->addHandler($workflowControlCommandHandler)
-    ->supports($workflowControlCommandHandler::supports(...));
+    ->supports($workflowControlCommandHandler->supportsUpdate(...));
 
 $bot
     ->addHandler(function (UpdateInterface $update, TelegramBot $bot) use ($spaceWorkflowHandler) {
@@ -143,8 +146,8 @@ $bot
 
         $paymentAnswer?->send($bot->api);
     })
-    ->supports(static fn (UpdateInterface $update): bool => !ClearCommandHandler::supports($update)
-        && !WorkflowControlCommandHandler::supports($update)
+    ->supports(static fn (UpdateInterface $update): bool => !$clearCommandHandler->supportsUpdate($update)
+        && !$workflowControlCommandHandler->supportsUpdate($update)
         && !SpaceMembershipLifecycleHandler::supports($update));
 
 $pressedCtrlC     = false;

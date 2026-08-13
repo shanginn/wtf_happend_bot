@@ -6,6 +6,9 @@ namespace Bot\Space\Workflow;
 
 use Bot\Activity\TelegramActivity;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
+use Bot\Space\Command\SpaceCommandActivityInterface;
+use Bot\Space\Command\SpaceCommandExecutionInput;
+use Bot\Space\Runtime\SpaceCommandBinding;
 use Bot\Space\Runtime\SpaceRuntimeSnapshot;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotLoaderActivityInterface;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotRequest;
@@ -57,6 +60,7 @@ final class SpaceAgentWorkflow
 
     private ActivityProxy|TelegramActivity $telegramActivity;
     private ActivityProxy|SpaceRuntimeSnapshotLoaderActivityInterface $runtimeSnapshotActivity;
+    private ActivityProxy|SpaceCommandActivityInterface $commandActivity;
     private ActivityProxy|DurableAgentActivitiesInterface $agentActivities;
     private SpaceMessageQueue $updatesQueue;
     private SpaceAgentWorkflowInput $input;
@@ -64,25 +68,26 @@ final class SpaceAgentWorkflow
     /** @var list<array<string, mixed>> */
     private array $messages = [];
 
-    private int $processedCount                           = 0;
-    private int $processedSinceContinueAsNew              = 0;
-    private int $agentRun                                 = 0;
-    private int $pipelinePendingSince                     = 0;
-    private int $ingestionFailureCount                    = 0;
-    private int $runtimeSnapshotFailureCount              = 0;
-    private int $droppedUpdateCount                       = 0;
-    private int $pendingBatchMessageCount                 = 0;
-    private int $notificationFailureCount                 = 0;
-    private bool $paused                                  = false;
-    private bool $ingestionRetryPending                   = false;
-    private bool $callbackPending                         = false;
-    private bool $pendingActorIdentityComplete            = true;
-    private ?string $lastNotificationFailure              = null;
-    private ?string $pendingBatchId                       = null;
-    private ?int $pendingTopicId                          = null;
-    private ?SpaceRuntimeSnapshot $pendingRuntimeSnapshot = null;
-    private ?string $pendingTerminalText                  = null;
-    private ?string $pendingTerminalScopeId               = null;
+    private int $processedCount                               = 0;
+    private int $processedSinceContinueAsNew                  = 0;
+    private int $agentRun                                     = 0;
+    private int $pipelinePendingSince                         = 0;
+    private int $ingestionFailureCount                        = 0;
+    private int $runtimeSnapshotFailureCount                  = 0;
+    private int $droppedUpdateCount                           = 0;
+    private int $pendingBatchMessageCount                     = 0;
+    private int $notificationFailureCount                     = 0;
+    private bool $paused                                      = false;
+    private bool $ingestionRetryPending                       = false;
+    private bool $callbackPending                             = false;
+    private bool $pendingActorIdentityComplete                = true;
+    private ?string $lastNotificationFailure                  = null;
+    private ?string $pendingBatchId                           = null;
+    private ?int $pendingTopicId                              = null;
+    private ?SpaceCommandInvocation $pendingCommandInvocation = null;
+    private ?SpaceRuntimeSnapshot $pendingRuntimeSnapshot     = null;
+    private ?string $pendingTerminalText                      = null;
+    private ?string $pendingTerminalScopeId                   = null;
 
     /** @var array<int, true> */
     private array $seenUpdateIds = [];
@@ -101,7 +106,21 @@ final class SpaceAgentWorkflow
                 ->withRetryOptions(RetryOptions::new()->withMaximumAttempts(3)),
         );
         $this->runtimeSnapshotActivity = $runtimeSnapshotActivity;
-        $this->agentActivities         = Workflow::newActivityStub(
+        /** @var SpaceCommandActivityInterface $commandActivity */
+        $commandActivity = Workflow::newActivityStub(
+            SpaceCommandActivityInterface::class,
+            ActivityOptions::new()
+                ->withScheduleToCloseTimeout(CarbonInterval::minutes(10))
+                ->withStartToCloseTimeout(CarbonInterval::minutes(5))
+                ->withRetryOptions(
+                    RetryOptions::new()
+                        ->withInitialInterval(1)
+                        ->withMaximumInterval(30)
+                        ->withMaximumAttempts(3),
+                ),
+        );
+        $this->commandActivity = $commandActivity;
+        $this->agentActivities = Workflow::newActivityStub(
             DurableAgentActivitiesInterface::class,
             ActivityOptions::new()
                 ->withScheduleToCloseTimeout(CarbonInterval::minutes(10))
@@ -135,6 +154,7 @@ final class SpaceAgentWorkflow
         $this->pendingBatchMessageCount     = $input->pendingBatchMessageCount;
         $this->pendingBatchId               = $input->pendingBatchId;
         $this->pendingTopicId               = $input->pendingTopicId;
+        $this->pendingCommandInvocation     = $input->pendingCommandInvocation;
         $this->pendingActorUserIds          = array_fill_keys($input->pendingActorUserIds, true);
         $this->pendingActorIdentityComplete = $input->pendingActorIdentityComplete;
         $this->pendingRuntimeSnapshot       = $input->pendingRuntimeSnapshot;
@@ -540,10 +560,19 @@ final class SpaceAgentWorkflow
                 ?: strcmp($left->ingestionId, $right->ingestionId),
         );
 
-        $selectedTopicId  = $pendingTopicId;
-        $hasSelectedTopic = $hasPendingBatch;
+        $selectedTopicId        = $pendingTopicId;
+        $hasSelectedTopic       = $hasPendingBatch;
+        $hasSelectedAgentUpdate = $hasPendingBatch;
         foreach ($updates as $index => $queuedUpdate) {
             if ($queuedUpdate->appendToAgent) {
+                $command = SpaceCommandInvocation::fromUpdate($queuedUpdate->update);
+                if ($command !== null && $hasSelectedAgentUpdate) {
+                    return [
+                        array_slice($updates, 0, $index),
+                        array_slice($updates, $index),
+                    ];
+                }
+
                 $topicId = TelegramTopicRouting::topicId($queuedUpdate->update->effectiveMessage);
                 if (!$hasSelectedTopic) {
                     $selectedTopicId  = $topicId;
@@ -554,11 +583,23 @@ final class SpaceAgentWorkflow
                         array_slice($updates, $index),
                     ];
                 }
+
+                $hasSelectedAgentUpdate = true;
             }
 
             if (
                 $queuedUpdate->appendToAgent
                 && $queuedUpdate->update->callbackQuery !== null
+            ) {
+                return [
+                    array_slice($updates, 0, $index + 1),
+                    array_slice($updates, $index + 1),
+                ];
+            }
+
+            if (
+                $queuedUpdate->appendToAgent
+                && SpaceCommandInvocation::fromUpdate($queuedUpdate->update) !== null
             ) {
                 return [
                     array_slice($updates, 0, $index + 1),
@@ -683,6 +724,56 @@ final class SpaceAgentWorkflow
         throw new LogicException('PiPH result lost the pending Telegram user turn.');
     }
 
+    /**
+     * @param list<array<string, mixed>> $messages
+     * @param array<string, mixed>       $metadata
+     * @param string                     $model
+     * @param SpaceCommandBinding        $binding
+     * @param SpaceCommandInvocation     $invocation
+     * @param int                        $pendingBatchMessageCount
+     * @param string                     $idempotencyKey
+     */
+    private static function boundedCommandInput(
+        string $model,
+        SpaceCommandBinding $binding,
+        SpaceCommandInvocation $invocation,
+        array $messages,
+        array $metadata,
+        int $pendingBatchMessageCount,
+        string $idempotencyKey,
+    ): SpaceCommandExecutionInput {
+        $lastFailure = null;
+        foreach (self::messageSuffixCandidates($messages, $pendingBatchMessageCount) as $candidate) {
+            try {
+                $candidate = self::collapsePendingBatchMessages(
+                    $candidate,
+                    $pendingBatchMessageCount,
+                );
+
+                return new SpaceCommandExecutionInput(
+                    model: $model,
+                    binding: $binding,
+                    argumentText: $invocation->argumentText,
+                    messages: $candidate,
+                    metadata: $metadata,
+                    idempotencyKey: $idempotencyKey,
+                );
+            } catch (InvalidArgumentException $failure) {
+                $lastFailure = $failure;
+            }
+        }
+
+        throw new ApplicationFailure(
+            message: sprintf(
+                'The current Telegram command and mandatory context exceed the %d-byte workflow input budget.',
+                HistoryPayloadGuard::MAX_ENCODED_BYTES,
+            ),
+            type: 'space-command-input-too-large',
+            nonRetryable: true,
+            previous: $lastFailure,
+        );
+    }
+
     private function ingestQueuedUpdates(): void
     {
         [$updates, $remainingUpdates] = self::nextIngestionBatch(
@@ -731,6 +822,20 @@ final class SpaceAgentWorkflow
                 continue;
             }
 
+            $commandInvocation = $queuedUpdate->appendToAgent
+                ? SpaceCommandInvocation::fromUpdate($update)
+                : null;
+            if (
+                $commandInvocation !== null
+                && !$commandInvocation->isForBot($this->input->botUsername)
+            ) {
+                // The raw update is persisted, but foreign bot commands need
+                // neither an agent view nor any local pipeline state.
+                ++$this->processedCount;
+
+                continue;
+            }
+
             try {
                 $view = $this->telegramActivity->updateToView($update);
             } catch (ActivityFailure $failure) {
@@ -762,6 +867,17 @@ final class SpaceAgentWorkflow
 
             if ($update->callbackQuery !== null) {
                 $this->callbackPending = true;
+            }
+            if ($commandInvocation !== null) {
+                if (
+                    $this->pendingCommandInvocation !== null
+                    || $this->pendingBatchMessageCount !== 0
+                ) {
+                    throw new LogicException(
+                        'A Telegram slash command must be isolated in its own Space batch.',
+                    );
+                }
+                $this->pendingCommandInvocation = $commandInvocation;
             }
             $this->messages[] = SpaceTelegramAgentMessageMapper::map($view)->toArray();
             ++$this->pendingBatchMessageCount;
@@ -800,6 +916,25 @@ final class SpaceAgentWorkflow
             $executionChainId,
             $this->agentRun,
         );
+
+        $commandInvocation = $this->pendingCommandInvocation;
+        if ($commandInvocation !== null) {
+            return $this->runCommand(
+                runtimeSnapshot: $runtimeSnapshot,
+                binding: $commandInvocation->isForBot($this->input->botUsername)
+                    ? $runtimeSnapshot->command($commandInvocation->name)
+                    : null,
+                invocation: $commandInvocation,
+                terminalScopeId: $terminalScopeId,
+                idempotencyKey: sprintf(
+                    'space-command:%s:%s:%s',
+                    $terminalScopeId,
+                    substr(hash('sha256', $runtimeSnapshot->releaseDigest), 0, 16),
+                    $commandInvocation->name,
+                ),
+            );
+        }
+
         $agentInput = self::boundedAgentInput(
             agentId: 'space-' . $this->input->spaceId,
             model: $runtimeSnapshot->model,
@@ -875,6 +1010,52 @@ final class SpaceAgentWorkflow
         }
 
         return $this->notifyProcessingFailure($terminalScopeId);
+    }
+
+    private function runCommand(
+        SpaceRuntimeSnapshot $runtimeSnapshot,
+        ?SpaceCommandBinding $binding,
+        SpaceCommandInvocation $invocation,
+        string $terminalScopeId,
+        string $idempotencyKey,
+    ): bool {
+        if (!$invocation->isForBot($this->input->botUsername)) {
+            throw new LogicException('A foreign-target command reached Space execution.');
+        }
+
+        if ($binding === null) {
+            return $this->queueTerminalNotification(
+                sprintf('Команда /%s не зарегистрирована или выключена.', $invocation->name),
+                $terminalScopeId,
+            );
+        }
+
+        $commandInput = self::boundedCommandInput(
+            model: $runtimeSnapshot->model,
+            binding: $binding,
+            invocation: $invocation,
+            messages: $this->messages,
+            metadata: [
+                ...$this->input->identity()->metadata(),
+                ...$runtimeSnapshot->metadata(),
+                'topicId'               => $this->pendingTopicId,
+                'batchId'               => $this->pendingBatchId,
+                'actorUserIds'          => $this->pendingActorIds(),
+                'actorIdentityComplete' => $this->pendingActorIdentityComplete,
+            ],
+            pendingBatchMessageCount: $this->pendingBatchMessageCount,
+            idempotencyKey: $idempotencyKey,
+        );
+        $this->messages                 = $commandInput->messages;
+        $this->pendingBatchMessageCount = 1;
+
+        try {
+            $text = $this->commandActivity->execute($commandInput);
+        } catch (ActivityFailure) {
+            return $this->notifyProcessingFailure($terminalScopeId);
+        }
+
+        return $this->queueTerminalNotification($text, $terminalScopeId);
     }
 
     /**
@@ -978,6 +1159,7 @@ final class SpaceAgentWorkflow
 
         if ($this->notifyChat($text, $terminalScopeId)) {
             $this->confirmPendingTerminalNotification();
+            $this->rememberCommandReply($text);
 
             return true;
         }
@@ -1002,6 +1184,23 @@ final class SpaceAgentWorkflow
         $this->pendingTerminalScopeId   = null;
         $this->notificationFailureCount = 0;
         $this->lastNotificationFailure  = null;
+    }
+
+    private function rememberCommandReply(string $text): void
+    {
+        $invocation = $this->pendingCommandInvocation;
+        if ($invocation === null) {
+            return;
+        }
+
+        $this->messages[] = (new AgentMessage(
+            role: 'assistant',
+            content: [['type' => 'text', 'text' => $text]],
+            metadata: [
+                'spaceCommand'  => $invocation->name,
+                'hostDelivered' => true,
+            ],
+        ))->toArray();
     }
 
     private function notifyChat(string $text, string $terminalScopeId): bool
@@ -1187,7 +1386,11 @@ final class SpaceAgentWorkflow
     private function shouldRunAgentImmediately(): bool
     {
         return $this->pipelinePendingSince > 0
-            && ($this->callbackPending || $this->queuedUpdateTargetsAnotherTopic());
+            && (
+                $this->callbackPending
+                || $this->pendingCommandInvocation !== null
+                || $this->queuedUpdateTargetsAnotherTopic()
+            );
     }
 
     private function queuedUpdateTargetsAnotherTopic(): bool
@@ -1258,6 +1461,7 @@ final class SpaceAgentWorkflow
         $this->pendingBatchMessageCount     = 0;
         $this->pendingBatchId               = null;
         $this->pendingTopicId               = null;
+        $this->pendingCommandInvocation     = null;
         $this->pendingActorUserIds          = [];
         $this->pendingActorIdentityComplete = true;
         $this->pendingRuntimeSnapshot       = null;
@@ -1437,6 +1641,7 @@ final class SpaceAgentWorkflow
             chatId: $this->input->chatId,
             chatType: $this->input->chatType,
             topicId: $this->input->topicId,
+            botUsername: $this->input->botUsername,
             messages: $messages,
             processedCount: $this->processedCount,
             agentRun: $this->agentRun,
@@ -1452,6 +1657,7 @@ final class SpaceAgentWorkflow
             pendingBatchMessageCount: $this->pendingBatchMessageCount,
             pendingBatchId: $this->pendingBatchId,
             pendingTopicId: $this->pendingTopicId,
+            pendingCommandInvocation: $this->pendingCommandInvocation,
             pendingActorUserIds: $this->pendingActorIds(),
             pendingActorIdentityComplete: $this->pendingActorIdentityComplete,
             pendingRuntimeSnapshot: $this->pendingRuntimeSnapshot,

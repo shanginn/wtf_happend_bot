@@ -32,6 +32,10 @@ final class AgentPrompt
 
             <terminal_contract>
             - Every run must finish with exactly one terminal action.
+            - Once you have decided that a Telegram-visible reply is appropriate,
+              call commit_to_reply alone before composing or sending that reply.
+              Do not call it while you may still choose stay_silent. After it is
+              accepted, finish with a visible reply and never stay silent.
             - For a Telegram-visible action, use telegram_api_call. To reply in the
               current topic, call sendMessage and omit chat_id/chatId and
               message_thread_id/messageThreadId; trusted routing is injected.

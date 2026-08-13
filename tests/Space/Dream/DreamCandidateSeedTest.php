@@ -50,6 +50,42 @@ final class DreamCandidateSeedTest extends TestCase
         ]], \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE)), $manifest['skillsDigest']);
     }
 
+    public function testCandidatePreservesCommandBindingsAcrossUnrelatedPatches(): void
+    {
+        $baselineManifest = json_decode(
+            self::commandManifestJson(),
+            true,
+            flags: \JSON_THROW_ON_ERROR,
+        );
+        $seed = self::candidateSeed()->invoke(null, self::baseline(
+            manifestJson: self::commandManifestJson(),
+        ), [
+            'prompt'      => 'A clearer overlay.',
+            'personality' => ['tone' => 'dry'],
+            'skills'      => [[
+                'name'        => 'ordinary_skill',
+                'description' => 'Improved ordinary guidance.',
+                'body'        => 'Use improved ordinary guidance.',
+                'enabled'     => true,
+            ]],
+            'memories' => [[
+                'operation' => 'append',
+                'memory'    => 'A durable preference.',
+            ]],
+        ], [[
+            'name'        => 'ordinary_skill',
+            'description' => 'Ordinary guidance.',
+            'body'        => 'Use ordinary guidance.',
+            'enabled'     => true,
+        ]]);
+        $candidateManifest = json_decode($seed->manifestJson, true, flags: \JSON_THROW_ON_ERROR);
+
+        self::assertSame(
+            $baselineManifest['commandBindings'],
+            $candidateManifest['commandBindings'],
+        );
+    }
+
     public function testSemanticNoopDetectionRejectsIdenticalReleaseFields(): void
     {
         $method = new ReflectionMethod(DreamActivities::class, 'patchHasEffectiveChange');
@@ -92,5 +128,18 @@ final class DreamCandidateSeedTest extends TestCase
             prompt: $prompt,
             manifestJson: $manifestJson,
         );
+    }
+
+    private static function commandManifestJson(): string
+    {
+        return json_encode([
+            'capsules'        => [],
+            'commandBindings' => [[
+                'command'          => 'dimannews',
+                'description'      => 'Generate Diman News.',
+                'instructions'     => 'Follow the complete immutable format.',
+                'parametersSchema' => ['type' => 'object'],
+            ]],
+        ], \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
     }
 }

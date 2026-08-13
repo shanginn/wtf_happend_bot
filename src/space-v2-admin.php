@@ -7,6 +7,7 @@ use Bot\Entity\Space;
 use Bot\Space\Dream\DreamScheduleManager;
 use Bot\Space\Operations\HostReleaseReconciler;
 use Bot\Space\Operations\HostReleaseStateStore;
+use Bot\Space\Operations\LegacyCommandMigration;
 use Bot\Space\Operations\LegacyWorkflowTerminator;
 use Bot\Space\Operations\ReleaseIngressPreflight;
 use Bot\Space\Operations\ReleaseWorkerPreflight;
@@ -43,6 +44,22 @@ $releaseArgument = static function (array $arguments) use ($config): string {
 
     return $releaseId;
 };
+
+if ($command === 'migrate-legacy-commands') {
+    $releaseId = $releaseArgument($argv);
+    /** @var ORMInterface $orm */
+    [, $orm]   = require __DIR__ . '/../config/orm.php';
+    $database  = $orm->getSource(Space::class)->getDatabase();
+    $migration = new LegacyCommandMigration($database, $config->botInstanceId);
+    $apply     = in_array('--apply', $argv, true);
+    $report    = $apply ? $migration->apply($releaseId) : $migration->preview();
+    echo json_encode(
+        $report,
+        \JSON_THROW_ON_ERROR | \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES,
+    ), "\n";
+
+    exit(0);
+}
 
 if ($command === 'preflight-workers') {
     $releaseId = $releaseArgument($argv);
@@ -167,6 +184,7 @@ fwrite(STDERR, <<<'USAGE'
       php src/space-v2-admin.php release-status --release-id=<immutable image identity>
       php src/space-v2-admin.php confirm-ingress-retired --release-id=<immutable image identity>
       php src/space-v2-admin.php reconcile-release --release-id=<immutable image identity>
+      php src/space-v2-admin.php migrate-legacy-commands --release-id=<active image identity> [--apply]
 
     USAGE);
 exit(64);

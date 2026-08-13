@@ -7,6 +7,7 @@ namespace Bot\Space\Runtime;
 use Bot\Space\Persistence\SpaceReleaseSeed;
 use Bot\Space\Workflow\SpaceAgentRuntime;
 use Cycle\Database\DatabaseInterface;
+use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
 
@@ -18,6 +19,8 @@ final readonly class SpaceRuntimeSnapshotLoaderActivity implements SpaceRuntimeS
 {
     private const int MAX_SKILLS              = 20;
     private const int MAX_ENABLED_SKILL_BYTES = 50_000;
+    private const int MAX_COMMANDS            = 20;
+    private const int MAX_COMMAND_BYTES       = 50_000;
     private const int MAX_SNAPSHOT_BYTES      = 512_000;
 
     /** @param list<array<string, mixed>> $tools */
@@ -89,6 +92,7 @@ final readonly class SpaceRuntimeSnapshotLoaderActivity implements SpaceRuntimeS
             throw new RuntimeException('The active Space release exceeds the enabled skill budget.');
         }
 
+        $commands                   = self::commands($manifest);
         $capsules                   = self::capsules($manifest);
         $capsuleRuntimeImageBuildId = null;
         $releaseDigest              = (string) ($release['release_digest'] ?? '');
@@ -130,8 +134,10 @@ final readonly class SpaceRuntimeSnapshotLoaderActivity implements SpaceRuntimeS
                 personality: $personality,
                 skills: $skills,
                 capsules: $capsules,
+                commands: $commands,
             ),
             'tools'                      => $this->tools,
+            'commands'                   => $commands,
             'capsuleArtifactRefs'        => $capsules,
             'capsuleRuntimeImageBuildId' => $capsuleRuntimeImageBuildId,
             'memoryRevision'             => (string) $space['memory_revision'],
@@ -234,6 +240,92 @@ final readonly class SpaceRuntimeSnapshotLoaderActivity implements SpaceRuntimeS
         return [];
     }
 
+    /**
+     * Commands are complete immutable specifications in the release manifest.
+     * They are intentionally independent from ordinary always-on Space skills.
+     *
+     * @param array<string, mixed> $manifest
+     *
+     * @return list<SpaceCommandBinding>
+     */
+    private static function commands(array $manifest): array
+    {
+        if (!array_key_exists('commandBindings', $manifest)) {
+            return [];
+        }
+
+        $bindings = $manifest['commandBindings'];
+        if (!is_array($bindings) || !array_is_list($bindings)) {
+            throw new RuntimeException('Space release command bindings must be a list.');
+        }
+        if (count($bindings) > self::MAX_COMMANDS) {
+            throw new RuntimeException('A Space release cannot contain more than 20 command bindings.');
+        }
+        if (strlen(json_encode(
+            $bindings,
+            \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE,
+        )) > self::MAX_COMMAND_BYTES) {
+            throw new RuntimeException('Enabled Space commands exceed the 50 KB release budget.');
+        }
+
+        $commands     = [];
+        $previousName = null;
+        $expectedKeys = ['command', 'description', 'instructions', 'parametersSchema'];
+        sort($expectedKeys, \SORT_STRING);
+        foreach ($bindings as $index => $binding) {
+            if (!is_array($binding) || array_is_list($binding)) {
+                throw new RuntimeException(
+                    sprintf('Space command binding %d must be an object.', $index),
+                );
+            }
+            $actualKeys = array_keys($binding);
+            sort($actualKeys, \SORT_STRING);
+            if ($actualKeys !== $expectedKeys) {
+                throw new RuntimeException(
+                    sprintf('Space command binding %d has unsupported or missing fields.', $index),
+                );
+            }
+
+            $name         = $binding['command'];
+            $description  = $binding['description'];
+            $instructions = $binding['instructions'];
+            $schema       = $binding['parametersSchema'];
+            if (!is_string($name)
+                || !is_string($description)
+                || !is_string($instructions)
+                || !is_array($schema)
+                || $name !== SpaceCommandBinding::normalizeName($name)
+            ) {
+                throw new RuntimeException(
+                    sprintf('Space command binding %d is not canonical.', $index),
+                );
+            }
+            if ($previousName !== null && strcmp($previousName, $name) >= 0) {
+                throw new RuntimeException(
+                    'Space release command bindings must be uniquely sorted by canonical name.',
+                );
+            }
+            $previousName = $name;
+
+            try {
+                $command = new SpaceCommandBinding(
+                    name: $name,
+                    description: $description,
+                    instructions: $instructions,
+                    parametersSchema: $schema,
+                );
+            } catch (InvalidArgumentException $error) {
+                throw new RuntimeException(
+                    sprintf('Space command "%s" is invalid.', $name),
+                    previous: $error,
+                );
+            }
+            $commands[] = $command;
+        }
+
+        return $commands;
+    }
+
     /** @param array<string, mixed> $value */
     private static function string(array $value, string $key): string
     {
@@ -254,6 +346,42 @@ final readonly class SpaceRuntimeSnapshotLoaderActivity implements SpaceRuntimeS
         }
 
         return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $value
+     * @param string               $key
+     *
+     * @return list<SpaceCommandBinding>
+     */
+    private static function commandList(array $value, string $key): array
+    {
+        $commands = [];
+        foreach (self::list($value, $key) as $index => $command) {
+            if (!is_array($command)) {
+                throw new RuntimeException(sprintf('Snapshot command %d is invalid.', $index));
+            }
+            $schema = $command['parametersSchema'] ?? null;
+            if (!is_array($schema)) {
+                throw new RuntimeException(sprintf('Snapshot command %d schema is invalid.', $index));
+            }
+
+            try {
+                $commands[] = new SpaceCommandBinding(
+                    name: self::string($command, 'name'),
+                    description: self::string($command, 'description'),
+                    instructions: self::string($command, 'instructions'),
+                    parametersSchema: $schema,
+                );
+            } catch (InvalidArgumentException $error) {
+                throw new RuntimeException(
+                    sprintf('Snapshot command %d is invalid.', $index),
+                    previous: $error,
+                );
+            }
+        }
+
+        return $commands;
     }
 
     private function cached(SpaceRuntimeSnapshotRequest $request): ?SpaceRuntimeSnapshot
@@ -296,6 +424,7 @@ final readonly class SpaceRuntimeSnapshotLoaderActivity implements SpaceRuntimeS
             model: self::string($payload, 'model'),
             systemPrompt: self::string($payload, 'systemPrompt'),
             tools: self::list($payload, 'tools'),
+            commands: self::commandList($payload, 'commands'),
             capsuleArtifactRefs: $capsuleArtifactRefs,
             capsuleRuntimeImageBuildId: $capsuleRuntimeImageBuildId,
             memoryRevision: self::string($payload, 'memoryRevision'),

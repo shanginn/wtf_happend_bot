@@ -653,6 +653,14 @@ main() {
     phase='ingress-dependency-preflight'
     run_release_operation preflight-ingress
 
+    # All fallible preflights are complete. The one-time conversion atomically
+    # activates immutable command data and advances durable host state from
+    # prepared to authorized under the same PostgreSQL fence. A definite
+    # transaction failure remains abortable; an ambiguous post-commit failure
+    # is protected because abort-release refuses the authorized phase.
+    phase='legacy-command-migration'
+    run_release_operation migrate-legacy-commands
+
     # Authorizing durable release state is the irreversible boundary. The
     # in-cluster reconciler is already running and converges without CI.
     phase='release-authorization'

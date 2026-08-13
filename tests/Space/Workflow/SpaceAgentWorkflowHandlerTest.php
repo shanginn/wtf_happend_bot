@@ -84,10 +84,15 @@ final class SpaceAgentWorkflowHandlerTest extends TestCase
                     && count($startArgs) === 1
                     && $startArgs[0] instanceof SpaceAgentWorkflowInput
                     && $startArgs[0]->spaceId === $space->spaceId
+                    && $startArgs[0]->botUsername === 'wtf_happend_bot'
                     && $startArgs[0]->topicId === null;
             });
 
-        (new SpaceAgentWorkflowHandler($client, $resolver))->handleUpdate($update);
+        (new SpaceAgentWorkflowHandler(
+            $client,
+            $resolver,
+            botUsername: 'wtf_happend_bot',
+        ))->handleUpdate($update);
         $this->addToAssertionCount(1);
     }
 }

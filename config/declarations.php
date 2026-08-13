@@ -6,6 +6,7 @@ use Bot\Activity\TelegramActivity;
 use Bot\AgenticWorkflow\BotToolCatalog;
 use Bot\AgenticWorkflow\CycleModelCompletionResultStore;
 use Bot\AgenticWorkflow\IdempotentToolExecutionGateway;
+use Bot\AgenticWorkflow\ReplyTypingModelGateway;
 use Bot\AgenticWorkflow\RuntimeCapabilityAuthorizationGateway;
 use Bot\Config\TemporalConfig;
 use Bot\Entity\Space;
@@ -21,6 +22,7 @@ use Bot\Llm\Tools\Search\InternetSearchExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiSchemaExecutor;
 use Bot\Memory\ParticipantMemoryStore;
+use Bot\Space\Command\SpaceCommandActivity;
 use Bot\Space\Dream\DreamActivities;
 use Bot\Space\Dream\DreamCoordinatorWorkflow;
 use Bot\Space\Dream\SpaceDreamWorkflow;
@@ -28,12 +30,14 @@ use Bot\Space\Operations\AgentWorkerHealthWorkflow;
 use Bot\Space\Operations\DreamWorkerHealthWorkflow;
 use Bot\Space\Persistence\SpaceMemoryStore;
 use Bot\Space\Persistence\SpaceStore;
+use Bot\Space\Runtime\SpaceCommandInspector;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotLoaderActivity;
 use Bot\Space\Tools\SpaceMemoryToolStore;
 use Bot\Space\Tools\SpaceToolCatalog;
 use Bot\Space\Workflow\SpaceAgentWorkflow;
 use Bot\Telegram\TelegramBindingsSerializer;
 use Bot\Telegram\TelegramChatAuthorizationPolicy;
+use Bot\Telegram\TelegramTypingRefresher;
 use Cycle\Database\DatabaseInterface;
 use Cycle\ORM\ORMInterface;
 use Phenogram\Bindings\Api;
@@ -66,6 +70,10 @@ $modelGateway = new ModelsGateway(
     models: $models,
     resolver: new ModelsModelResolver($models),
     resultStore: new CycleModelCompletionResultStore($ormScope),
+);
+$replyTypingModelGateway = new ReplyTypingModelGateway(
+    inner: $modelGateway,
+    typing: new TelegramTypingRefresher($telegramApi),
 );
 
 $database = static function (ORMInterface $orm): DatabaseInterface {
@@ -116,6 +124,7 @@ $toolCatalog = static function () use (
         ),
         spaceCapsules: null,
         spaceMemoryAuthorization: $telegramAuthorization,
+        spaceCommandInspector: new SpaceCommandInspector($spaceDatabase),
     );
 };
 
@@ -130,8 +139,11 @@ return [
             DurableAgentWorkflow::class,
         ],
         'activities' => [
+            SpaceCommandActivity::class => fn (): SpaceCommandActivity => new SpaceCommandActivity(
+                $replyTypingModelGateway,
+            ),
             DurableAgentActivities::class => fn (): DurableAgentActivities => new DurableAgentActivities(
-                models: $modelGateway,
+                models: $replyTypingModelGateway,
                 tools: new RuntimeCapabilityAuthorizationGateway(
                     inner: new IdempotentToolExecutionGateway(
                         inner: new ToolRegistryGateway($toolCatalog()->registry(

@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Space\Workflow;
 
+use Bot\Space\Runtime\SpaceCommandBinding;
 use Bot\Space\Runtime\SpaceRuntimeSnapshot;
 use Bot\Space\Workflow\QueuedSpaceUpdate;
 use Bot\Space\Workflow\SpaceAgentWorkflowInput;
 use Bot\Space\Workflow\SpaceAgentWorkflowInputDataConverter;
+use Bot\Space\Workflow\SpaceCommandInvocation;
 use Bot\Telegram\Update;
 use Phenogram\Bindings\Factories\ChatFactory;
 use Phenogram\Bindings\Factories\MessageFactory;
@@ -40,6 +42,7 @@ final class SpaceAgentWorkflowInputDataConverterTest extends TestCase
             chatId: 7001,
             chatType: 'supergroup',
             topicId: null,
+            botUsername: 'wtf_happend_bot',
             messages: [[
                 'role'    => 'user',
                 'content' => [['type' => 'text', 'text' => 'hello']],
@@ -48,6 +51,10 @@ final class SpaceAgentWorkflowInputDataConverterTest extends TestCase
             pendingBatchMessageCount: 1,
             pendingBatchId: 'batch-1',
             pendingTopicId: 42,
+            pendingCommandInvocation: new SpaceCommandInvocation(
+                'dimannews',
+                'сделай про утро',
+            ),
             pendingActorUserIds: [7001],
             pendingRuntimeSnapshot: $snapshot,
         );
@@ -62,8 +69,16 @@ final class SpaceAgentWorkflowInputDataConverterTest extends TestCase
         );
 
         self::assertSame('batch-1', $decoded->pendingBatchId);
+        self::assertSame('wtf_happend_bot', $decoded->botUsername);
         self::assertSame(42, $decoded->pendingTopicId);
+        self::assertSame('dimannews', $decoded->pendingCommandInvocation?->name);
+        self::assertSame('сделай про утро', $decoded->pendingCommandInvocation?->argumentText);
         self::assertSame('release-7', $decoded->pendingRuntimeSnapshot?->releaseId);
+        self::assertSame('dimannews', $decoded->pendingRuntimeSnapshot?->commands[0]->name);
+        self::assertSame(
+            'Full immutable specification.',
+            $decoded->pendingRuntimeSnapshot?->commands[0]->instructions,
+        );
         self::assertSame('sha256:capsule', $decoded->pendingRuntimeSnapshot?->capsuleArtifactRefs[0]['digest']);
         self::assertSame(
             '00000000-0000-4000-8000-000000000000',
@@ -84,6 +99,16 @@ final class SpaceAgentWorkflowInputDataConverterTest extends TestCase
             model: 'test/model',
             systemPrompt: 'Pinned prompt',
             tools: [['name' => 'stay_silent']],
+            commands: [new SpaceCommandBinding(
+                name: 'dimannews',
+                description: 'Generate Diman News.',
+                instructions: 'Full immutable specification.',
+                parametersSchema: [
+                    'type'                 => 'object',
+                    'properties'           => [],
+                    'additionalProperties' => false,
+                ],
+            )],
             capsuleArtifactRefs: [['name' => 'calculator', 'digest' => 'sha256:capsule']],
             capsuleRuntimeImageBuildId: '00000000-0000-4000-8000-000000000000',
             memoryRevision: 'memory-3',

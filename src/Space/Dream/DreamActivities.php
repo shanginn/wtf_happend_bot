@@ -3475,12 +3475,18 @@ final readonly class DreamActivities implements DreamActivitiesInterface
         ?string $expectedEvidenceDigest = null,
     ): DreamCandidate {
         $row = $this->database->query(<<<'SQL'
-            SELECT proposal.*, release.release_digest AS persisted_candidate_digest
+            SELECT proposal.*,
+                release.release_digest AS persisted_candidate_digest,
+                release.manifest_json AS persisted_candidate_manifest_json,
+                baseline.manifest_json AS persisted_baseline_manifest_json
             FROM space_upgrade_proposals AS proposal
             JOIN space_releases AS release
                 ON release.id = proposal.candidate_release_id
                 AND release.space_id = proposal.space_id
                 AND release.source_proposal_id = proposal.id
+            JOIN space_releases AS baseline
+                ON baseline.id = proposal.baseline_release_id
+                AND baseline.space_id = proposal.space_id
             WHERE proposal.id = ?
                 AND proposal.space_id = ?
                 AND proposal.candidate_release_id = ?
@@ -3545,6 +3551,22 @@ final readonly class DreamActivities implements DreamActivitiesInterface
         ]);
         if ((string) $row['evidence_json'] !== $expectedEvidenceJson) {
             throw new RuntimeException('The persisted Dream proposal evidence metadata is inconsistent.');
+        }
+
+        $baselineManifest = self::decodeObject(
+            (string) ($row['persisted_baseline_manifest_json'] ?? ''),
+        );
+        $candidateManifest = self::decodeObject(
+            (string) ($row['persisted_candidate_manifest_json'] ?? ''),
+        );
+        $baselineHasBindings  = array_key_exists('commandBindings', $baselineManifest);
+        $candidateHasBindings = array_key_exists('commandBindings', $candidateManifest);
+        if ($baselineHasBindings !== $candidateHasBindings
+            || ($baselineHasBindings
+                && self::canonicalJson($baselineManifest['commandBindings'])
+                    !== self::canonicalJson($candidateManifest['commandBindings']))
+        ) {
+            throw new RuntimeException('A persisted Dream candidate changed immutable command bindings.');
         }
 
         return $persisted;

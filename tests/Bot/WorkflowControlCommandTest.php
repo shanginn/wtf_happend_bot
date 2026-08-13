@@ -121,10 +121,11 @@ class WorkflowControlCommandTest extends TestCase
             self::spaceResolver($update),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
+            'wtf_happend_bot',
         );
         $bot = new TelegramBot('token', $api);
 
-        self::assertTrue($handler::supports($update));
+        self::assertTrue($handler->supportsUpdate($update));
 
         $handler->handle($update, $bot);
     }
@@ -145,7 +146,13 @@ class WorkflowControlCommandTest extends TestCase
             ),
         );
 
-        self::assertFalse(WorkflowControlCommandHandler::supports($update));
+        self::assertFalse((new WorkflowControlCommandHandler(
+            Mockery::mock(WorkflowClientInterface::class),
+            Mockery::mock(SpaceIdentityResolverInterface::class),
+            new TelegramChatAuthorizationPolicy(Mockery::mock(Api::class)),
+            self::durableReplies(),
+            'wtf_happend_bot',
+        ))->supportsUpdate($update));
     }
 
     public function testRepeatedDuplicateUpdateDoesNotRepeatSignalOrReply(): void
@@ -208,10 +215,11 @@ class WorkflowControlCommandTest extends TestCase
             self::spaceResolver($update),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
+            'wtf_happend_bot',
         );
         $bot = new TelegramBot('token', $api);
 
-        self::assertTrue(WorkflowControlCommandHandler::supports($update));
+        self::assertTrue($handler->supportsUpdate($update));
 
         $handler->handle($update, $bot);
         $handler->handle($update, $bot);
@@ -276,6 +284,7 @@ class WorkflowControlCommandTest extends TestCase
             self::spaceResolver($update),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
+            'wtf_happend_bot',
         );
         $bot = new TelegramBot('token', $api);
 
@@ -425,14 +434,16 @@ class WorkflowControlCommandTest extends TestCase
             )
             ->andReturn(MessageFactory::make());
 
-        self::assertTrue(ClearCommandHandler::supports($update));
-
-        (new ClearCommandHandler(
+        $handler = new ClearCommandHandler(
             $client,
             self::spaceResolver($update),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
-        ))->handle(
+            'wtf_happend_bot',
+        );
+        self::assertTrue($handler->supportsUpdate($update));
+
+        $handler->handle(
             $update,
             new TelegramBot('token', $api),
         );
@@ -479,14 +490,16 @@ class WorkflowControlCommandTest extends TestCase
             ->with(self::PRIVATE_CHAT_ID, 'Активного workflow для этого чата нет.', null, null)
             ->andReturn(MessageFactory::make());
 
-        self::assertTrue(WorkflowControlCommandHandler::supports($update));
-
-        (new WorkflowControlCommandHandler(
+        $handler = new WorkflowControlCommandHandler(
             $client,
             self::spaceResolver($update),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
-        ))->handle(
+            'wtf_happend_bot',
+        );
+        self::assertTrue($handler->supportsUpdate($update));
+
+        $handler->handle(
             $update,
             new TelegramBot('token', $api),
         );
@@ -531,14 +544,16 @@ class WorkflowControlCommandTest extends TestCase
             )
             ->andReturn(MessageFactory::make());
 
-        self::assertTrue(WorkflowControlCommandHandler::supports($update));
-
-        (new WorkflowControlCommandHandler(
+        $handler = new WorkflowControlCommandHandler(
             $client,
             self::spaceResolver($update, expected: false),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
-        ))->handle(
+            'wtf_happend_bot',
+        );
+        self::assertTrue($handler->supportsUpdate($update));
+
+        $handler->handle(
             $update,
             new TelegramBot('token', $api),
         );
@@ -580,14 +595,16 @@ class WorkflowControlCommandTest extends TestCase
             )
             ->andReturn(MessageFactory::make());
 
-        self::assertTrue(ClearCommandHandler::supports($update));
-
-        (new ClearCommandHandler(
+        $handler = new ClearCommandHandler(
             $client,
             self::spaceResolver($update, expected: false),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
-        ))->handle(
+            'wtf_happend_bot',
+        );
+        self::assertTrue($handler->supportsUpdate($update));
+
+        $handler->handle(
             $update,
             new TelegramBot('token', $api),
         );

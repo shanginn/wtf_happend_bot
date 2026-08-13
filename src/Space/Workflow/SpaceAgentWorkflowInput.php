@@ -26,6 +26,7 @@ final readonly class SpaceAgentWorkflowInput
      * @param int                        $chatId
      * @param string                     $chatType
      * @param ?int                       $topicId
+     * @param string                     $botUsername
      * @param int                        $processedCount
      * @param int                        $agentRun
      * @param int                        $pipelinePendingSince
@@ -39,6 +40,7 @@ final readonly class SpaceAgentWorkflowInput
      * @param int                        $pendingBatchMessageCount
      * @param ?string                    $pendingBatchId
      * @param ?int                       $pendingTopicId
+     * @param ?SpaceCommandInvocation    $pendingCommandInvocation
      * @param bool                       $pendingActorIdentityComplete
      * @param ?SpaceRuntimeSnapshot      $pendingRuntimeSnapshot
      * @param ?string                    $pendingTerminalText
@@ -54,6 +56,7 @@ final readonly class SpaceAgentWorkflowInput
         public int $chatId,
         public string $chatType,
         public ?int $topicId,
+        public string $botUsername,
         public array $messages = [],
         public int $processedCount = 0,
         public int $agentRun = 0,
@@ -69,6 +72,7 @@ final readonly class SpaceAgentWorkflowInput
         public int $pendingBatchMessageCount = 0,
         public ?string $pendingBatchId = null,
         public ?int $pendingTopicId = null,
+        public ?SpaceCommandInvocation $pendingCommandInvocation = null,
         public array $pendingActorUserIds = [],
         public bool $pendingActorIdentityComplete = true,
         public ?SpaceRuntimeSnapshot $pendingRuntimeSnapshot = null,
@@ -86,6 +90,9 @@ final readonly class SpaceAgentWorkflowInput
             chatType: $chatType,
             topicId: $topicId,
         );
+        if (preg_match('/\A[a-zA-Z0-9_]{5,64}\z/D', $botUsername) !== 1) {
+            throw new InvalidArgumentException('Space workflow bot username is invalid.');
+        }
 
         foreach ($pendingUpdates as $index => $pendingUpdate) {
             if (!$pendingUpdate instanceof QueuedSpaceUpdate) {
@@ -163,6 +170,7 @@ final readonly class SpaceAgentWorkflowInput
             if (
                 $pendingBatchId !== null
                 || $pendingTopicId !== null
+                || $pendingCommandInvocation !== null
                 || $pendingRuntimeSnapshot !== null
             ) {
                 throw new InvalidArgumentException(
@@ -185,6 +193,12 @@ final readonly class SpaceAgentWorkflowInput
             }
         }
 
+        if ($pendingCommandInvocation !== null && $pendingBatchMessageCount !== 1) {
+            throw new InvalidArgumentException(
+                'A Space command invocation must be the only message in its pending batch.',
+            );
+        }
+
         if (
             $pendingRuntimeSnapshot !== null
             && $pendingRuntimeSnapshot->spaceId !== $spaceId
@@ -195,7 +209,7 @@ final readonly class SpaceAgentWorkflowInput
         }
     }
 
-    public static function start(SpaceIdentity $identity): self
+    public static function start(SpaceIdentity $identity, string $botUsername): self
     {
         return new self(
             spaceId: $identity->spaceId,
@@ -206,6 +220,7 @@ final readonly class SpaceAgentWorkflowInput
             chatId: $identity->chatId,
             chatType: $identity->chatType,
             topicId: $identity->topicId,
+            botUsername: $botUsername,
         );
     }
 
