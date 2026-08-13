@@ -38,6 +38,7 @@ final class SpaceAgentWorkflowHandlerTest extends TestCase
                 chat: ChatFactory::make(id: -100123456, type: 'supergroup'),
                 text: 'hello',
                 messageThreadId: 42,
+                isTopicMessage: true,
             ),
         );
         assert($update instanceof Update);
@@ -47,10 +48,10 @@ final class SpaceAgentWorkflowHandlerTest extends TestCase
             platform: 'telegram',
             botInstanceId: 'primary-bot',
             externalConversationId: '-100123456',
-            externalThreadId: '42',
+            externalThreadId: null,
             chatId: -100123456,
             chatType: 'supergroup',
-            topicId: 42,
+            topicId: null,
         );
         $resolver = Mockery::mock(SpaceIdentityResolverInterface::class);
         $resolver->shouldReceive('resolve')->once()->with($update)->andReturn($space);
@@ -83,7 +84,7 @@ final class SpaceAgentWorkflowHandlerTest extends TestCase
                     && count($startArgs) === 1
                     && $startArgs[0] instanceof SpaceAgentWorkflowInput
                     && $startArgs[0]->spaceId === $space->spaceId
-                    && $startArgs[0]->topicId === 42;
+                    && $startArgs[0]->topicId === null;
             });
 
         (new SpaceAgentWorkflowHandler($client, $resolver))->handleUpdate($update);

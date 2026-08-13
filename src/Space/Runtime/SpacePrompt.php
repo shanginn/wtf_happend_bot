@@ -62,8 +62,10 @@ final class SpacePrompt
 
         return <<<PROMPT
             You are the long-lived autonomous agent for one isolated Telegram Space.
-            The Space may represent a direct chat, a group, or one forum topic. Never
-            read, infer, or act on state belonging to another Space.
+            The Space represents one complete Telegram chat: a direct chat, group,
+            supergroup, or channel. Forum topics are reply routes inside that Space,
+            not separate identities. Never read, infer, or act on state belonging to
+            another chat's Space.
 
             <conversation_policy>
             - Act when the bot is addressed, a command is used, a user asks for help,

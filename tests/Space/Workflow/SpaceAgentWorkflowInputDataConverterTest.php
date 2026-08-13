@@ -22,8 +22,10 @@ final class SpaceAgentWorkflowInputDataConverterTest extends TestCase
         $update = UpdateFactory::make(
             updateId: 1001,
             message: MessageFactory::make(
-                chat: ChatFactory::make(id: 7001, type: 'private'),
+                chat: ChatFactory::make(id: 7001, type: 'supergroup'),
                 text: 'hello',
+                messageThreadId: 42,
+                isTopicMessage: true,
             ),
         );
         assert($update instanceof Update);
@@ -36,7 +38,7 @@ final class SpaceAgentWorkflowInputDataConverterTest extends TestCase
             externalConversationId: '7001',
             externalThreadId: null,
             chatId: 7001,
-            chatType: 'private',
+            chatType: 'supergroup',
             topicId: null,
             messages: [[
                 'role'    => 'user',
@@ -45,6 +47,7 @@ final class SpaceAgentWorkflowInputDataConverterTest extends TestCase
             pendingUpdates: [new QueuedSpaceUpdate($update, true, 'ingestion-1')],
             pendingBatchMessageCount: 1,
             pendingBatchId: 'batch-1',
+            pendingTopicId: 42,
             pendingActorUserIds: [7001],
             pendingRuntimeSnapshot: $snapshot,
         );
@@ -59,6 +62,7 @@ final class SpaceAgentWorkflowInputDataConverterTest extends TestCase
         );
 
         self::assertSame('batch-1', $decoded->pendingBatchId);
+        self::assertSame(42, $decoded->pendingTopicId);
         self::assertSame('release-7', $decoded->pendingRuntimeSnapshot?->releaseId);
         self::assertSame('sha256:capsule', $decoded->pendingRuntimeSnapshot?->capsuleArtifactRefs[0]['digest']);
         self::assertSame(

@@ -14,14 +14,14 @@ no-code: a Space cannot generate, load, or execute programs.
 
 ## Space model
 
-A root chat and every Telegram forum topic resolve to separate opaque Space
-IDs. They never share prompt state, skills, memory, search results, release
-state, or workflow history.
+Each Telegram `chat_id` resolves to one opaque Space ID. Forum topics remain
+per-message reply routes inside that Space; they do not split personality,
+skills, memories, search results, releases, or workflow history.
 
 The durable identity lives in PostgreSQL, not in a permanent VM:
 
 ```text
-Telegram chat/topic
+Telegram chat
   -> Space binding
   -> active immutable release
        prompt overlay + personality
@@ -78,7 +78,7 @@ variables cannot reactivate code execution.
 
 ## Built-in Space tools
 
-- Telegram API schema discovery and same-chat/topic actions
+- Telegram API schema discovery and same-chat actions routed back to the current topic
 - Same-Space inbound-message search
 - SearXNG internet search
 - Current time by timezone
@@ -99,9 +99,9 @@ from being rewritten.
 
 The Space migration deliberately makes a clean runtime cut. It preserves
 legacy chat-level skills and participant memories by importing them into each
-chat's root Space. Topic Spaces start isolated instead of inheriting chat-wide
-private state. The old tables remain for recovery, but Space v2 does not read
-them at runtime.
+chat Space. Historical reply-thread IDs are explicitly excluded from Space
+identity. The old tables remain for recovery, but Space v2 does not read them
+at runtime.
 
 ## Requirements
 

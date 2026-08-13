@@ -11,8 +11,8 @@ use Temporal\Activity\ActivityOptions;
 use Temporal\Common\IdReusePolicy;
 use Temporal\Common\RetryOptions;
 use Temporal\Internal\Workflow\ActivityProxy;
+use Temporal\Workflow;
 use Temporal\Workflow\ChildWorkflowOptions;
-use Temporal\Workflow\Workflow;
 use Throwable;
 
 final class DreamCoordinatorWorkflow implements DreamCoordinatorWorkflowInterface

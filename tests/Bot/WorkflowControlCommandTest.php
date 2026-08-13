@@ -13,7 +13,6 @@ use Bot\Space\Runtime\SpaceIdentity;
 use Bot\Space\Runtime\SpaceIdentityResolverInterface;
 use Bot\Space\Workflow\SpaceAgentWorkflow;
 use Bot\Telegram\TelegramChatAuthorizationPolicy;
-use Bot\Telegram\TelegramTopicRouting;
 use Bot\Telegram\Update;
 use Mockery;
 use Phenogram\Bindings\Api;
@@ -56,12 +55,12 @@ class WorkflowControlCommandTest extends TestCase
         yield 'pause' => [
             '/pause',
             SpaceAgentWorkflow::PAUSE_SIGNAL_NAME,
-            'Workflow темы приостановлен. Новые сообщения сохраняются в историю, но не обрабатываются задним числом.',
+            'Workflow чата приостановлен. Новые сообщения сохраняются в историю, но не обрабатываются задним числом.',
         ];
         yield 'resume with bot username' => [
             '/resume@wtf_happend_bot',
             SpaceAgentWorkflow::RESUME_SIGNAL_NAME,
-            'Workflow темы продолжил работу. Новые сообщения снова обрабатываются.',
+            'Workflow чата продолжил работу. Новые сообщения снова обрабатываются.',
         ];
     }
 
@@ -197,7 +196,7 @@ class WorkflowControlCommandTest extends TestCase
             ->once()
             ->with(
                 self::CHAT_ID,
-                'Workflow темы приостановлен. Новые сообщения сохраняются в историю, '
+                'Workflow чата приостановлен. Новые сообщения сохраняются в историю, '
                     . 'но не обрабатываются задним числом.',
                 null,
                 42,
@@ -368,7 +367,7 @@ class WorkflowControlCommandTest extends TestCase
         self::assertSame(['paused:42', 'paused:43'], $replies);
     }
 
-    public function testClearCommandTerminatesCurrentTopicWorkflow(): void
+    public function testClearCommandFromTopicTerminatesWholeChatWorkflow(): void
     {
         $update = UpdateFactory::make(
             updateId: 1004,
@@ -608,7 +607,6 @@ class WorkflowControlCommandTest extends TestCase
 
         $chat = $update->effectiveChat;
         self::assertNotNull($chat);
-        $topicId = TelegramTopicRouting::topicId($update->effectiveMessage);
         $resolver
             ->shouldReceive('resolve')
             ->once()
@@ -618,10 +616,10 @@ class WorkflowControlCommandTest extends TestCase
                 platform: 'telegram',
                 botInstanceId: 'default',
                 externalConversationId: (string) $chat->id,
-                externalThreadId: $topicId === null ? null : (string) $topicId,
+                externalThreadId: null,
                 chatId: $chat->id,
                 chatType: $chat->type,
-                topicId: $topicId,
+                topicId: null,
             ));
 
         return $resolver;

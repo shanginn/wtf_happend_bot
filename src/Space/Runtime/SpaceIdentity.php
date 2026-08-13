@@ -36,6 +36,11 @@ final readonly class SpaceIdentity
         if (($externalThreadId === null) !== ($topicId === null)) {
             throw new InvalidArgumentException('Telegram topic and external thread identity must agree.');
         }
+        if ($platform === 'telegram' && ($externalThreadId !== null || $topicId !== null)) {
+            throw new InvalidArgumentException(
+                'Telegram Space identity is chat-scoped; topics are per-update routing metadata.',
+            );
+        }
     }
 
     /**

@@ -7,6 +7,7 @@ namespace Tests\Space\Workflow;
 use Bot\Space\Runtime\SpaceRuntimeSnapshot;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotLoaderActivityInterface;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotRequest;
+use Bot\Space\Workflow\QueuedSpaceUpdate;
 use Bot\Space\Workflow\SpaceAgentWorkflow;
 use Bot\Space\Workflow\SpaceAgentWorkflowInput;
 use Bot\Space\Workflow\SpaceMessageQueue;
@@ -44,6 +45,7 @@ final class SpaceAgentWorkflowStateTest extends TestCase
         $workflow   = $reflection->newInstanceWithoutConstructor();
         $reflection->getProperty('input')->setValue($workflow, self::input());
         $reflection->getProperty('pendingBatchId')->setValue($workflow, 'batch-1');
+        $reflection->getProperty('pendingTopicId')->setValue($workflow, 42);
         $reflection->getProperty('pendingBatchMessageCount')->setValue($workflow, 1);
         $reflection->getProperty('runtimeSnapshotActivity')->setValue($workflow, $loader);
 
@@ -87,6 +89,7 @@ final class SpaceAgentWorkflowStateTest extends TestCase
         (new ReflectionMethod(SpaceAgentWorkflow::class, 'finishPipeline'))->invoke($workflow);
 
         self::assertNull($reflection->getProperty('pendingBatchId')->getValue($workflow));
+        self::assertNull($reflection->getProperty('pendingTopicId')->getValue($workflow));
         self::assertNull($reflection->getProperty('pendingRuntimeSnapshot')->getValue($workflow));
         self::assertSame(
             0,
@@ -94,7 +97,7 @@ final class SpaceAgentWorkflowStateTest extends TestCase
         );
     }
 
-    public function testSignalIdentityGuardSeparatesRootTopicAndChat(): void
+    public function testSignalIdentityGuardAcceptsEveryTopicInTheSameChatOnly(): void
     {
         $reflection = new ReflectionClass(SpaceAgentWorkflow::class);
         $workflow   = $reflection->newInstanceWithoutConstructor();
@@ -104,15 +107,10 @@ final class SpaceAgentWorkflowStateTest extends TestCase
         self::assertTrue($belongs->invoke($workflow, self::update(7001)));
         self::assertTrue($belongs->invoke($workflow, self::update(7001, 0)));
         self::assertTrue($belongs->invoke($workflow, self::update(7001, 193132)));
-        self::assertFalse($belongs->invoke($workflow, self::update(7002)));
-        self::assertFalse($belongs->invoke($workflow, self::update(7001, 42, true)));
-
-        $reflection->getProperty('input')->setValue($workflow, self::input(topicId: 42));
         self::assertTrue($belongs->invoke($workflow, self::update(7001, 42, true)));
-        self::assertFalse($belongs->invoke($workflow, self::update(7001)));
-        self::assertFalse($belongs->invoke($workflow, self::update(7001, 0)));
-        self::assertFalse($belongs->invoke($workflow, self::update(7001, 42)));
-        self::assertFalse($belongs->invoke($workflow, self::update(7001, 43, true)));
+        self::assertTrue($belongs->invoke($workflow, self::update(7001, 43, true)));
+        self::assertFalse($belongs->invoke($workflow, self::update(7002)));
+        self::assertFalse($belongs->invoke($workflow, self::update(7002, 42, true)));
     }
 
     public function testMismatchedSignalIsDroppedBeforeItCanEnterDurableQueue(): void
@@ -125,23 +123,62 @@ final class SpaceAgentWorkflowStateTest extends TestCase
 
         (new ReflectionMethod(SpaceAgentWorkflow::class, 'enqueueUpdate'))->invoke(
             $workflow,
-            self::update(7001, 42, true),
+            self::update(7002, 42, true),
         );
 
         self::assertSame([], $queue->all());
     }
 
-    private static function input(?int $topicId = null): SpaceAgentWorkflowInput
+    public function testBatchStopsBeforeAnotherTopicsUpdate(): void
+    {
+        $topic42a = new QueuedSpaceUpdate(self::update(7001, 42, true), true, 'ingestion-1');
+        $topic42b = new QueuedSpaceUpdate(self::update(7001, 42, true, 1), true, 'ingestion-2');
+        $topic43  = new QueuedSpaceUpdate(self::update(7001, 43, true, 2), true, 'ingestion-3');
+
+        $method = new ReflectionMethod(SpaceAgentWorkflow::class, 'nextIngestionBatch');
+        [$selected, $remaining] = $method->invoke(
+            null,
+            [$topic42a, $topic43, $topic42b],
+            null,
+            false,
+        );
+
+        self::assertSame([$topic42a, $topic42b], $selected);
+        self::assertSame([$topic43], $remaining);
+    }
+
+    public function testQueuedDifferentTopicRunsCurrentBatchImmediately(): void
+    {
+        $reflection = new ReflectionClass(SpaceAgentWorkflow::class);
+        $workflow   = $reflection->newInstanceWithoutConstructor();
+        $queue      = new SpaceMessageQueue();
+        $queue->push(new QueuedSpaceUpdate(
+            self::update(7001, 43, true),
+            true,
+            'ingestion-43',
+        ));
+        $reflection->getProperty('updatesQueue')->setValue($workflow, $queue);
+        $reflection->getProperty('pipelinePendingSince')->setValue($workflow, 100);
+        $reflection->getProperty('pendingBatchMessageCount')->setValue($workflow, 1);
+        $reflection->getProperty('pendingTopicId')->setValue($workflow, 42);
+
+        self::assertTrue(
+            (new ReflectionMethod(SpaceAgentWorkflow::class, 'shouldRunAgentImmediately'))
+                ->invoke($workflow),
+        );
+    }
+
+    private static function input(): SpaceAgentWorkflowInput
     {
         return new SpaceAgentWorkflowInput(
             spaceId: self::snapshot()->spaceId,
             platform: 'telegram',
             botInstanceId: 'primary-bot',
             externalConversationId: '7001',
-            externalThreadId: $topicId === null ? null : (string) $topicId,
+            externalThreadId: null,
             chatId: 7001,
-            chatType: $topicId === null ? 'private' : 'supergroup',
-            topicId: $topicId,
+            chatType: 'supergroup',
+            topicId: null,
         );
     }
 
@@ -149,9 +186,10 @@ final class SpaceAgentWorkflowStateTest extends TestCase
         int $chatId,
         ?int $messageThreadId = null,
         ?bool $isTopicMessage = null,
+        int $updateIdOffset = 0,
     ): Update {
         $update = UpdateFactory::make(
-            updateId: 1000 + $chatId + ($messageThreadId ?? 0),
+            updateId: 1000 + $chatId + ($messageThreadId ?? 0) + $updateIdOffset,
             message: MessageFactory::make(
                 chat: ChatFactory::make(
                     id: $chatId,

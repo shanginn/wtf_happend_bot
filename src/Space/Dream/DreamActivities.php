@@ -55,7 +55,6 @@ final readonly class DreamActivities implements DreamActivitiesInterface
             WITH recent_updates AS MATERIALIZED (
                 SELECT
                     record.chat_id,
-                    record.topic_id,
                     record.created_at,
                     COUNT(*) AS evidence_count
                 FROM update_records AS record
@@ -77,13 +76,12 @@ final readonly class DreamActivities implements DreamActivitiesInterface
                         NULLIF(record.update::jsonb #>> '{edited_channel_post,text}', ''),
                         NULLIF(record.update::jsonb #>> '{edited_channel_post,caption}', '')
                     ) IS NOT NULL
-                GROUP BY record.chat_id, record.topic_id, record.created_at
+                GROUP BY record.chat_id, record.created_at
             ),
             binding_watermarks AS MATERIALIZED (
                 SELECT
                     binding.space_id,
                     binding.external_conversation_id,
-                    binding.external_thread_id,
                     CASE
                         WHEN active_release.created_by = 'nightly-dream-v1'
                             AND active_release.activated_at IS NOT NULL
@@ -110,6 +108,7 @@ final readonly class DreamActivities implements DreamActivitiesInterface
                     ON active_release.id = bound_space.active_release_id
                     AND active_release.space_id = bound_space.id
                 WHERE binding.platform = 'telegram'
+                    AND binding.external_thread_id = ''
             ),
             eligible_bindings AS MATERIALIZED (
                 SELECT binding.space_id
@@ -118,12 +117,6 @@ final readonly class DreamActivities implements DreamActivitiesInterface
                     ON recent.chat_id = CASE
                         WHEN binding.external_conversation_id ~ '^-?[1-9][0-9]*$'
                         THEN binding.external_conversation_id::bigint
-                        ELSE NULL
-                    END
-                    AND recent.topic_id IS NOT DISTINCT FROM CASE
-                        WHEN binding.external_thread_id = '' THEN NULL::bigint
-                        WHEN binding.external_thread_id ~ '^[1-9][0-9]*$'
-                        THEN binding.external_thread_id::bigint
                         ELSE NULL
                     END
                 WHERE recent.created_at >= binding.evidence_watermark
@@ -316,16 +309,12 @@ final readonly class DreamActivities implements DreamActivitiesInterface
         $items = [];
         $from  = self::evidenceWatermark($input->policy, $spaceState);
         if (is_array($binding)) {
-            $chatId   = filter_var($binding['external_conversation_id'], \FILTER_VALIDATE_INT);
-            $threadId = $binding['external_thread_id'] === ''
-                ? null
-                : filter_var($binding['external_thread_id'], \FILTER_VALIDATE_INT);
-            if ($chatId !== false && ($threadId === null || $threadId !== false)) {
-                $query = $threadId === null
-                    ? <<<'SQL'
-                        SELECT record.update_id, record.update, record.created_at
-                        FROM update_records AS record
-                        WHERE record.chat_id = ? AND record.topic_id IS NULL AND record.created_at >= ?
+            $chatId = filter_var($binding['external_conversation_id'], \FILTER_VALIDATE_INT);
+            if ($chatId !== false) {
+                $query = <<<'SQL'
+                    SELECT record.update_id, record.update, record.created_at
+                    FROM update_records AS record
+                    WHERE record.chat_id = ? AND record.created_at >= ?
                             AND COALESCE(
                                 record.update::jsonb #>> '{message,from,is_bot}',
                                 record.update::jsonb #>> '{edited_message,from,is_bot}',
@@ -343,36 +332,10 @@ final readonly class DreamActivities implements DreamActivitiesInterface
                                 NULLIF(record.update::jsonb #>> '{edited_channel_post,text}', ''),
                                 NULLIF(record.update::jsonb #>> '{edited_channel_post,caption}', '')
                             ) IS NOT NULL
-                        ORDER BY created_at DESC, update_id DESC
-                        LIMIT ?
-                        SQL
-                    : <<<'SQL'
-                        SELECT record.update_id, record.update, record.created_at
-                        FROM update_records AS record
-                        WHERE record.chat_id = ? AND record.topic_id = ? AND record.created_at >= ?
-                            AND COALESCE(
-                                record.update::jsonb #>> '{message,from,is_bot}',
-                                record.update::jsonb #>> '{edited_message,from,is_bot}',
-                                record.update::jsonb #>> '{channel_post,from,is_bot}',
-                                record.update::jsonb #>> '{edited_channel_post,from,is_bot}',
-                                'false'
-                            ) <> 'true'
-                            AND COALESCE(
-                                NULLIF(record.update::jsonb #>> '{message,text}', ''),
-                                NULLIF(record.update::jsonb #>> '{message,caption}', ''),
-                                NULLIF(record.update::jsonb #>> '{edited_message,text}', ''),
-                                NULLIF(record.update::jsonb #>> '{edited_message,caption}', ''),
-                                NULLIF(record.update::jsonb #>> '{channel_post,text}', ''),
-                                NULLIF(record.update::jsonb #>> '{channel_post,caption}', ''),
-                                NULLIF(record.update::jsonb #>> '{edited_channel_post,text}', ''),
-                                NULLIF(record.update::jsonb #>> '{edited_channel_post,caption}', '')
-                            ) IS NOT NULL
-                        ORDER BY created_at DESC, update_id DESC
-                        LIMIT ?
-                        SQL;
-                $params = $threadId === null
-                    ? [$chatId, $from, $input->policy->maximumInputUpdates]
-                    : [$chatId, $threadId, $from, $input->policy->maximumInputUpdates];
+                    ORDER BY created_at DESC, update_id DESC
+                    LIMIT ?
+                    SQL;
+                $params = [$chatId, $from, $input->policy->maximumInputUpdates];
                 foreach (array_reverse($this->database->query($query, $params)->fetchAll()) as $row) {
                     if (!is_array($row)) {
                         continue;

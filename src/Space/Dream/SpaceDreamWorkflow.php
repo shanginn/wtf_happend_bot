@@ -9,7 +9,7 @@ use LogicException;
 use Temporal\Activity\ActivityOptions;
 use Temporal\Common\RetryOptions;
 use Temporal\Internal\Workflow\ActivityProxy;
-use Temporal\Workflow\Workflow;
+use Temporal\Workflow;
 use Throwable;
 
 final class SpaceDreamWorkflow implements SpaceDreamWorkflowInterface

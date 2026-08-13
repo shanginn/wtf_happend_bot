@@ -8,7 +8,6 @@ use Bot\Space\Persistence\SpaceBindingKey;
 use Bot\Space\Persistence\SpaceId;
 use Bot\Space\Persistence\SpaceReleaseSeed;
 use Bot\Space\Persistence\SpaceStore;
-use Bot\Telegram\TelegramTopicRouting;
 use Bot\Telegram\Update;
 use InvalidArgumentException;
 use LogicException;
@@ -35,14 +34,12 @@ final readonly class TelegramSpaceIdentityResolver implements SpaceIdentityResol
             ?? throw new InvalidArgumentException(
                 'Cannot resolve a Space for a Telegram update without a chat.',
             );
-        $topicId                = TelegramTopicRouting::topicId($update->effectiveMessage);
         $externalConversationId = (string) $chat->id;
-        $externalThreadId       = $topicId === null ? null : (string) $topicId;
         $binding                = new SpaceBindingKey(
             botInstanceId: $this->botInstanceId,
             platform: 'telegram',
             externalConversationId: $externalConversationId,
-            externalThreadId: $externalThreadId,
+            externalThreadId: null,
         );
 
         $chatType = $chat->type;
@@ -63,10 +60,10 @@ final readonly class TelegramSpaceIdentityResolver implements SpaceIdentityResol
             platform: 'telegram',
             botInstanceId: $this->botInstanceId,
             externalConversationId: $externalConversationId,
-            externalThreadId: $externalThreadId,
+            externalThreadId: null,
             chatId: $chat->id,
             chatType: $chatType,
-            topicId: $topicId,
+            topicId: null,
         );
     }
 }

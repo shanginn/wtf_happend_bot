@@ -38,6 +38,7 @@ final readonly class SpaceAgentWorkflowInput
      * @param bool                       $ingestionRetryPending
      * @param int                        $pendingBatchMessageCount
      * @param ?string                    $pendingBatchId
+     * @param ?int                       $pendingTopicId
      * @param bool                       $pendingActorIdentityComplete
      * @param ?SpaceRuntimeSnapshot      $pendingRuntimeSnapshot
      * @param ?string                    $pendingTerminalText
@@ -67,6 +68,7 @@ final readonly class SpaceAgentWorkflowInput
         public bool $ingestionRetryPending = false,
         public int $pendingBatchMessageCount = 0,
         public ?string $pendingBatchId = null,
+        public ?int $pendingTopicId = null,
         public array $pendingActorUserIds = [],
         public bool $pendingActorIdentityComplete = true,
         public ?SpaceRuntimeSnapshot $pendingRuntimeSnapshot = null,
@@ -158,9 +160,13 @@ final readonly class SpaceAgentWorkflowInput
         }
 
         if ($pendingBatchMessageCount === 0) {
-            if ($pendingBatchId !== null || $pendingRuntimeSnapshot !== null) {
+            if (
+                $pendingBatchId !== null
+                || $pendingTopicId !== null
+                || $pendingRuntimeSnapshot !== null
+            ) {
                 throw new InvalidArgumentException(
-                    'Batch identity and runtime snapshot must reset between batches.',
+                    'Batch identity, topic route, and runtime snapshot must reset between batches.',
                 );
             }
             if ($pendingActorUserIds !== [] || !$pendingActorIdentityComplete) {

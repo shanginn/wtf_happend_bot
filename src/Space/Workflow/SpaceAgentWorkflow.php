@@ -79,6 +79,7 @@ final class SpaceAgentWorkflow
     private bool $pendingActorIdentityComplete            = true;
     private ?string $lastNotificationFailure              = null;
     private ?string $pendingBatchId                       = null;
+    private ?int $pendingTopicId                          = null;
     private ?SpaceRuntimeSnapshot $pendingRuntimeSnapshot = null;
     private ?string $pendingTerminalText                  = null;
     private ?string $pendingTerminalScopeId               = null;
@@ -133,6 +134,7 @@ final class SpaceAgentWorkflow
         $this->ingestionRetryPending        = $input->ingestionRetryPending;
         $this->pendingBatchMessageCount     = $input->pendingBatchMessageCount;
         $this->pendingBatchId               = $input->pendingBatchId;
+        $this->pendingTopicId               = $input->pendingTopicId;
         $this->pendingActorUserIds          = array_fill_keys($input->pendingActorUserIds, true);
         $this->pendingActorIdentityComplete = $input->pendingActorIdentityComplete;
         $this->pendingRuntimeSnapshot       = $input->pendingRuntimeSnapshot;
@@ -514,11 +516,16 @@ final class SpaceAgentWorkflow
 
     /**
      * @param list<QueuedSpaceUpdate> $updates
+     * @param ?int                    $pendingTopicId
+     * @param bool                    $hasPendingBatch
      *
      * @return array{list<QueuedSpaceUpdate>, list<QueuedSpaceUpdate>}
      */
-    private static function nextIngestionBatch(array $updates): array
-    {
+    private static function nextIngestionBatch(
+        array $updates,
+        ?int $pendingTopicId,
+        bool $hasPendingBatch,
+    ): array {
         foreach ($updates as $index => $queuedUpdate) {
             if (!$queuedUpdate instanceof QueuedSpaceUpdate) {
                 throw new LogicException(
@@ -533,7 +540,22 @@ final class SpaceAgentWorkflow
                 ?: strcmp($left->ingestionId, $right->ingestionId),
         );
 
+        $selectedTopicId  = $pendingTopicId;
+        $hasSelectedTopic = $hasPendingBatch;
         foreach ($updates as $index => $queuedUpdate) {
+            if ($queuedUpdate->appendToAgent) {
+                $topicId = TelegramTopicRouting::topicId($queuedUpdate->update->effectiveMessage);
+                if (!$hasSelectedTopic) {
+                    $selectedTopicId  = $topicId;
+                    $hasSelectedTopic = true;
+                } elseif ($topicId !== $selectedTopicId) {
+                    return [
+                        array_slice($updates, 0, $index),
+                        array_slice($updates, $index),
+                    ];
+                }
+            }
+
             if (
                 $queuedUpdate->appendToAgent
                 && $queuedUpdate->update->callbackQuery !== null
@@ -665,6 +687,8 @@ final class SpaceAgentWorkflow
     {
         [$updates, $remainingUpdates] = self::nextIngestionBatch(
             $this->updatesQueue->flush(),
+            $this->pendingTopicId,
+            $this->pendingBatchMessageCount > 0,
         );
         if ($remainingUpdates !== []) {
             $this->updatesQueue->prepend($remainingUpdates);
@@ -731,6 +755,9 @@ final class SpaceAgentWorkflow
             if ($this->pipelinePendingSince === 0) {
                 $this->pipelinePendingSince = Workflow::now()->getTimestamp();
                 $this->pendingBatchId       = Workflow::uuid4()->toString();
+                $this->pendingTopicId       = TelegramTopicRouting::topicId(
+                    $update->effectiveMessage,
+                );
             }
 
             if ($update->callbackQuery !== null) {
@@ -781,6 +808,10 @@ final class SpaceAgentWorkflow
             metadata: [
                 ...$this->input->identity()->metadata(),
                 ...$runtimeSnapshot->metadata(),
+                'externalThreadId' => $this->pendingTopicId === null
+                    ? null
+                    : (string) $this->pendingTopicId,
+                'topicId'               => $this->pendingTopicId,
                 'batchId'               => $this->pendingBatchId,
                 'actorUserIds'          => $this->pendingActorIds(),
                 'actorIdentityComplete' => $this->pendingActorIdentityComplete,
@@ -997,7 +1028,7 @@ final class SpaceAgentWorkflow
                 idempotencyKey: $idempotencyKey,
                 metadata: [
                     'chatId'             => $this->input->chatId,
-                    'topicId'            => $this->input->topicId,
+                    'topicId'            => $this->pendingTopicId,
                     'terminalScopeId'    => $terminalScopeId,
                     'parentWorkflowId'   => $workflowId,
                     'parentWorkflowType' => self::WORKFLOW_TYPE,
@@ -1155,7 +1186,29 @@ final class SpaceAgentWorkflow
 
     private function shouldRunAgentImmediately(): bool
     {
-        return $this->pipelinePendingSince > 0 && $this->callbackPending;
+        return $this->pipelinePendingSince > 0
+            && ($this->callbackPending || $this->queuedUpdateTargetsAnotherTopic());
+    }
+
+    private function queuedUpdateTargetsAnotherTopic(): bool
+    {
+        if ($this->pendingBatchMessageCount < 1) {
+            return false;
+        }
+
+        foreach ($this->updatesQueue->all() as $queuedUpdate) {
+            if (!$queuedUpdate instanceof QueuedSpaceUpdate || !$queuedUpdate->appendToAgent) {
+                continue;
+            }
+
+            if (TelegramTopicRouting::topicId($queuedUpdate->update->effectiveMessage)
+                !== $this->pendingTopicId
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function shouldContinueAsNewAfterFailedAttempt(): bool
@@ -1204,6 +1257,7 @@ final class SpaceAgentWorkflow
         $this->callbackPending              = false;
         $this->pendingBatchMessageCount     = 0;
         $this->pendingBatchId               = null;
+        $this->pendingTopicId               = null;
         $this->pendingActorUserIds          = [];
         $this->pendingActorIdentityComplete = true;
         $this->pendingRuntimeSnapshot       = null;
@@ -1244,7 +1298,7 @@ final class SpaceAgentWorkflow
             'Dropped a non-retryable Telegram update instead of blocking the chat workflow.',
             [
                 'chatId'   => $this->input->chatId,
-                'topicId'  => $this->input->topicId,
+                'topicId'  => TelegramTopicRouting::topicId($update->effectiveMessage),
                 'updateId' => $update->updateId,
                 'failure'  => $failure->getMessage(),
             ],
@@ -1283,13 +1337,7 @@ final class SpaceAgentWorkflow
             return false;
         }
 
-        $topicId = TelegramTopicRouting::topicId($update->effectiveMessage);
-        if ($this->input->topicId === null) {
-            return $topicId === null && $this->input->externalThreadId === null;
-        }
-
-        return $topicId === $this->input->topicId
-            && (string) $topicId === $this->input->externalThreadId;
+        return true;
     }
 
     private function trackPendingActor(Update $update): void
@@ -1327,7 +1375,7 @@ final class SpaceAgentWorkflow
             'Unable to deliver a parent workflow notification.',
             [
                 'chatId'  => $this->input->chatId,
-                'topicId' => $this->input->topicId,
+                'topicId' => $this->pendingTopicId,
                 'failure' => $this->lastNotificationFailure,
             ],
         );
@@ -1403,6 +1451,7 @@ final class SpaceAgentWorkflow
             ingestionRetryPending: $this->ingestionRetryPending,
             pendingBatchMessageCount: $this->pendingBatchMessageCount,
             pendingBatchId: $this->pendingBatchId,
+            pendingTopicId: $this->pendingTopicId,
             pendingActorUserIds: $this->pendingActorIds(),
             pendingActorIdentityComplete: $this->pendingActorIdentityComplete,
             pendingRuntimeSnapshot: $this->pendingRuntimeSnapshot,

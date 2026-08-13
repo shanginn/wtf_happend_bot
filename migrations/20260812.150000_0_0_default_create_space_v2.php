@@ -603,12 +603,7 @@ final class OrmDefaultCreateSpaceV220260812150000 extends Migration
     {
         $now         = time();
         $legacyChats = $this->database()->query(<<<'SQL'
-            SELECT
-                chat_id,
-                CASE
-                    WHEN topic_id IS NULL OR topic_id = 0 THEN ''
-                    ELSE topic_id::text
-                END AS thread_id
+            SELECT chat_id, '' AS thread_id
             FROM update_records
             UNION
             SELECT chat_id, '' AS thread_id FROM runtime_skills

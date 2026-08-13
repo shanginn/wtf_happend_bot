@@ -32,7 +32,9 @@ final class DreamEligibleSpacesQueryTest extends TestCase
             ->once()
             ->withArgs(static function (string $sql, array $parameters): bool {
                 return str_contains($sql, 'WITH recent_updates AS MATERIALIZED')
-                    && str_contains($sql, 'GROUP BY record.chat_id, record.topic_id, record.created_at')
+                    && str_contains($sql, 'GROUP BY record.chat_id, record.created_at')
+                    && !str_contains($sql, 'recent.topic_id')
+                    && str_contains($sql, "binding.external_thread_id = ''")
                     && str_contains($sql, '{edited_message,text}')
                     && str_contains($sql, '{edited_channel_post,caption}')
                     && str_contains($sql, 'binding_watermarks AS MATERIALIZED')

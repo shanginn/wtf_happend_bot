@@ -79,6 +79,7 @@ final readonly class SpaceAgentWorkflowInputDataConverter implements PayloadConv
             ingestionRetryPending: self::boolean($data, 'ingestionRetryPending'),
             pendingBatchMessageCount: self::integer($data, 'pendingBatchMessageCount'),
             pendingBatchId: self::nullableString($data, 'pendingBatchId'),
+            pendingTopicId: self::nullableInteger($data, 'pendingTopicId'),
             pendingActorUserIds: self::integerList($data, 'pendingActorUserIds'),
             pendingActorIdentityComplete: self::boolean($data, 'pendingActorIdentityComplete'),
             pendingRuntimeSnapshot: self::snapshot($data['pendingRuntimeSnapshot'] ?? null),
@@ -250,6 +251,7 @@ final readonly class SpaceAgentWorkflowInputDataConverter implements PayloadConv
             'ingestionRetryPending'        => $value->ingestionRetryPending,
             'pendingBatchMessageCount'     => $value->pendingBatchMessageCount,
             'pendingBatchId'               => $value->pendingBatchId,
+            'pendingTopicId'               => $value->pendingTopicId,
             'pendingActorUserIds'          => $value->pendingActorUserIds,
             'pendingActorIdentityComplete' => $value->pendingActorIdentityComplete,
             'pendingRuntimeSnapshot'       => $value->pendingRuntimeSnapshot === null

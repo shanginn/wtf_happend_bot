@@ -693,20 +693,15 @@ final readonly class BotToolCatalog
                     'usernameText' => self::nullableStringValue($args, 'username'),
                     'resultLimit'  => self::integerValue($args, 'limit', 10),
                 ];
-                $text = self::metadataString($context, 'spaceId') === null
-                    ? $this->searchMessages->execute(
-                        chatId: $chatId,
-                        queryText: $parameters['queryText'],
-                        usernameText: $parameters['usernameText'],
-                        resultLimit: $parameters['resultLimit'],
-                    )
-                    : $this->searchMessages->executeInSpace(
-                        chatId: $chatId,
-                        topicId: self::nullableMetadataInteger($context, 'topicId'),
-                        queryText: $parameters['queryText'],
-                        usernameText: $parameters['usernameText'],
-                        resultLimit: $parameters['resultLimit'],
-                    );
+                // A Telegram Space is the whole chat. Topic ID is only the
+                // route for the current reply and must not narrow memory or
+                // history retrieval to one thread.
+                $text = $this->searchMessages->execute(
+                    chatId: $chatId,
+                    queryText: $parameters['queryText'],
+                    usernameText: $parameters['usernameText'],
+                    resultLimit: $parameters['resultLimit'],
+                );
 
                 return self::result($text);
             }),

@@ -23,8 +23,8 @@ class WorkflowControlCommandHandler extends AbstractCommandHandler
 {
     private const string PAUSE_COMMAND_PATTERN  = '/^\/pause(?:@[\pL\pN_]+)?$/u';
     private const string RESUME_COMMAND_PATTERN = '/^\/resume(?:@[\pL\pN_]+)?$/u';
-    private const string PAUSED_MESSAGE         = 'Workflow темы приостановлен. Новые сообщения сохраняются в историю, но не обрабатываются задним числом.';
-    private const string RESUMED_MESSAGE        = 'Workflow темы продолжил работу. Новые сообщения снова обрабатываются.';
+    private const string PAUSED_MESSAGE         = 'Workflow чата приостановлен. Новые сообщения сохраняются в историю, но не обрабатываются задним числом.';
+    private const string RESUMED_MESSAGE        = 'Workflow чата продолжил работу. Новые сообщения снова обрабатываются.';
     private const string NO_WORKFLOW_MESSAGE    = 'Активного workflow для этого чата нет.';
     private const string DENIED_MESSAGE         = 'Недостаточно прав: в личном чате команду может выполнить '
         . 'только его пользователь, а в группе — владелец или администратор.';
