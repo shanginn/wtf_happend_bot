@@ -137,11 +137,20 @@ final readonly class ReplyTypingModelGateway implements ModelCompletionGatewayIn
             'arguments' => [],
         ];
 
+        // DeepSeek thinking-mode tool turns must replay reasoning_content verbatim.
+        $content = [];
+        foreach ($result->assistantMessage['content'] ?? [] as $block) {
+            if (is_array($block) && ($block['type'] ?? null) === 'thinking') {
+                $content[] = $block;
+            }
+        }
+        $content[] = ['type' => 'toolCall', ...$call];
+
         return new ModelActivityResult(
             assistantMessage: [
                 ...$result->assistantMessage,
                 'role'         => 'assistant',
-                'content'      => [['type' => 'toolCall', ...$call]],
+                'content'      => $content,
                 'stopReason'   => 'tool_use',
                 'errorMessage' => null,
             ],

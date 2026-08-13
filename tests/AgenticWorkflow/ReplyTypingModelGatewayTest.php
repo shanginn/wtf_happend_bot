@@ -4,18 +4,30 @@ declare(strict_types=1);
 
 namespace Tests\AgenticWorkflow;
 
+use Async\Coroutine;
+
 use function Async\delay;
 use function Async\protect;
+
+use function Async\spawn;
 
 use Bot\AgenticWorkflow\ReplyTypingModelGateway;
 use Bot\Telegram\TelegramTypingRefresher;
 use Closure;
 use Phenogram\Bindings\ApiInterface;
 use PHPUnit\Framework\MockObject\MockObject;
+use PiPHP\AI\Codec\JsonValue;
+use PiPHP\AI\Model\ApiProtocol;
+use PiPHP\AI\Model\Model;
+use PiPHP\AI\Provider\Adapter\OpenAIChatAdapter;
+use PiPHP\AI\Transport\HttpRequest;
+use PiPHP\AI\Transport\HttpResponse;
+use PiPHP\AI\Transport\HttpTransportInterface;
 use PiPHP\Temporal\Contract\ModelCompletionGatewayInterface;
 use PiPHP\Temporal\DTO\AgentMessage;
 use PiPHP\Temporal\DTO\ModelActivityInput;
 use PiPHP\Temporal\DTO\ModelActivityResult;
+use PiPHP\Temporal\Serialization\PiPayloadCodec;
 use RuntimeException;
 use Tests\TestCase;
 use UnexpectedValueException;
@@ -83,6 +95,84 @@ final class ReplyTypingModelGatewayTest extends TestCase
         self::assertSame([['type' => 'toolCall', ...$call]], $first->assistantMessage['content']);
         self::assertSame('tool_use', $first->stopReason);
         self::assertSame($first->toolCalls, $retry->toolCalls);
+    }
+
+    public function testSyntheticCommitmentPreservesDeepSeekReasoningOnTheNextRequest(): void
+    {
+        $telegram   = $this->telegramExpectingNoTyping();
+        $completion = new ModelActivityResult(
+            assistantMessage: [
+                'role'    => 'assistant',
+                'content' => [
+                    ['type' => 'thinking', 'thinking' => 'private reasoning'],
+                    ['type' => 'text', 'text' => 'undelivered draft'],
+                    ['type' => 'toolCall', ...self::telegramSendCall()],
+                ],
+            ],
+            toolCalls: [self::telegramSendCall()],
+            stopReason: 'tool_use',
+        );
+        $gateway = $this->gateway(
+            $telegram,
+            delayMilliseconds: 20,
+            completion: $completion,
+        );
+
+        $result = $gateway->complete(self::input([
+            AgentMessage::text('user', 'answer this')->toArray(),
+        ]));
+
+        self::assertSame('thinking', $result->assistantMessage['content'][0]['type']);
+        self::assertSame(
+            'private reasoning',
+            $result->assistantMessage['content'][0]['thinking'],
+        );
+        self::assertSame('toolCall', $result->assistantMessage['content'][1]['type']);
+        self::assertSame('commit_to_reply', $result->assistantMessage['content'][1]['name']);
+        self::assertCount(2, $result->assistantMessage['content']);
+
+        $model = new Model(
+            provider: 'deepseek',
+            id: 'deepseek-v4-pro',
+            name: 'deepseek-v4-pro',
+            api: ApiProtocol::OPENAI_CHAT,
+            baseUrl: 'https://api.deepseek.com',
+        );
+        $context = (new PiPayloadCodec())->context(
+            self::input([
+                AgentMessage::text('user', 'answer this')->toArray(),
+                $result->assistantMessage,
+                self::commitmentResult($result->toolCalls[0]['id']),
+            ]),
+            $model,
+        );
+        $transport = new CapturingDeepSeekTransport();
+        $stream    = (new OpenAIChatAdapter(
+            transport: $transport,
+            environmentVariable: null,
+            authenticationRequired: false,
+        ))->stream($model, $context);
+        foreach ($stream as $_event);
+
+        $stream->result();
+
+        self::assertCount(1, $transport->requests);
+        $body = JsonValue::object(json_decode(
+            (string) $transport->requests[0]->body,
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        ));
+        $messages  = JsonValue::list($body['messages'] ?? null);
+        $assistant = JsonValue::object($messages[1] ?? null);
+        $tool      = JsonValue::object($messages[2] ?? null);
+
+        self::assertSame('private reasoning', $assistant['reasoning_content'] ?? null);
+        self::assertSame('', $assistant['content'] ?? null);
+        self::assertSame(
+            $result->toolCalls[0]['id'],
+            $assistant['tool_calls'][0]['id'] ?? null,
+        );
+        self::assertSame($result->toolCalls[0]['id'], $tool['tool_call_id'] ?? null);
     }
 
     public function testCommitAndSendInSameToolBatchIsReducedToCommitOnly(): void
@@ -356,12 +446,12 @@ final class ReplyTypingModelGatewayTest extends TestCase
     }
 
     /** @return array<string, mixed> */
-    private static function commitmentResult(): array
+    private static function commitmentResult(string $toolCallId = 'commit-1'): array
     {
         return [
             'role'       => 'toolResult',
             'toolName'   => 'commit_to_reply',
-            'toolCallId' => 'commit-1',
+            'toolCallId' => $toolCallId,
             'content'    => [['type' => 'text', 'text' => 'Reply commitment accepted.']],
             'isError'    => false,
         ];
@@ -470,5 +560,30 @@ final readonly class CallbackModelGateway implements ModelCompletionGatewayInter
     public function complete(ModelActivityInput $input): ModelActivityResult
     {
         return ($this->callback)($input);
+    }
+}
+
+final class CapturingDeepSeekTransport implements HttpTransportInterface
+{
+    /** @var list<HttpRequest> */
+    public array $requests = [];
+
+    public function request(HttpRequest $request): Coroutine
+    {
+        $this->requests[] = $request;
+
+        return spawn(static fn (): HttpResponse => new HttpResponse(status: 200));
+    }
+
+    public function stream(HttpRequest $request, Closure $onChunk): Coroutine
+    {
+        $this->requests[] = $request;
+
+        return spawn(static function () use ($onChunk): HttpResponse {
+            $onChunk("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n");
+            $onChunk("data: [DONE]\n\n");
+
+            return new HttpResponse(status: 200);
+        });
     }
 }
