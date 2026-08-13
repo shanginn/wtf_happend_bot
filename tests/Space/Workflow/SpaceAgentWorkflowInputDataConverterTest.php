@@ -7,6 +7,7 @@ namespace Tests\Space\Workflow;
 use Bot\Space\Runtime\SpaceCommandBinding;
 use Bot\Space\Runtime\SpaceRuntimeSnapshot;
 use Bot\Space\Workflow\QueuedSpaceUpdate;
+use Bot\Space\Workflow\SpaceAgentWorkflow;
 use Bot\Space\Workflow\SpaceAgentWorkflowInput;
 use Bot\Space\Workflow\SpaceAgentWorkflowInputDataConverter;
 use Bot\Space\Workflow\SpaceCommandInvocation;
@@ -14,11 +15,68 @@ use Bot\Telegram\Update;
 use Phenogram\Bindings\Factories\ChatFactory;
 use Phenogram\Bindings\Factories\MessageFactory;
 use Phenogram\Bindings\Factories\UpdateFactory;
+use ReflectionMethod;
 use Temporal\DataConverter\Type;
 use Tests\TestCase;
 
 final class SpaceAgentWorkflowInputDataConverterTest extends TestCase
 {
+    public function testTelegramHistoryAnchorSurvivesContinueAsNew(): void
+    {
+        $input = new SpaceAgentWorkflowInput(
+            spaceId: self::snapshot()->spaceId,
+            platform: 'telegram',
+            botInstanceId: 'primary-bot',
+            externalConversationId: '7001',
+            externalThreadId: null,
+            chatId: 7001,
+            chatType: 'supergroup',
+            topicId: null,
+            botUsername: 'wtf_happend_bot',
+            messages: [
+                [
+                    'role'     => 'user',
+                    'content'  => [['type' => 'text', 'text' => 'old turn']],
+                    'metadata' => ['telegramMessageTimestamp' => 1_700_000_000],
+                ],
+                [
+                    'role'     => 'user',
+                    'content'  => [['type' => 'text', 'text' => 'first current update']],
+                    'metadata' => ['telegramMessageTimestamp' => 1_710_000_000],
+                ],
+                [
+                    'role'     => 'user',
+                    'content'  => [['type' => 'text', 'text' => 'last current update']],
+                    'metadata' => ['telegramMessageTimestamp' => 1_710_000_321],
+                ],
+            ],
+            pipelinePendingSince: 1_799_999_999,
+            pendingBatchMessageCount: 2,
+            pendingBatchId: 'batch-1',
+            pendingActorUserIds: [7],
+        );
+
+        $converter = new SpaceAgentWorkflowInputDataConverter();
+        $payload   = $converter->toPayload($input);
+        self::assertNotNull($payload);
+        $continued = $converter->fromPayload(
+            $payload,
+            Type::create(SpaceAgentWorkflowInput::class),
+        );
+
+        $anchor = (new ReflectionMethod(
+            SpaceAgentWorkflow::class,
+            'pendingBatchHistoryReferenceTimestamp',
+        ))->invoke(
+            null,
+            $continued->messages,
+            $continued->pendingBatchMessageCount,
+        );
+
+        self::assertSame(1_710_000_321, $anchor);
+        self::assertNotSame($continued->pipelinePendingSince, $anchor);
+    }
+
     public function testContinuationRoundTripPreservesPinnedRuntimeAndPendingUpdates(): void
     {
         $update = UpdateFactory::make(

@@ -54,6 +54,9 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
                 text: $this->describeNonMessageUpdate($update),
                 participantReference: $this->resolveNonMessageParticipantReference($update),
                 updateId: $update->updateId,
+                messageTimestamp: $update instanceof Update
+                    ? $update->effectiveMessage?->date
+                    : null,
             );
         }
 
@@ -70,6 +73,7 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
             imageAttachmentCount: $this->countImageAttachments($message),
             updateId: $update->updateId,
             memoryEvidenceText: $this->memoryEvidenceText($message),
+            messageTimestamp: $message->date,
         );
     }
 

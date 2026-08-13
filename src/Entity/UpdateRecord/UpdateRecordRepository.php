@@ -83,16 +83,50 @@ final class UpdateRecordRepository extends Repository
             ->where('chatId', $chatId);
 
         foreach ($tokens as $token) {
-            $query = $query->where(new Fragment(
-                '("update")::jsonb::text ILIKE ? ESCAPE \'!\'',
-                self::likePattern($token),
-            ));
+            $query = $query->where(self::directTextPredicate($token));
         }
 
         return $query
             ->orderBy('createdAt', 'DESC')
             ->orderBy('updateId', 'DESC')
             ->limit($limit)
+            ->fetchAll();
+    }
+
+    /**
+     * Search one trusted chat inside a half-open Telegram timestamp range.
+     *
+     * @param list<string> $tokens
+     * @param int          $chatId
+     * @param int          $startInclusive
+     * @param int          $endExclusive
+     * @param int          $limit
+     * @param int          $offset
+     *
+     * @return array<UpdateRecord>
+     */
+    public function searchInPeriod(
+        int $chatId,
+        int $startInclusive,
+        int $endExclusive,
+        array $tokens,
+        int $limit,
+        int $offset = 0,
+    ): array {
+        $query = $this->select()
+            ->where('chatId', $chatId)
+            ->where('createdAt', '>=', $startInclusive)
+            ->where('createdAt', '<', $endExclusive);
+
+        foreach ($tokens as $token) {
+            $query = $query->where(self::directTextPredicate($token));
+        }
+
+        return $query
+            ->orderBy('createdAt', 'ASC')
+            ->orderBy('updateId', 'ASC')
+            ->limit($limit)
+            ->offset($offset)
             ->fetchAll();
     }
 
@@ -116,10 +150,7 @@ final class UpdateRecordRepository extends Repository
             ? $query->where('topicId', null)
             : $query->where('topicId', $topicId);
         foreach ($tokens as $token) {
-            $query = $query->where(new Fragment(
-                '("update")::jsonb::text ILIKE ? ESCAPE \'!\'',
-                self::likePattern($token),
-            ));
+            $query = $query->where(self::directTextPredicate($token));
         }
 
         return $query
@@ -201,5 +232,29 @@ final class UpdateRecordRepository extends Repository
             '%' => '!%',
             '_' => '!_',
         ]) . '%';
+    }
+
+    private static function directTextPredicate(string $token): Fragment
+    {
+        return new Fragment(<<<'SQL'
+            lower(concat_ws(' ',
+                "update"::jsonb #>> '{effective_message,text}',
+                "update"::jsonb #>> '{effective_message,caption}',
+                "update"::jsonb #>> '{message,text}',
+                "update"::jsonb #>> '{message,caption}',
+                "update"::jsonb #>> '{edited_message,text}',
+                "update"::jsonb #>> '{edited_message,caption}',
+                "update"::jsonb #>> '{channel_post,text}',
+                "update"::jsonb #>> '{channel_post,caption}',
+                "update"::jsonb #>> '{edited_channel_post,text}',
+                "update"::jsonb #>> '{edited_channel_post,caption}',
+                "update"::jsonb #>> '{business_message,text}',
+                "update"::jsonb #>> '{business_message,caption}',
+                "update"::jsonb #>> '{edited_business_message,text}',
+                "update"::jsonb #>> '{edited_business_message,caption}',
+                "update"::jsonb #>> '{guest_message,text}',
+                "update"::jsonb #>> '{guest_message,caption}'
+            )) LIKE ? ESCAPE '!'
+            SQL, self::likePattern(mb_strtolower($token)));
     }
 }

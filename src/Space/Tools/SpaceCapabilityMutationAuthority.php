@@ -237,15 +237,49 @@ final readonly class SpaceCapabilityMutationAuthority
             );
         }
 
-        // Persistent prompt changes require an unambiguously affirmative
-        // request. Mixed or negated wording is intentionally fail-closed: the
-        // administrator can restate it plainly, while the model cannot turn a
-        // prohibition or discussion into durable authority.
-        $negativeIntent = preg_match(
-            '/(?<![\pL\d_])(?:не|никогда|против|кроме|исключая|без|never|no|not|except|excluding|without|do\s+not|don[’\']t)(?![\pL\d_])/iu',
+        // Everything after the first explicit specification separator is the
+        // capability body, not a second authorization sentence. Real skill
+        // bodies routinely contain negation and references to other behavior.
+        $targetHint = $kind === 'command' ? strpos($text, '/' . $name) : false;
+        if ($kind === 'skill' && preg_match(
+            '/(?<![\pL\d_])' . preg_quote($name, '/') . '(?![\pL\d_])/iu',
             $text,
-        ) === 1;
-        if ($negativeIntent) {
+            $targetHintMatch,
+            \PREG_OFFSET_CAPTURE,
+        ) === 1 && is_array($targetHintMatch[0] ?? null)) {
+            $targetHint = (int) $targetHintMatch[0][1];
+        }
+        $separatorPosition = strlen($text);
+        if ($targetHint !== false) {
+            foreach ([strpos($text, ':', $targetHint), strpos($text, "\n", $targetHint)] as $candidate) {
+                if ($candidate !== false) {
+                    $separatorPosition = min($separatorPosition, $candidate);
+                }
+            }
+        }
+        $intentText = $separatorPosition < strlen($text)
+            ? substr($text, 0, $separatorPosition)
+            : $text;
+
+        $preliminaryTargetPosition = false;
+        if ($kind === 'command') {
+            $preliminaryTargetPosition = strpos($intentText, '/' . $name);
+        } elseif (preg_match(
+            '/(?<![\pL\d_])' . preg_quote($name, '/') . '(?![\pL\d_])/iu',
+            $intentText,
+            $preliminaryTarget,
+            \PREG_OFFSET_CAPTURE,
+        ) === 1 && is_array($preliminaryTarget[0] ?? null)) {
+            $preliminaryTargetPosition = (int) $preliminaryTarget[0][1];
+        }
+
+        $authorityPrefix = $preliminaryTargetPosition === false
+            ? $intentText
+            : substr($intentText, 0, $preliminaryTargetPosition);
+        if (preg_match(
+            '/(?<![\pL\d_])(?:не|никогда|против|кроме|исключая|без|never|no|not|except|excluding|without|do\s+not|don[’\']t)(?![\pL\d_])/iu',
+            $authorityPrefix,
+        ) === 1) {
             throw new SpaceCapabilityPublicationRejected(
                 'Space capability publication denied: the selected update explicitly negates publication.',
             );
@@ -253,19 +287,20 @@ final readonly class SpaceCapabilityMutationAuthority
 
         $mutationVerb = preg_match(
             '/\A\s*(?:(?:бот|bot)[,!:]?\s+)?(?:добавь|добавьте|создай|создайте|обнови|обновите|измени|измените|сделай|сделайте|научи|научись|add|create|update|change|teach)(?![\pL\d_])/iu',
-            $text,
+            $intentText,
         ) === 1;
         $kindNoun = $kind === 'command'
-            ? preg_match('/(?<![\pL\d_])(?:команд[а-яё]*|command)(?![\pL\d_])/iu', $text) === 1
-            : preg_match('/(?<![\pL\d_])(?:навык[а-яё]*|скилл[а-яё]*|правил[а-яё]*|поведени[а-яё]*|skill|behavior|rule)(?![\pL\d_])/iu', $text) === 1;
+            ? preg_match('/(?<![\pL\d_])(?:команд[а-яё]*|command)(?![\pL\d_])/iu', $intentText) === 1
+            : preg_match('/(?<![\pL\d_])(?:навык[а-яё]*|скилл[а-яё]*|правил[а-яё]*|поведени[а-яё]*|skill|behavior|rule)(?![\pL\d_])/iu', $intentText) === 1;
         if (!$mutationVerb || !$kindNoun) {
             throw new SpaceCapabilityPublicationRejected(
                 'Space capability publication denied: the selected update is not an explicit publication request.',
             );
         }
 
+        $targetPosition = null;
         if ($kind === 'command') {
-            preg_match_all('/(?<![\pL\d_])\/([a-z][a-z0-9_]{0,31})(?![\pL\d_])/iu', $text, $matches);
+            preg_match_all('/(?<![\pL\d_])\/([a-z][a-z0-9_]{0,31})(?![\pL\d_])/iu', $intentText, $matches);
             $commandNames = array_values(array_unique(array_map(
                 static fn (string $value): string => mb_strtolower($value),
                 is_array($matches[1] ?? null) ? $matches[1] : [],
@@ -275,10 +310,11 @@ final readonly class SpaceCapabilityMutationAuthority
                     'Space capability publication denied: the request must name exactly one slash command.',
                 );
             }
+            $targetPosition = strpos($intentText, '/' . $name);
         } else {
             preg_match_all(
                 '/(?<![\pL\d_])(?:навык[а-яё]*|скилл[а-яё]*|правил[а-яё]*|поведени[а-яё]*|skill|behavior|rule)(?![\pL\d_])\s+\/?([a-z0-9][a-z0-9_-]{0,63})(?![\pL\d_])/iu',
-                $text,
+                $intentText,
                 $matches,
             );
             $skillNames = array_values(array_unique(array_map(
@@ -290,15 +326,64 @@ final readonly class SpaceCapabilityMutationAuthority
                     'Space capability publication denied: the request must name exactly one skill target.',
                 );
             }
+            preg_match(
+                '/(?<![\pL\d_])(?:навык[а-яё]*|скилл[а-яё]*|правил[а-яё]*|поведени[а-яё]*|skill|behavior|rule)(?![\pL\d_])\s+\/?'
+                    . preg_quote($name, '/') . '(?![\pL\d_])/iu',
+                $text,
+                $targetMatch,
+                \PREG_OFFSET_CAPTURE,
+            );
+            $targetPosition = is_array($targetMatch[0] ?? null)
+                ? (int) $targetMatch[0][1] + strlen((string) $targetMatch[0][0])
+                : null;
         }
 
         $mentioned = preg_match(
             '/(?:\/|(?<![\pL\d_]))' . preg_quote($name, '/') . '(?![\pL\d_])/iu',
-            $text,
+            $intentText,
         ) === 1;
         if (!$mentioned) {
             throw new SpaceCapabilityPublicationRejected(
                 'Space capability publication denied: the selected update does not name this capability.',
+            );
+        }
+
+        // Only negation governing the publication target is authority-relevant.
+        // Capability bodies commonly contain words such as "не", "без", or
+        // "кроме" as part of the requested behavior; rejecting those after the
+        // target made valid administrator requests impossible to publish.
+        $postTarget = $targetPosition === false || $targetPosition === null
+            ? ''
+            : substr($intentText, $targetPosition);
+        if (preg_match(
+            '/(?<![\pL\d_])(?:не|never|not|do\s+not|don[’\']t)\s+'
+                . '(?:добавляй|добавлять|создавай|создавать|публикуй|публиковать|обновляй|обновлять|add|create|publish|update)'
+                . '(?![\pL\d_])/iu',
+            $postTarget,
+        ) === 1) {
+            throw new SpaceCapabilityPublicationRejected(
+                'Space capability publication denied: the selected update explicitly negates publication.',
+            );
+        }
+
+        // A colon/newline starts the requested behavior body, where ordinary
+        // negative rules are valid. Still reject an explicit cancellation of
+        // this very capability even when it appears after that separator.
+        $fullPostTarget = $targetPosition === false || $targetPosition === null
+            ? ''
+            : substr($text, $targetPosition);
+        $targetReference = $kind === 'command'
+            ? '(?:\/' . preg_quote($name, '/') . '|(?:эту|данную|this)\s+команд[а-яё]*|it)'
+            : '(?:' . preg_quote($name, '/')
+                . '|(?:этот|данный|this)\s+(?:навык[а-яё]*|скилл[а-яё]*|skill)|его|it)';
+        if (preg_match(
+            '/(?<![\pL\d_])(?:не|never|not|do\s+not|don[’\']t)\s+'
+                . '(?:добавляй|добавлять|создавай|создавать|публикуй|публиковать|обновляй|обновлять|add|create|publish|update)'
+                . '\s+' . $targetReference . '(?![\pL\d_])/iu',
+            $fullPostTarget,
+        ) === 1) {
+            throw new SpaceCapabilityPublicationRejected(
+                'Space capability publication denied: the selected update explicitly negates publication.',
             );
         }
     }

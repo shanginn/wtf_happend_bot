@@ -50,6 +50,11 @@ final class PiPHPAgentRuntimeTest extends TestCase
         self::assertStringContainsString('stay_silent', $prompt);
         self::assertStringContainsString('commit_to_reply alone', $prompt);
         self::assertStringContainsString('Keep replies short.', $prompt);
+        self::assertStringContainsString('call search_messages', $prompt);
+        self::assertStringContainsString('relative_day', $prompt);
+        self::assertStringContainsString('truncated=true', $prompt);
+        self::assertStringContainsString('recall_memory', $prompt);
+        self::assertStringContainsString('proves only', $prompt);
         self::assertStringNotContainsString('decision agent', strtolower($prompt));
     }
 
@@ -59,6 +64,7 @@ final class PiPHPAgentRuntimeTest extends TestCase
             text: "From: Alice\n\nText:\nWhat happened?",
             participantReference: 'telegram_user:7',
             imageAttachmentCount: 1,
+            messageTimestamp: 1_710_000_000,
         ))->toArray();
 
         self::assertSame('user', $message['role']);
@@ -72,6 +78,7 @@ final class PiPHPAgentRuntimeTest extends TestCase
             $message['content'][0]['text'],
         );
         self::assertSame(1, $message['metadata']['imageAttachmentCount']);
+        self::assertSame(1_710_000_000, $message['metadata']['telegramMessageTimestamp']);
         self::assertStringNotContainsString('api.telegram.org/file/bot', $message['content'][0]['text']);
     }
 

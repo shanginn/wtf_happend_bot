@@ -81,7 +81,7 @@ final readonly class BotToolCatalog
             ),
             self::tool(
                 'save_memory',
-                'Save one durable, evidence-backed fact about a chat participant.',
+                'Persist one durable, evidence-backed participant fact or enabled-skill ledger entry.',
                 [
                     'user_identifier' => self::string(
                         'Immutable participant reference from message metadata, such as telegram_user:123.',
@@ -98,7 +98,7 @@ final readonly class BotToolCatalog
             ),
             self::tool(
                 'recall_memory',
-                'Recall saved participant memories for the current chat.',
+                'Read the authoritative persisted participant-memory store for the current chat.',
                 [
                     'user_identifier' => self::nullableString('Optional immutable participant reference.', 80),
                     'query'           => self::nullableString('Optional search text.', 1000),
@@ -141,15 +141,35 @@ final readonly class BotToolCatalog
             ),
             self::tool(
                 'search_messages',
-                'Search persisted inbound Telegram updates or load recent inbound history.',
+                'Search direct participant messages and proven sent bot outputs by text, participant, exact calendar day, or inclusive date range.',
                 [
                     'query' => self::string(
-                        'Search text; empty loads recent history.',
+                        'Optional search text. Leave empty for a date-only lookup or recent history.',
                         minimum: 0,
                         maximum: 1000,
                     ),
-                    'username' => self::nullableString('Optional immutable participant filter.', 80),
-                    'limit'    => self::integer('Maximum results.', 1, 30),
+                    'username'  => self::nullableString('Optional immutable participant filter.', 80),
+                    'on_date'   => self::nullableString('Exact local calendar day, YYYY-MM-DD.', 10),
+                    'from_date' => self::nullableString(
+                        'Inclusive local range start, YYYY-MM-DD; requires through_date.',
+                        10,
+                    ),
+                    'through_date' => self::nullableString(
+                        'Inclusive local range end, YYYY-MM-DD; requires from_date.',
+                        10,
+                    ),
+                    'relative_day' => [
+                        'type'        => 'object',
+                        'description' => 'Resolve one past local calendar day relative to the trusted current Telegram batch.',
+                        'properties'  => [
+                            'years_ago'  => self::integer('Calendar years before the current batch.', 0, 20),
+                            'months_ago' => self::integer('Calendar months before the current batch.', 0, 240),
+                            'days_ago'   => self::integer('Calendar days before the current batch.', 0, 7300),
+                        ],
+                        'additionalProperties' => false,
+                    ],
+                    'offset' => self::integer('Pagination offset from the start of the resolved period.', 0, 990),
+                    'limit'  => self::integer('Maximum results on this page.', 1, 30),
                 ],
             ),
             self::tool(
@@ -718,6 +738,11 @@ final readonly class BotToolCatalog
                     'queryText'    => self::stringValue($args, 'query'),
                     'usernameText' => self::nullableStringValue($args, 'username'),
                     'resultLimit'  => self::integerValue($args, 'limit', 10),
+                    'onDate'       => self::nullableStringValue($args, 'on_date'),
+                    'fromDate'     => self::nullableStringValue($args, 'from_date'),
+                    'throughDate'  => self::nullableStringValue($args, 'through_date'),
+                    'relativeDay'  => self::arrayValue($args, 'relative_day'),
+                    'offset'       => self::integerValue($args, 'offset', 0),
                 ];
                 // A Telegram Space is the whole chat. Topic ID is only the
                 // route for the current reply and must not narrow memory or
@@ -727,6 +752,15 @@ final readonly class BotToolCatalog
                     queryText: $parameters['queryText'],
                     usernameText: $parameters['usernameText'],
                     resultLimit: $parameters['resultLimit'],
+                    onDate: $parameters['onDate'],
+                    fromDate: $parameters['fromDate'],
+                    throughDate: $parameters['throughDate'],
+                    relativeDay: $parameters['relativeDay'],
+                    offset: $parameters['offset'],
+                    referenceTimestamp: self::nullableMetadataInteger(
+                        $context,
+                        'historyReferenceTimestamp',
+                    ),
                 );
 
                 return self::result($text);

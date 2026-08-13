@@ -35,6 +35,7 @@ class TelegramUpdateViewFactoryTest extends TestCase
         $this->assertSame(0, $view->imageAttachmentCount);
         $this->assertSame(42, $view->updateId);
         $this->assertSame("hello\nthere", $view->memoryEvidenceText);
+        $this->assertSame(1_710_000_000, $view->messageTimestamp);
         $this->assertStringContainsString('Telegram update: message', $view->text);
         $this->assertStringContainsString('From: Alice (@alice, id 7)', $view->text);
         $this->assertStringContainsString("Text:\nhello\nthere", $view->text);
@@ -62,6 +63,7 @@ class TelegramUpdateViewFactoryTest extends TestCase
 
         $this->assertSame('telegram_user:11', $view->participantReference);
         $this->assertSame(1, $view->imageAttachmentCount);
+        $this->assertSame(1_710_000_000, $view->messageTimestamp);
         $this->assertStringContainsString('Telegram update: edited message', $view->text);
         $this->assertStringContainsString('Edited at:', $view->text);
         $this->assertStringContainsString("Caption:\nCat tax", $view->text);

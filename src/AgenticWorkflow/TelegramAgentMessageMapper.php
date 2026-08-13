@@ -27,8 +27,9 @@ final class TelegramAgentMessageMapper
             content: [['type' => 'text', 'text' => $text]],
             name: $view->participantReference,
             metadata: array_filter([
-                'telegramParticipant'  => $view->participantReference,
-                'imageAttachmentCount' => $view->imageAttachmentCount > 0
+                'telegramParticipant'      => $view->participantReference,
+                'telegramMessageTimestamp' => $view->messageTimestamp,
+                'imageAttachmentCount'     => $view->imageAttachmentCount > 0
                     ? $view->imageAttachmentCount
                     : null,
             ], static fn (mixed $value): bool => $value !== null),

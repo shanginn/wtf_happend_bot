@@ -11,6 +11,8 @@ use Bot\Telegram\Factory;
 use Bot\Telegram\Update;
 use Cycle\ORM\ORMInterface;
 use Cycle\ORM\RepositoryInterface;
+use DateTimeImmutable;
+use DateTimeZone;
 use Mockery;
 use Phenogram\Bindings\Serializer;
 use Phenogram\Bindings\Types\Chat;
@@ -20,6 +22,341 @@ use Tests\TestCase;
 
 class ChatExecutorsTest extends TestCase
 {
+    protected function tearDown(): void
+    {
+        Mockery::close();
+        parent::tearDown();
+    }
+
+    public function testSearchMessagesExecutorLoadsRecentHistoryWhenQueryIsEmpty(): void
+    {
+        $chatId = -100123;
+        $repo   = $this->makeUpdateRepo([
+            $this->makeUpdateRecord(2, $chatId, 'second message', 200, 'bob'),
+            $this->makeUpdateRecord(1, $chatId, 'first message', 100, 'alice'),
+        ]);
+
+        $executor = new SearchMessagesExecutor($this->makeOrm($repo));
+        $result   = $executor->execute(chatId: $chatId, resultLimit: 2);
+
+        self::assertStringContainsString('Recent inbound Telegram history', $result);
+        self::assertTrue(strpos($result, 'first message') < strpos($result, 'second message'));
+    }
+
+    public function testSearchMessagesExecutorFiltersByQueryAndUsername(): void
+    {
+        $chatId = -100123;
+        $repo   = $this->makeUpdateRepo([
+            $this->makeUpdateRecord(3, $chatId, 'deploy plan is ready', 300, 'alice'),
+            $this->makeUpdateRecord(2, $chatId, 'deploy failed on staging', 200, 'bob'),
+            $this->makeUpdateRecord(1, $chatId, 'random chat', 100, 'alice'),
+        ]);
+
+        $executor = new SearchMessagesExecutor($this->makeOrm($repo));
+        $result   = $executor->execute(
+            chatId: $chatId,
+            queryText: 'deploy',
+            usernameText: '@alice',
+            resultLimit: 5,
+        );
+
+        self::assertStringContainsString('Relevant inbound Telegram history', $result);
+        self::assertStringContainsString('deploy plan is ready', $result);
+        self::assertStringNotContainsString('deploy failed on staging', $result);
+        self::assertStringNotContainsString('random chat', $result);
+    }
+
+    public function testSearchMessagesExecutorSearchesBeyondRecentWindowWhenQueryIsPresent(): void
+    {
+        $chatId  = -100123;
+        $records = [];
+
+        for ($i = 400; $i >= 101; --$i) {
+            $records[] = $this->makeUpdateRecord($i, $chatId, 'recent filler ' . $i, $i, 'alice');
+        }
+
+        $records[] = $this->makeUpdateRecord(1, $chatId, 'ancient deploy decision', 1, 'bob');
+
+        $executor = new SearchMessagesExecutor($this->makeOrm($this->makeUpdateRepo($records)));
+        $result   = $executor->execute(
+            chatId: $chatId,
+            queryText: 'ancient deploy',
+            resultLimit: 5,
+        );
+
+        self::assertStringContainsString('Relevant inbound Telegram history', $result);
+        self::assertStringContainsString('ancient deploy decision', $result);
+        self::assertStringNotContainsString('recent filler', $result);
+    }
+
+    public function testSearchMessagesExecutorSearchesTheWholeChatAcrossTopics(): void
+    {
+        $chatId = -100123;
+        $repo   = $this->makeUpdateRepo([
+            $this->makeUpdateRecord(2, $chatId, 'topic message', 200, 'bob', topicId: 42),
+            $this->makeUpdateRecord(1, $chatId, 'general message', 100, 'alice'),
+        ]);
+
+        $executor = new SearchMessagesExecutor($this->makeOrm($repo));
+        $result   = $executor->execute(chatId: $chatId, resultLimit: 5);
+
+        self::assertStringContainsString('general message', $result);
+        self::assertStringContainsString('topic message', $result);
+    }
+
+    public function testSearchMessagesExecutorResolvesThreeCalendarMonthsAgo(): void
+    {
+        $chatId = -100123;
+        $zone   = new DateTimeZone('Asia/Yekaterinburg');
+        $at     = static fn (string $time): int => (new DateTimeImmutable($time, $zone))->getTimestamp();
+        $repo   = $this->makeUpdateRepo([
+            $this->makeUpdateRecord(4, $chatId, 'next day', $at('2026-05-14 00:00:00'), 'alice'),
+            $this->makeUpdateRecord(3, $chatId, 'end of target day', $at('2026-05-13 23:59:59'), 'bob', topicId: 42),
+            $this->makeUpdateRecord(2, $chatId, 'start of target day', $at('2026-05-13 00:00:00'), 'alice'),
+            $this->makeUpdateRecord(1, $chatId, 'previous day', $at('2026-05-12 23:59:59'), 'alice'),
+        ]);
+
+        $result = (new SearchMessagesExecutor($this->makeOrm($repo)))->execute(
+            chatId: $chatId,
+            relativeDay: ['months_ago' => 3],
+            referenceTimestamp: $at('2026-08-13 19:17:00'),
+            resultLimit: 30,
+        );
+
+        self::assertStringContainsString('2026-05-13 in Asia/Yekaterinburg', $result);
+        self::assertStringContainsString('start of target day', $result);
+        self::assertStringContainsString('end of target day', $result);
+        self::assertStringNotContainsString('previous day', $result);
+        self::assertStringNotContainsString('next day', $result);
+    }
+
+    public function testSearchMessagesExecutorPagesAWholeOldDayWithoutRecentWindow(): void
+    {
+        $chatId  = -100123;
+        $zone    = new DateTimeZone('Asia/Yekaterinburg');
+        $start   = new DateTimeImmutable('2026-05-13 00:00:00', $zone);
+        $records = [];
+        for ($index = 0; $index < 65; ++$index) {
+            $records[] = $this->makeUpdateRecord(
+                $index + 1,
+                $chatId,
+                'historic item ' . $index,
+                $start->modify("+{$index} minutes")->getTimestamp(),
+                'alice',
+                topicId: $index % 2 === 0 ? null : 42,
+            );
+        }
+        for ($index = 0; $index < 400; ++$index) {
+            $records[] = $this->makeUpdateRecord(
+                1000 + $index,
+                $chatId,
+                'recent filler ' . $index,
+                $start->modify('+3 months +' . $index . ' minutes')->getTimestamp(),
+                'bob',
+            );
+        }
+        $executor = new SearchMessagesExecutor($this->makeOrm($this->makeUpdateRepo($records)));
+
+        $first = $executor->execute(chatId: $chatId, onDate: '2026-05-13', resultLimit: 30);
+        $last  = $executor->execute(chatId: $chatId, onDate: '2026-05-13', resultLimit: 30, offset: 60);
+
+        self::assertStringContainsString('has_more=true; next_offset=30', $first);
+        self::assertStringContainsString('historic item 0', $first);
+        self::assertStringNotContainsString('recent filler', $first);
+        self::assertStringContainsString('has_more=false', $last);
+        self::assertStringContainsString('historic item 64', $last);
+    }
+
+    public function testLastSupportedPeriodPageReportsTruncationWithoutAnUnreachableOffset(): void
+    {
+        $chatId  = -100123;
+        $zone    = new DateTimeZone('Asia/Yekaterinburg');
+        $start   = new DateTimeImmutable('2026-05-13 00:00:00', $zone);
+        $records = [];
+        for ($index = 0; $index < 1021; ++$index) {
+            $records[] = $this->makeUpdateRecord(
+                $index + 1,
+                $chatId,
+                'historic item ' . $index,
+                $start->modify("+{$index} seconds")->getTimestamp(),
+                'alice',
+            );
+        }
+        $executor = new SearchMessagesExecutor($this->makeOrm($this->makeUpdateRepo($records)));
+
+        $lastSupportedPage = $executor->execute(
+            chatId: $chatId,
+            onDate: '2026-05-13',
+            resultLimit: 30,
+            offset: 990,
+        );
+
+        self::assertStringContainsString(
+            'has_more=false; truncated=true; pagination_limit_reached=true',
+            $lastSupportedPage,
+        );
+        self::assertStringNotContainsString('next_offset=', $lastSupportedPage);
+        self::assertStringContainsString('historic item 990', $lastSupportedPage);
+        self::assertStringContainsString('historic item 1019', $lastSupportedPage);
+        self::assertStringNotContainsString('historic item 1020', $lastSupportedPage);
+    }
+
+    public function testPeriodKeepsUpdateOrderForMessagesSentInTheSameSecond(): void
+    {
+        $chatId   = -100123;
+        $zone     = new DateTimeZone('Asia/Yekaterinburg');
+        $at       = (new DateTimeImmutable('2026-05-13 12:00:00', $zone))->getTimestamp();
+        $executor = new SearchMessagesExecutor($this->makeOrm($this->makeUpdateRepo([
+            $this->makeUpdateRecord(2, $chatId, 'same second second', $at, 'bob'),
+            $this->makeUpdateRecord(1, $chatId, 'same second first', $at, 'alice'),
+        ])));
+
+        $result = $executor->execute(chatId: $chatId, onDate: '2026-05-13', resultLimit: 30);
+
+        self::assertLessThan(
+            strpos($result, 'same second second'),
+            strpos($result, 'same second first'),
+        );
+    }
+
+    public function testRelativeCalendarMonthClampsToTheLastTargetMonthDay(): void
+    {
+        $chatId   = -100123;
+        $zone     = new DateTimeZone('Asia/Yekaterinburg');
+        $at       = static fn (string $time): int => (new DateTimeImmutable($time, $zone))->getTimestamp();
+        $executor = new SearchMessagesExecutor($this->makeOrm($this->makeUpdateRepo([
+            $this->makeUpdateRecord(2, $chatId, 'wrong rollover day', $at('2026-03-03 12:00:00'), 'alice'),
+            $this->makeUpdateRecord(1, $chatId, 'clamped february day', $at('2026-02-28 12:00:00'), 'alice'),
+        ])));
+
+        $result = $executor->execute(
+            chatId: $chatId,
+            relativeDay: ['months_ago' => 6],
+            referenceTimestamp: $at('2026-08-31 19:17:00'),
+        );
+
+        self::assertStringContainsString('2026-02-28 in Asia/Yekaterinburg', $result);
+        self::assertStringContainsString('clamped february day', $result);
+        self::assertStringNotContainsString('wrong rollover day', $result);
+    }
+
+    public function testSearchMessagesExecutorRejectsInvalidOrMixedDateSelectorsInBand(): void
+    {
+        $executor = new SearchMessagesExecutor($this->makeOrm($this->makeUpdateRepo([])));
+
+        self::assertStringStartsWith(
+            'History search request invalid:',
+            $executor->execute(chatId: -100123, onDate: '2026-02-30'),
+        );
+        self::assertStringContainsString(
+            'exactly one',
+            $executor->execute(
+                chatId: -100123,
+                onDate: '2026-05-13',
+                relativeDay: ['months_ago' => 3],
+                referenceTimestamp: 1_786_605_420,
+            ),
+        );
+        self::assertStringContainsString(
+            'supplied together',
+            $executor->execute(chatId: -100123, fromDate: '2026-05-13'),
+        );
+    }
+
+    public function testSearchMessagesExecutorDoesNotSearchNestedReplyText(): void
+    {
+        $chatId     = -100123;
+        $serializer = new Serializer(new Factory());
+        $update     = new Update(
+            updateId: 1,
+            message: new Message(
+                messageId: 2,
+                date: 200,
+                chat: new Chat(id: $chatId, type: 'supergroup', title: 'Tea Room'),
+                from: new User(id: 11, isBot: false, firstName: 'User', username: 'alice'),
+                text: 'is that really true?',
+                replyToMessage: new Message(
+                    messageId: 1,
+                    date: 100,
+                    chat: new Chat(id: $chatId, type: 'supergroup', title: 'Tea Room'),
+                    from: new User(id: 99, isBot: true, firstName: 'Bot', username: 'local_bot'),
+                    text: 'there were exactly four notebook records under article 128.1',
+                ),
+            ),
+        );
+        $record = new UpdateRecord(
+            updateId: 1,
+            update: json_encode($serializer->serialize([$update])[0], \JSON_THROW_ON_ERROR),
+            chatId: $chatId,
+            createdAt: 200,
+        );
+        $executor = new SearchMessagesExecutor($this->makeOrm($this->makeUpdateRepo([$record])));
+
+        self::assertSame(
+            'No messages found matching "128.1".',
+            $executor->execute(chatId: $chatId, queryText: '128.1'),
+        );
+    }
+
+    public function testSpaceSearchNeverCrossesTheTopicBoundary(): void
+    {
+        $chatId = -100123;
+        $repo   = $this->makeUpdateRepo([
+            $this->makeUpdateRecord(3, $chatId, 'private topic 99 note', 300, 'eve', topicId: 99),
+            $this->makeUpdateRecord(2, $chatId, 'private topic 42 note', 200, 'bob', topicId: 42),
+            $this->makeUpdateRecord(1, $chatId, 'root private note', 100, 'alice'),
+        ]);
+        $executor = new SearchMessagesExecutor($this->makeOrm($repo));
+
+        $topic = $executor->executeInSpace($chatId, 42, 'private', resultLimit: 10);
+        self::assertStringContainsString('topic 42', $topic);
+        self::assertStringNotContainsString('topic 99', $topic);
+        self::assertStringNotContainsString('root private', $topic);
+
+        $root = $executor->executeInSpace($chatId, null, 'private', resultLimit: 10);
+        self::assertStringContainsString('root private', $root);
+        self::assertStringNotContainsString('topic 42', $root);
+        self::assertStringNotContainsString('topic 99', $root);
+    }
+
+    public function testSearchMessagesExecutorReturnsAUsefulNoMatchMessage(): void
+    {
+        $chatId = -100123;
+        $repo   = $this->makeUpdateRepo([
+            $this->makeUpdateRecord(1, $chatId, 'human deploy note', 100, 'alice'),
+        ]);
+
+        $executor = new SearchMessagesExecutor($this->makeOrm($repo));
+        $result   = $executor->execute(
+            chatId: $chatId,
+            queryText: 'missing phrase',
+            usernameText: '@bob',
+        );
+
+        self::assertSame('No messages found matching "missing phrase" for @bob.', $result);
+    }
+
+    public function testGetCurrentTimeExecutorReturnsFormattedTime(): void
+    {
+        $executor = new GetCurrentTimeExecutor();
+        $result   = $executor->execute('UTC');
+
+        self::assertMatchesRegularExpression(
+            '/^Current time in UTC: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \([A-Za-z]+\)$/',
+            $result,
+        );
+    }
+
+    public function testGetCurrentTimeExecutorRejectsUnknownTimezone(): void
+    {
+        $executor = new GetCurrentTimeExecutor();
+
+        self::assertStringStartsWith(
+            'Unknown timezone: Mars/Olympus_Mons.',
+            $executor->execute('Mars/Olympus_Mons'),
+        );
+    }
+
     private function makeUpdateRecord(
         int $updateId,
         int $chatId,
@@ -29,7 +366,7 @@ class ChatExecutorsTest extends TestCase
         ?int $topicId = null,
     ): UpdateRecord {
         $serializer = new Serializer(new Factory());
-        $update = new Update(
+        $update     = new Update(
             updateId: $updateId,
             message: new Message(
                 messageId: $updateId,
@@ -62,6 +399,9 @@ class ChatExecutorsTest extends TestCase
             public function __construct(private readonly array $records) {}
 
             /**
+             * @param int $chatId
+             * @param int $limit
+             *
              * @return list<UpdateRecord>
              */
             public function findLastN(int $chatId, int $limit): array
@@ -78,6 +418,9 @@ class ChatExecutorsTest extends TestCase
 
             /**
              * @param list<string> $tokens
+             * @param int          $chatId
+             * @param int          $limit
+             *
              * @return list<UpdateRecord>
              */
             public function searchByPayloadText(int $chatId, array $tokens, int $limit): array
@@ -110,6 +453,38 @@ class ChatExecutorsTest extends TestCase
                 return array_slice($records, 0, $limit);
             }
 
+            /**
+             * @param list<string> $tokens
+             * @param int          $chatId
+             * @param int          $startInclusive
+             * @param int          $endExclusive
+             * @param int          $limit
+             * @param int          $offset
+             *
+             * @return list<UpdateRecord>
+             */
+            public function searchInPeriod(
+                int $chatId,
+                int $startInclusive,
+                int $endExclusive,
+                array $tokens,
+                int $limit,
+                int $offset = 0,
+            ): array {
+                $records = array_values(array_filter(
+                    $this->searchByPayloadText($chatId, $tokens, PHP_INT_MAX),
+                    static fn (UpdateRecord $record): bool => $record->createdAt >= $startInclusive
+                        && $record->createdAt < $endExclusive,
+                ));
+                usort(
+                    $records,
+                    static fn (UpdateRecord $left, UpdateRecord $right): int => [$left->createdAt, $left->updateId]
+                        <=> [$right->createdAt, $right->updateId],
+                );
+
+                return array_slice($records, $offset, $limit);
+            }
+
             /** @return list<UpdateRecord> */
             public function findLastNInTopic(int $chatId, ?int $topicId, int $limit): array
             {
@@ -122,6 +497,10 @@ class ChatExecutorsTest extends TestCase
 
             /**
              * @param list<string> $tokens
+             * @param int          $chatId
+             * @param ?int         $topicId
+             * @param int          $limit
+             *
              * @return list<UpdateRecord>
              */
             public function searchByPayloadTextInTopic(
@@ -163,146 +542,5 @@ class ChatExecutorsTest extends TestCase
             ->andReturn($updateRepo);
 
         return $orm;
-    }
-
-    public function testSearchMessagesExecutorLoadsRecentHistoryWhenQueryIsEmpty(): void
-    {
-        $chatId = -100123;
-        $repo = $this->makeUpdateRepo([
-            $this->makeUpdateRecord(2, $chatId, 'second message', 200, 'bob'),
-            $this->makeUpdateRecord(1, $chatId, 'first message', 100, 'alice'),
-        ]);
-
-        $executor = new SearchMessagesExecutor($this->makeOrm($repo));
-        $result = $executor->execute(chatId: $chatId, resultLimit: 2);
-
-        self::assertStringContainsString('Recent inbound Telegram history', $result);
-        self::assertTrue(strpos($result, 'first message') < strpos($result, 'second message'));
-    }
-
-    public function testSearchMessagesExecutorFiltersByQueryAndUsername(): void
-    {
-        $chatId = -100123;
-        $repo = $this->makeUpdateRepo([
-            $this->makeUpdateRecord(3, $chatId, 'deploy plan is ready', 300, 'alice'),
-            $this->makeUpdateRecord(2, $chatId, 'deploy failed on staging', 200, 'bob'),
-            $this->makeUpdateRecord(1, $chatId, 'random chat', 100, 'alice'),
-        ]);
-
-        $executor = new SearchMessagesExecutor($this->makeOrm($repo));
-        $result = $executor->execute(
-            chatId: $chatId,
-            queryText: 'deploy',
-            usernameText: '@alice',
-            resultLimit: 5,
-        );
-
-        self::assertStringContainsString('Relevant inbound Telegram history', $result);
-        self::assertStringContainsString('deploy plan is ready', $result);
-        self::assertStringNotContainsString('deploy failed on staging', $result);
-        self::assertStringNotContainsString('random chat', $result);
-    }
-
-    public function testSearchMessagesExecutorSearchesBeyondRecentWindowWhenQueryIsPresent(): void
-    {
-        $chatId = -100123;
-        $records = [];
-
-        for ($i = 400; $i >= 101; --$i) {
-            $records[] = $this->makeUpdateRecord($i, $chatId, 'recent filler ' . $i, $i, 'alice');
-        }
-
-        $records[] = $this->makeUpdateRecord(1, $chatId, 'ancient deploy decision', 1, 'bob');
-
-        $executor = new SearchMessagesExecutor($this->makeOrm($this->makeUpdateRepo($records)));
-        $result = $executor->execute(
-            chatId: $chatId,
-            queryText: 'ancient deploy',
-            resultLimit: 5,
-        );
-
-        self::assertStringContainsString('Relevant inbound Telegram history', $result);
-        self::assertStringContainsString('ancient deploy decision', $result);
-        self::assertStringNotContainsString('recent filler', $result);
-    }
-
-    public function testSearchMessagesExecutorSearchesTheWholeChatAcrossTopics(): void
-    {
-        $chatId = -100123;
-        $repo = $this->makeUpdateRepo([
-            $this->makeUpdateRecord(2, $chatId, 'topic message', 200, 'bob', topicId: 42),
-            $this->makeUpdateRecord(1, $chatId, 'general message', 100, 'alice'),
-        ]);
-
-        $executor = new SearchMessagesExecutor($this->makeOrm($repo));
-        $result = $executor->execute(chatId: $chatId, resultLimit: 5);
-
-        self::assertStringContainsString('general message', $result);
-        self::assertStringContainsString('topic message', $result);
-    }
-
-    public function testSpaceSearchNeverCrossesTheTopicBoundary(): void
-    {
-        $chatId = -100123;
-        $repo = $this->makeUpdateRepo([
-            $this->makeUpdateRecord(3, $chatId, 'private topic 99 note', 300, 'eve', topicId: 99),
-            $this->makeUpdateRecord(2, $chatId, 'private topic 42 note', 200, 'bob', topicId: 42),
-            $this->makeUpdateRecord(1, $chatId, 'root private note', 100, 'alice'),
-        ]);
-        $executor = new SearchMessagesExecutor($this->makeOrm($repo));
-
-        $topic = $executor->executeInSpace($chatId, 42, 'private', resultLimit: 10);
-        self::assertStringContainsString('topic 42', $topic);
-        self::assertStringNotContainsString('topic 99', $topic);
-        self::assertStringNotContainsString('root private', $topic);
-
-        $root = $executor->executeInSpace($chatId, null, 'private', resultLimit: 10);
-        self::assertStringContainsString('root private', $root);
-        self::assertStringNotContainsString('topic 42', $root);
-        self::assertStringNotContainsString('topic 99', $root);
-    }
-
-    public function testSearchMessagesExecutorReturnsAUsefulNoMatchMessage(): void
-    {
-        $chatId = -100123;
-        $repo = $this->makeUpdateRepo([
-            $this->makeUpdateRecord(1, $chatId, 'human deploy note', 100, 'alice'),
-        ]);
-
-        $executor = new SearchMessagesExecutor($this->makeOrm($repo));
-        $result = $executor->execute(
-            chatId: $chatId,
-            queryText: 'missing phrase',
-            usernameText: '@bob',
-        );
-
-        self::assertSame('No messages found matching "missing phrase" for @bob.', $result);
-    }
-
-    public function testGetCurrentTimeExecutorReturnsFormattedTime(): void
-    {
-        $executor = new GetCurrentTimeExecutor();
-        $result = $executor->execute('UTC');
-
-        self::assertMatchesRegularExpression(
-            '/^Current time in UTC: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \([A-Za-z]+\)$/',
-            $result,
-        );
-    }
-
-    public function testGetCurrentTimeExecutorRejectsUnknownTimezone(): void
-    {
-        $executor = new GetCurrentTimeExecutor();
-
-        self::assertStringStartsWith(
-            'Unknown timezone: Mars/Olympus_Mons.',
-            $executor->execute('Mars/Olympus_Mons'),
-        );
-    }
-
-    protected function tearDown(): void
-    {
-        Mockery::close();
-        parent::tearDown();
     }
 }

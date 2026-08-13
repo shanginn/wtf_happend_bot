@@ -31,6 +31,15 @@ final class SpacePromptTest extends TestCase
         self::assertStringContainsString('commit_to_reply alone', $prompt);
         self::assertStringContainsString('use publish_space_capability', $prompt);
         self::assertStringContainsString('exact Telegram owner or', $prompt);
+        self::assertStringContainsString('call search_messages', $prompt);
+        self::assertStringContainsString('relative_day', $prompt);
+        self::assertStringContainsString('truncated=true', $prompt);
+        self::assertStringContainsString('Never claim that chat history is unavailable', $prompt);
+        self::assertStringContainsString('Before saying what durable memory contains', $prompt);
+        self::assertStringContainsString('never recycle a prior bot assertion', $prompt);
+        self::assertStringContainsString('authoritative for active automatic', $prompt);
+        self::assertStringContainsString('evaluate every enabled skill', $prompt);
+        self::assertStringContainsString('does not skip required persistence', $prompt);
     }
 
     public function testNonEmptyCapsulesFailClosed(): void

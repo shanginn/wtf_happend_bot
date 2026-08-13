@@ -63,6 +63,56 @@ final class AgenticWorkflowStateTest extends TestCase
         ];
     }
 
+    public function testTelegramHistoryAnchorSurvivesContinueAsNew(): void
+    {
+        $input = new AgenticWorkflowInput(
+            chatId: 1,
+            chatType: 'private',
+            model: 'test/model',
+            tools: [],
+            messages: [
+                [
+                    'role'     => 'user',
+                    'content'  => [['type' => 'text', 'text' => 'old turn']],
+                    'metadata' => ['telegramMessageTimestamp' => 1_700_000_000],
+                ],
+                [
+                    'role'     => 'user',
+                    'content'  => [['type' => 'text', 'text' => 'first current update']],
+                    'metadata' => ['telegramMessageTimestamp' => 1_710_000_000],
+                ],
+                [
+                    'role'     => 'user',
+                    'content'  => [['type' => 'text', 'text' => 'last current update']],
+                    'metadata' => ['telegramMessageTimestamp' => 1_710_000_321],
+                ],
+            ],
+            pipelinePendingSince: 1_799_999_999,
+            pendingBatchMessageCount: 2,
+            pendingActorUserIds: [7],
+        );
+
+        $converter = new AgenticWorkflowInputDataConverter();
+        $payload   = $converter->toPayload($input);
+        self::assertNotNull($payload);
+        $continued = $converter->fromPayload(
+            $payload,
+            Type::create(AgenticWorkflowInput::class),
+        );
+
+        $anchor = (new ReflectionMethod(
+            AgenticWorkflow::class,
+            'pendingBatchHistoryReferenceTimestamp',
+        ))->invoke(
+            null,
+            $continued->messages,
+            $continued->pendingBatchMessageCount,
+        );
+
+        self::assertSame(1_710_000_321, $anchor);
+        self::assertNotSame($continued->pipelinePendingSince, $anchor);
+    }
+
     #[DataProvider('immediateAgentRunCases')]
     public function testCallbackBatchRunsImmediately(
         int $pipelinePendingSince,

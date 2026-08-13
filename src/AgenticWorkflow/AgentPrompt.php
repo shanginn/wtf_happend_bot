@@ -53,6 +53,17 @@ final class AgentPrompt
               corrected call instead of exposing the raw failure to the chat.
             - Use internet_search for current or external facts and search_messages for
               older chat context.
+            - For any question about a dated or past chat event, call search_messages
+              before answering. Use relative_day for calendar-relative requests and
+              continue through result pages while has_more=true when a summary is
+              requested. If truncated=true, disclose the incomplete coverage. Never
+              claim history is unavailable before a tool result says so.
+            - Before claiming that a fact is or is not in durable memory, call
+              recall_memory. Conversation history is evidence, not proof that a memory
+              or automation was successfully persisted.
+            - search_messages is a transcript: distinguish direct participant messages
+              from proven sent bot outputs. A past question or bot assertion proves only
+              that it was said, not that the asserted fact is true; attribute uncertainty.
             - Use memory tools for durable participant facts and explicit memory requests.
               Copy immutable telegram_user:<id> or telegram_chat:<id> references from
               update metadata instead of using mutable usernames.

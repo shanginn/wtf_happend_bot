@@ -19,6 +19,7 @@ final class SpaceTelegramAgentMessageMapperTest extends TestCase
             imageAttachmentCount: 1,
             updateId: 42,
             memoryEvidenceText: 'What happened?',
+            messageTimestamp: 1_710_000_000,
         ))->toArray();
 
         self::assertSame('user', $message['role']);
@@ -34,6 +35,7 @@ final class SpaceTelegramAgentMessageMapperTest extends TestCase
         self::assertSame(1, $message['metadata']['imageAttachmentCount']);
         self::assertSame(42, $message['metadata']['telegramUpdateId']);
         self::assertSame('What happened?', $message['metadata']['telegramMemoryEvidence']);
+        self::assertSame(1_710_000_000, $message['metadata']['telegramMessageTimestamp']);
     }
 
     public function testChannelPostSurvivesTheWholeDurableMemoryEnvelopePath(): void

@@ -34,10 +34,11 @@ final class SpaceTelegramAgentMessageMapper
             content: [['type' => 'text', 'text' => $text]],
             name: $view->participantReference,
             metadata: array_filter([
-                'telegramParticipant'    => $view->participantReference,
-                'telegramUpdateId'       => $view->updateId,
-                'telegramMemoryEvidence' => $view->memoryEvidenceText,
-                'imageAttachmentCount'   => $view->imageAttachmentCount > 0
+                'telegramParticipant'      => $view->participantReference,
+                'telegramUpdateId'         => $view->updateId,
+                'telegramMemoryEvidence'   => $view->memoryEvidenceText,
+                'telegramMessageTimestamp' => $view->messageTimestamp,
+                'imageAttachmentCount'     => $view->imageAttachmentCount > 0
                     ? $view->imageAttachmentCount
                     : null,
             ], static fn (mixed $value): bool => $value !== null),

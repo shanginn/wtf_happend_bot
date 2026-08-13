@@ -341,6 +341,96 @@ final class SpaceCapabilityMutationAuthorityTest extends TestCase
         $authority->authorize(202, 'update discusses command /evil', 'command', 'evil');
     }
 
+    public function testCapabilityBodyMayContainNegativeWordsAfterTheAffirmativeTarget(): void
+    {
+        $api = $this->createMock(ApiInterface::class);
+        $api
+            ->expects($this->once())
+            ->method('getChatMember')
+            ->with(-10042, 8)
+            ->willReturn(ChatMemberAdministratorFactory::make(
+                status: 'administrator',
+                user: UserFactory::make(id: 8),
+                isAnonymous: false,
+            ));
+        $text = 'Добавь навык diman-notebook: фиксируй нарушения, кроме Димана; '
+            . 'не поддаётся удалению никому без явной команды администратора; '
+            . 'не публикуй другие навыки вроде verbose.';
+        $authority = new SpaceCapabilityMutationAuthority(
+            spaceId: self::SPACE_ID,
+            batchId: 'batch-notebook',
+            chatId: -10042,
+            chatType: 'supergroup',
+            actorUserIds: [8],
+            actorIdentityComplete: true,
+            evidence: [[
+                'updateId'       => 220,
+                'participantKey' => 'telegram_user:8',
+                'text'           => $text,
+            ]],
+            authorization: new TelegramChatAuthorizationPolicy($api),
+        );
+
+        $result = $authority->authorize(
+            requestUpdateId: 220,
+            requestQuote: 'Добавь навык diman-notebook',
+            kind: 'skill',
+            name: 'diman-notebook',
+        );
+
+        self::assertSame(220, $result['requestUpdateId']);
+    }
+
+    public function testCancellationAfterTheTargetStillRejectsPublication(): void
+    {
+        $api = $this->createMock(ApiInterface::class);
+        $api->expects($this->never())->method('getChatMember');
+        $text = 'Добавь навык diman-notebook, но не публикуй его.';
+        $authority = new SpaceCapabilityMutationAuthority(
+            spaceId: self::SPACE_ID,
+            batchId: 'batch-cancelled',
+            chatId: -10042,
+            chatType: 'supergroup',
+            actorUserIds: [8],
+            actorIdentityComplete: true,
+            evidence: [[
+                'updateId'       => 221,
+                'participantKey' => 'telegram_user:8',
+                'text'           => $text,
+            ]],
+            authorization: new TelegramChatAuthorizationPolicy($api),
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('negates publication');
+        $authority->authorize(221, $text, 'skill', 'diman-notebook');
+    }
+
+    public function testCancellationAfterTheCapabilityBodySeparatorStillRejectsPublication(): void
+    {
+        $api = $this->createMock(ApiInterface::class);
+        $api->expects($this->never())->method('getChatMember');
+        $text = 'Добавь навык diman-notebook: но не публикуй этот навык.';
+        $authority = new SpaceCapabilityMutationAuthority(
+            spaceId: self::SPACE_ID,
+            batchId: 'batch-cancelled-after-separator',
+            chatId: -10042,
+            chatType: 'supergroup',
+            actorUserIds: [8],
+            actorIdentityComplete: true,
+            evidence: [[
+                'updateId'       => 222,
+                'participantKey' => 'telegram_user:8',
+                'text'           => $text,
+            ]],
+            authorization: new TelegramChatAuthorizationPolicy($api),
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('negates publication');
+        $authority->authorize(222, $text, 'skill', 'diman-notebook');
+    }
+
     /** @param list<int> $actors */
     private function authority(ApiInterface $api, array $actors): SpaceCapabilityMutationAuthority
     {

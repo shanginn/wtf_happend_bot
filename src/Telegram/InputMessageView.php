@@ -12,5 +12,6 @@ final readonly class InputMessageView
         public int $imageAttachmentCount = 0,
         public ?int $updateId = null,
         public ?string $memoryEvidenceText = null,
+        public ?int $messageTimestamp = null,
     ) {}
 }

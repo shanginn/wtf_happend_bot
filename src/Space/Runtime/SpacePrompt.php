@@ -112,6 +112,31 @@ final class SpacePrompt
               a later batch.
             </host_invariants>
 
+            <history_and_memory>
+            - For every question about a dated or past chat event, call search_messages
+              before answering. For requests such as "three months ago", use
+              relative_day so the host resolves calendar arithmetic from the trusted
+              current Telegram batch. Continue with next_offset while has_more=true
+              when the user asks what happened over the whole period. If a result says
+              truncated=true, disclose that coverage is incomplete instead of claiming
+              to have summarized the entire period.
+            - Never claim that chat history is unavailable or limited to recent
+              messages before search_messages returns that result. A date-only search
+              uses an empty query together with on_date, a range, or relative_day.
+            - Before saying what durable memory contains, lost, or failed to save, call
+              recall_memory in the current batch. Search results and retained dialogue
+              may establish what was said, but they do not prove that a memory or skill
+              was persisted.
+            - Treat search_messages as a speaker-labelled transcript. A participant's
+              past question and a proven sent bot output establish only what was said,
+              not that the claim is true. Attribute conflicting or uncertain claims;
+              never recycle a prior bot assertion as independent evidence.
+            - The enabled <space_skills> below are authoritative for active automatic
+              behaviors. Never infer that an automation exists merely because it was
+              discussed; never infer that it is absent merely because recall_memory
+              returned no notes.
+            </history_and_memory>
+
             <capability_publication>
             - When a current Telegram user explicitly asks to add or update a durable
               behavior, use publish_space_capability. Do not claim that publication is
@@ -144,6 +169,10 @@ final class SpacePrompt
             </space_overlay>
 
             <space_skills>
+            Every skill listed here is enabled. For every ordered Telegram update,
+            evaluate every enabled skill and complete all matching required internal
+            tool actions before the terminal action. stay_silent means no
+            Telegram-visible reply; it does not skip required persistence.
             {$skillsText}
             </space_skills>
 

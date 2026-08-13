@@ -470,6 +470,37 @@ final class SpaceAgentWorkflow
     }
 
     /**
+     * Uses the last Telegram message timestamp in the ordered pending batch.
+     * The value is carried by the durable message envelope, so a backlog or a
+     * parent continue-as-new cannot move relative history searches to host time.
+     *
+     * @param list<array<string, mixed>> $messages
+     * @param int                        $pendingBatchMessageCount
+     */
+    private static function pendingBatchHistoryReferenceTimestamp(
+        array $messages,
+        int $pendingBatchMessageCount,
+    ): ?int {
+        $messages = array_values($messages);
+        if (
+            $pendingBatchMessageCount < 1
+            || $pendingBatchMessageCount > count($messages)
+        ) {
+            throw new LogicException('Pending agent batch message state is inconsistent.');
+        }
+
+        $batchStart = count($messages) - $pendingBatchMessageCount;
+        for ($index = count($messages) - 1; $index >= $batchStart; --$index) {
+            $timestamp = $messages[$index]['metadata']['telegramMessageTimestamp'] ?? null;
+            if (is_int($timestamp) && $timestamp > 0) {
+                return $timestamp;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * @param list<array<string, mixed>> $messages
      * @param int                        $pendingBatchMessageCount
      *
@@ -951,6 +982,10 @@ final class SpaceAgentWorkflow
                 'actorUserIds'          => $this->pendingActorIds(),
                 'actorIdentityComplete' => $this->pendingActorIdentityComplete,
                 'memoryEvidence'        => SpaceMemoryBatchEvidence::fromPendingMessages(
+                    $this->messages,
+                    $this->pendingBatchMessageCount,
+                ),
+                'historyReferenceTimestamp' => self::pendingBatchHistoryReferenceTimestamp(
                     $this->messages,
                     $this->pendingBatchMessageCount,
                 ),

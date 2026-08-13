@@ -12,6 +12,7 @@ use Bot\AgenticWorkflow\RuntimeCapabilityAuthorizationGateway;
 use Bot\Config\TemporalConfig;
 use Bot\Entity\Space;
 use Bot\Infrastructure\CycleORM\CycleOrmScope;
+use Bot\Llm\Tools\Chat\DatabaseBotMessageHistorySource;
 use Bot\Llm\Tools\Chat\GetCurrentTimeExecutor;
 use Bot\Llm\Tools\Chat\SearchMessagesExecutor;
 use Bot\Llm\Tools\Runtime\ListRuntimeCapabilitiesExecutor;
@@ -31,8 +32,8 @@ use Bot\Space\Operations\AgentWorkerHealthWorkflow;
 use Bot\Space\Operations\DreamWorkerHealthWorkflow;
 use Bot\Space\Persistence\SpaceMemoryStore;
 use Bot\Space\Persistence\SpaceStore;
-use Bot\Space\Publication\SpaceCapabilityPublicationTool;
 use Bot\Space\Publication\SpaceCapabilityPublicationRejectionGateway;
+use Bot\Space\Publication\SpaceCapabilityPublicationTool;
 use Bot\Space\Publication\SpaceCapabilityPublisher;
 use Bot\Space\Runtime\SpaceCommandInspector;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotLoaderActivity;
@@ -107,7 +108,10 @@ $toolCatalog = static function () use (
 
     return new BotToolCatalog(
         memoryStore: new ParticipantMemoryStore($orm),
-        searchMessages: new SearchMessagesExecutor($orm),
+        searchMessages: new SearchMessagesExecutor(
+            $orm,
+            botMessageHistory: new DatabaseBotMessageHistorySource($spaceDatabase),
+        ),
         internetSearch: new InternetSearchExecutor(
             baseUrl: $temporalConfig->searchBaseUrl,
             timeoutSeconds: $temporalConfig->searchTimeoutSeconds,

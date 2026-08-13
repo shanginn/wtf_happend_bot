@@ -440,6 +440,33 @@ final class AgenticWorkflow
     /**
      * @param list<array<string, mixed>> $messages
      * @param int                        $pendingBatchMessageCount
+     */
+    private static function pendingBatchHistoryReferenceTimestamp(
+        array $messages,
+        int $pendingBatchMessageCount,
+    ): ?int {
+        $messages = array_values($messages);
+        if (
+            $pendingBatchMessageCount < 1
+            || $pendingBatchMessageCount > count($messages)
+        ) {
+            throw new LogicException('Pending agent batch message state is inconsistent.');
+        }
+
+        $batchStart = count($messages) - $pendingBatchMessageCount;
+        for ($index = count($messages) - 1; $index >= $batchStart; --$index) {
+            $timestamp = $messages[$index]['metadata']['telegramMessageTimestamp'] ?? null;
+            if (is_int($timestamp) && $timestamp > 0) {
+                return $timestamp;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $messages
+     * @param int                        $pendingBatchMessageCount
      *
      * @return list<list<array<string, mixed>>>
      */
@@ -776,14 +803,18 @@ final class AgenticWorkflow
             messages: $this->messages,
             tools: $this->input->tools,
             metadata: [
-                'chatId'                => $this->input->chatId,
-                'chatType'              => $this->input->chatType,
-                'actorUserIds'          => $this->pendingActorIds(),
-                'actorIdentityComplete' => $this->pendingActorIdentityComplete,
-                'topicId'               => $this->input->topicId,
-                'terminalScopeId'       => $terminalScopeId,
-                'parentWorkflowId'      => $parentInfo->execution->getID(),
-                'parentWorkflowType'    => self::WORKFLOW_TYPE,
+                'chatId'                    => $this->input->chatId,
+                'chatType'                  => $this->input->chatType,
+                'actorUserIds'              => $this->pendingActorIds(),
+                'actorIdentityComplete'     => $this->pendingActorIdentityComplete,
+                'topicId'                   => $this->input->topicId,
+                'historyReferenceTimestamp' => self::pendingBatchHistoryReferenceTimestamp(
+                    $this->messages,
+                    $this->pendingBatchMessageCount,
+                ),
+                'terminalScopeId'    => $terminalScopeId,
+                'parentWorkflowId'   => $parentInfo->execution->getID(),
+                'parentWorkflowType' => self::WORKFLOW_TYPE,
             ],
             pendingBatchMessageCount: $this->pendingBatchMessageCount,
         );
