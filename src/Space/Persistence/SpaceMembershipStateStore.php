@@ -86,7 +86,7 @@ final readonly class SpaceMembershipStateStore
                 $conversation->externalConversationId,
                 $updateId,
                 $membershipStatus,
-                $active,
+                SqlBoolean::encode($active),
                 $eventAt,
                 $eventAt,
             ])->fetch();
@@ -111,7 +111,7 @@ final readonly class SpaceMembershipStateStore
                 RETURNING space.id
                 SQL, [
                 $active ? 'active' : 'retired',
-                $active,
+                SqlBoolean::encode($active),
                 $eventAt,
                 $conversation->botInstanceId,
                 $conversation->platform,

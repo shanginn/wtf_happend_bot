@@ -187,7 +187,7 @@ final class SpaceMembershipLifecycleHandlerTest extends TestCase
                     && $parameters[1] === 'telegram'
                     && $parameters[2] === (string) self::CHAT_ID
                     && $parameters[4] === $expectedStatus
-                    && $parameters[5] === $expectedActive;
+                    && $parameters[5] === ($expectedActive ? 1 : 0);
             })
             ->andReturn($stateStatement);
         $stateStatement->shouldReceive('fetch')->once()->andReturn(['last_update_id' => 1]);
@@ -198,7 +198,7 @@ final class SpaceMembershipLifecycleHandlerTest extends TestCase
                 return str_contains($sql, 'UPDATE agent_spaces AS space')
                     && str_contains($sql, "binding.external_thread_id = ''")
                     && $parameters[0] === ($expectedActive ? 'active' : 'retired')
-                    && $parameters[1] === $expectedActive
+                    && $parameters[1] === ($expectedActive ? 1 : 0)
                     && $parameters[3] === 'primary-bot'
                     && $parameters[4] === 'telegram'
                     && $parameters[5] === (string) self::CHAT_ID;

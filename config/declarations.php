@@ -29,7 +29,6 @@ use Bot\Space\Operations\DreamWorkerHealthWorkflow;
 use Bot\Space\Persistence\SpaceMemoryStore;
 use Bot\Space\Persistence\SpaceStore;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotLoaderActivity;
-use Bot\Space\Runtime\SpaceRuntimeSnapshotLoaderActivityInterface;
 use Bot\Space\Tools\SpaceMemoryToolStore;
 use Bot\Space\Tools\SpaceToolCatalog;
 use Bot\Space\Workflow\SpaceAgentWorkflow;
@@ -143,7 +142,7 @@ return [
                     authorization: $telegramAuthorization,
                 ),
             ),
-            SpaceRuntimeSnapshotLoaderActivityInterface::class => function () use (
+            SpaceRuntimeSnapshotLoaderActivity::class => function () use (
                 $database,
                 $ormScope,
             ): SpaceRuntimeSnapshotLoaderActivity {

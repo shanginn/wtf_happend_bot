@@ -44,7 +44,7 @@ final class SpaceMembershipStateStoreTest extends TestCase
                         '-10042',
                         901,
                         'left',
-                        false,
+                        0,
                         1_725_000_000,
                         1_725_000_000,
                     ];
@@ -61,7 +61,7 @@ final class SpaceMembershipStateStoreTest extends TestCase
                     && str_contains($sql, "binding.external_thread_id = ''")
                     && $parameters === [
                         'retired',
-                        false,
+                        0,
                         1_725_000_000,
                         'primary-bot',
                         'telegram',
@@ -95,10 +95,19 @@ final class SpaceMembershipStateStoreTest extends TestCase
             ->andReturnUsing(static fn (callable $callback): mixed => $callback($database));
         $database->shouldReceive('query')
             ->once()
-            ->withArgs(static function (string $sql) use (&$membershipSql): bool {
+            ->withArgs(static function (string $sql, array $parameters) use (&$membershipSql): bool {
                 $membershipSql = $sql;
 
-                return true;
+                return $parameters === [
+                    'primary-bot',
+                    'telegram',
+                    '-10042',
+                    1,
+                    'member',
+                    1,
+                    1_725_000_000,
+                    1_725_000_000,
+                ];
             })
             ->andReturn($stateStatement);
         $stateStatement->shouldReceive('fetch')->once()->andReturn(false);

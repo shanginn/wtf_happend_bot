@@ -448,7 +448,7 @@ final readonly class SpaceStore
                     $skill['body'],
                     $skill['manifestJson'],
                     $skill['sourceDigest'],
-                    $skill['enabled'],
+                    SqlBoolean::encode($skill['enabled']),
                     $now,
                 ]);
             }
@@ -566,7 +566,7 @@ final readonly class SpaceStore
                 $body,
                 $manifestJson,
                 $sourceDigest,
-                $enabled,
+                SqlBoolean::encode($enabled),
                 $now,
             ]);
 
