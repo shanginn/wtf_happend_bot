@@ -22,8 +22,6 @@ use Phenogram\Bindings\Factories\UpdateFactory;
 use Phenogram\Framework\TelegramBot;
 use Temporal\Client\WorkflowClientInterface;
 use Temporal\Client\WorkflowStubInterface;
-use Temporal\Exception\Client\WorkflowNotFoundException;
-use Temporal\Workflow\WorkflowExecution;
 use Tests\TestCase;
 
 final class SpaceMembershipLifecycleHandlerTest extends TestCase
@@ -48,7 +46,7 @@ final class SpaceMembershipLifecycleHandlerTest extends TestCase
         $database = self::acceptedDatabase(
             expectedStatus: 'left',
             expectedActive: false,
-            spaceIds: ['spc_root_123', 'spc_topic_456'],
+            spaceIds: ['spc_root_123'],
         );
         $resolver = Mockery::mock(SpaceIdentityResolverInterface::class);
         $resolver->shouldNotReceive('resolve');
@@ -60,14 +58,6 @@ final class SpaceMembershipLifecycleHandlerTest extends TestCase
                 'Bot membership became inactive for the Space conversation',
                 ['telegramUpdateId' => 901, 'membershipStatus' => 'left'],
             );
-        $missingWorkflow = Mockery::mock(WorkflowStubInterface::class);
-        $missingWorkflow->shouldReceive('terminate')
-            ->once()
-            ->andThrow(new WorkflowNotFoundException(
-                null,
-                new WorkflowExecution('space-agent/spc_topic_456/v1/release/' . self::RELEASE_ID),
-                SpaceAgentWorkflow::WORKFLOW_TYPE,
-            ));
         $client = Mockery::mock(WorkflowClientInterface::class);
         $client->shouldReceive('newUntypedRunningWorkflowStub')
             ->once()
@@ -78,15 +68,6 @@ final class SpaceMembershipLifecycleHandlerTest extends TestCase
                 SpaceAgentWorkflow::WORKFLOW_TYPE,
             )
             ->andReturn($rootWorkflow);
-        $client->shouldReceive('newUntypedRunningWorkflowStub')
-            ->once()
-            ->ordered()
-            ->with(
-                'space-agent/spc_topic_456/v1/release/' . self::RELEASE_ID,
-                null,
-                SpaceAgentWorkflow::WORKFLOW_TYPE,
-            )
-            ->andReturn($missingWorkflow);
 
         $handler = new SpaceMembershipLifecycleHandler(
             new SpaceMembershipStateStore($database),
@@ -215,6 +196,7 @@ final class SpaceMembershipLifecycleHandlerTest extends TestCase
             ->ordered()
             ->withArgs(static function (string $sql, array $parameters) use ($expectedActive): bool {
                 return str_contains($sql, 'UPDATE agent_spaces AS space')
+                    && str_contains($sql, "binding.external_thread_id = ''")
                     && $parameters[0] === ($expectedActive ? 'active' : 'retired')
                     && $parameters[1] === $expectedActive
                     && $parameters[3] === 'primary-bot'

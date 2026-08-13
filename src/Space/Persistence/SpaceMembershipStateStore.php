@@ -100,6 +100,7 @@ final readonly class SpaceMembershipStateStore
                     AND binding.bot_instance_id = ?
                     AND binding.platform = ?
                     AND binding.external_conversation_id = ?
+                    AND binding.external_thread_id = ''
                 RETURNING space.id
                 SQL, [
                 $active ? 'active' : 'retired',

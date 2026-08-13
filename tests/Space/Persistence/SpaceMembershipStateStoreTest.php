@@ -57,6 +57,7 @@ final class SpaceMembershipStateStoreTest extends TestCase
                 return str_contains($sql, 'UPDATE agent_spaces AS space')
                     && str_contains($sql, 'dream_enabled = ?')
                     && str_contains($sql, 'binding.external_conversation_id = ?')
+                    && str_contains($sql, "binding.external_thread_id = ''")
                     && $parameters === [
                         'retired',
                         false,
@@ -69,8 +70,6 @@ final class SpaceMembershipStateStoreTest extends TestCase
             ->andReturn($spaceStatement);
         $spaceStatement->shouldReceive('fetchAll')->once()->andReturn([
             ['id' => 'spc_root_123'],
-            ['id' => 'spc_topic_456'],
-            ['id' => 'spc_topic_456'],
         ]);
 
         $result = (new SpaceMembershipStateStore($database))->apply(
@@ -81,7 +80,7 @@ final class SpaceMembershipStateStoreTest extends TestCase
             eventAt: 1_725_000_000,
         );
 
-        self::assertSame(['spc_root_123', 'spc_topic_456'], $result);
+        self::assertSame(['spc_root_123'], $result);
     }
 
     public function testStaleTransitionDoesNotTouchSpaces(): void
