@@ -11,9 +11,11 @@ use Bot\Durability\CycleIdempotencyLedger;
 use Bot\Durability\DurableCommandReplyGateway;
 use Bot\Entity\Space;
 use Bot\Handler\ClearCommandHandler;
+use Bot\Handler\SpaceMembershipLifecycleHandler;
 use Bot\Handler\WorkflowControlCommandHandler;
 use Bot\Space\Operations\HostReleaseActivationGate;
 use Bot\Space\Operations\HostReleaseStateStore;
+use Bot\Space\Persistence\SpaceMembershipStateStore;
 use Bot\Space\Persistence\SpaceReleaseSeed;
 use Bot\Space\Persistence\SpaceStore;
 use Bot\Space\Runtime\SpaceCapabilityPolicy;
@@ -83,6 +85,15 @@ $spaceWorkflowHandler = new SpaceAgentWorkflowHandler(
     taskQueue: $temporalConfig->agentTaskQueue,
     hostReleaseId: $temporalConfig->hostReleaseId,
 );
+$spaceMembershipLifecycleHandler = new SpaceMembershipLifecycleHandler(
+    states: new SpaceMembershipStateStore(
+        $orm->getSource(Space::class)->getDatabase(),
+    ),
+    spaces: $spaceResolver,
+    client: $workflowClient,
+    botInstanceId: $temporalConfig->botInstanceId,
+    hostReleaseId: $temporalConfig->hostReleaseId,
+);
 $authorization  = new TelegramChatAuthorizationPolicy($bot->api);
 $durableReplies = new DurableCommandReplyGateway(
     new CycleIdempotencyLedger($ormScope),
@@ -101,6 +112,10 @@ $workflowControlCommandHandler = new WorkflowControlCommandHandler(
     $durableReplies,
     $temporalConfig->hostReleaseId,
 );
+
+$bot
+    ->addHandler($spaceMembershipLifecycleHandler)
+    ->supports($spaceMembershipLifecycleHandler::supports(...));
 
 $bot
     ->addHandler($clearCommandHandler)
@@ -129,7 +144,8 @@ $bot
         $paymentAnswer?->send($bot->api);
     })
     ->supports(static fn (UpdateInterface $update): bool => !ClearCommandHandler::supports($update)
-        && !WorkflowControlCommandHandler::supports($update));
+        && !WorkflowControlCommandHandler::supports($update)
+        && !SpaceMembershipLifecycleHandler::supports($update));
 
 $pressedCtrlC     = false;
 $gracefulShutdown = function (int $signal) use ($bot, &$pressedCtrlC, $em): void {
