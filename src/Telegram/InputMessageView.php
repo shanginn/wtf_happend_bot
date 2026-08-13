@@ -13,5 +13,6 @@ final readonly class InputMessageView
         public ?int $updateId = null,
         public ?string $memoryEvidenceText = null,
         public ?int $messageTimestamp = null,
+        public ?string $directHistoryText = null,
     ) {}
 }

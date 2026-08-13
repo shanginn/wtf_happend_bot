@@ -74,6 +74,7 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
             updateId: $update->updateId,
             memoryEvidenceText: $this->memoryEvidenceText($message),
             messageTimestamp: $message->date,
+            directHistoryText: $this->directHistoryText($message),
         );
     }
 
@@ -85,6 +86,70 @@ class TelegramUpdateViewFactory implements TelegramUpdateViewFactoryInterface
         ], static fn (?string $value): bool => $value !== null));
 
         return $evidence === [] ? null : implode("\n", $evidence);
+    }
+
+    private function directHistoryText(MessageInterface $message): string
+    {
+        $directText = $this->memoryEvidenceText($message);
+        $events     = $this->describeDirectHistoryEvents($message);
+
+        // Keep directly-authored text verbatim and add sanitized non-text event
+        // kinds used for semantic searches. Neither source includes replies,
+        // quoted fragments or media details.
+        return implode("\n", [
+            ...($directText === null ? [] : [$directText]),
+            ...$events,
+        ]);
+    }
+
+    /**
+     * @param MessageInterface $message
+     *
+     * @return list<string>
+     */
+    private function describeDirectHistoryEvents(MessageInterface $message): array
+    {
+        $events = [];
+        $append = static function (bool $present, string $description) use (&$events): void {
+            if ($present) {
+                $events[] = $description;
+            }
+        };
+
+        $append($message->photo !== null && $message->photo !== [], 'photo');
+        $append($message->document !== null, 'document');
+        $append($message->animation !== null, 'animation');
+        $append($message->audio !== null, 'audio');
+        $append($message->video !== null, 'video');
+        $append($message->videoNote !== null, 'video note');
+        $append($message->voice !== null, 'voice message');
+        $append($message->sticker !== null, 'sticker');
+        $append($message->poll !== null, 'poll');
+        $append($message->dice !== null, 'dice roll');
+        $append($message->contact !== null, 'shared a contact');
+        $append($message->venue !== null, 'shared a venue');
+        $append($message->venue === null && $message->location !== null, 'shared a location');
+        $append($message->newChatMembers !== null && $message->newChatMembers !== [], 'added new members');
+        $append($message->leftChatMember !== null, 'removed a member');
+        $append($message->newChatTitle !== null, 'changed the chat title');
+        $append($message->newChatPhoto !== null && $message->newChatPhoto !== [], 'updated the chat photo');
+        $append($message->deleteChatPhoto === true, 'deleted the chat photo');
+        $append($message->groupChatCreated === true, 'created the group chat');
+        $append($message->supergroupChatCreated === true, 'created the supergroup');
+        $append($message->channelChatCreated === true, 'created the channel');
+        $append($message->pinnedMessage !== null, 'pinned a message');
+        $append($message->invoice !== null, 'invoice');
+        $append($message->successfulPayment !== null, 'completed a successful payment');
+        $append($message->refundedPayment !== null, 'recorded a refunded payment');
+        $append($message->story !== null, 'forwarded story');
+        $append($message->checklist !== null, 'checklist');
+        $append($message->writeAccessAllowed !== null, 'allowed the bot to write messages');
+        $append($message->connectedWebsite !== null, 'logged in via a connected website');
+        $append($message->webAppData !== null, 'submitted data from a web app');
+        $append($message->showCaptionAboveMedia === true, 'placed the caption above the media');
+        $append($message->hasMediaSpoiler === true, 'marked the media as spoiler');
+
+        return $events;
     }
 
     /**

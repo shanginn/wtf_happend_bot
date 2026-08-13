@@ -16,8 +16,15 @@ use DateTimeZone;
 use Mockery;
 use Phenogram\Bindings\Serializer;
 use Phenogram\Bindings\Types\Chat;
+use Phenogram\Bindings\Types\Dice;
 use Phenogram\Bindings\Types\Message;
+use Phenogram\Bindings\Types\PhotoSize;
+use Phenogram\Bindings\Types\Sticker;
+use Phenogram\Bindings\Types\Story;
+use Phenogram\Bindings\Types\SuccessfulPayment;
 use Phenogram\Bindings\Types\User;
+use Phenogram\Bindings\Types\VideoNote;
+use Phenogram\Bindings\Types\Voice;
 use Tests\TestCase;
 
 class ChatExecutorsTest extends TestCase
@@ -298,6 +305,212 @@ class ChatExecutorsTest extends TestCase
         );
     }
 
+    public function testSearchMessagesExecutorKeepsMediaOnlyMessagesInDatedHistory(): void
+    {
+        $chatId     = -100123;
+        $zone       = new DateTimeZone('Asia/Yekaterinburg');
+        $start      = new DateTimeImmutable('2026-05-13 12:00:00', $zone);
+        $chat       = new Chat(id: $chatId, type: 'supergroup', title: 'Tea Room');
+        $sender     = new User(id: 11, isBot: false, firstName: 'User', username: 'alice');
+        $serializer = new Serializer(new Factory());
+        $reply      = new Message(
+            messageId: 99,
+            date: $start->modify('-1 minute')->getTimestamp(),
+            chat: $chat,
+            from: new User(id: 99, isBot: true, firstName: 'Bot'),
+            text: 'nested notebook claim under article 128.1',
+        );
+        $messages = [];
+        for ($index = 0; $index < 4; ++$index) {
+            $messages[] = new Message(
+                messageId: $index + 1,
+                date: $start->modify("+{$index} minutes")->getTimestamp(),
+                chat: $chat,
+                from: $sender,
+                photo: [new PhotoSize(
+                    fileId: 'private-photo-file-id-' . $index,
+                    fileUniqueId: 'private-photo-unique-id-' . $index,
+                    width: 640,
+                    height: 480,
+                )],
+                replyToMessage: $index === 0 ? $reply : null,
+            );
+        }
+        for ($index = 0; $index < 3; ++$index) {
+            $messages[] = new Message(
+                messageId: $index + 5,
+                date: $start->modify('+' . ($index + 4) . ' minutes')->getTimestamp(),
+                chat: $chat,
+                from: $sender,
+                sticker: new Sticker(
+                    fileId: 'private-sticker-file-id-' . $index,
+                    fileUniqueId: 'private-sticker-unique-id-' . $index,
+                    type: 'regular',
+                    width: 512,
+                    height: 512,
+                    isAnimated: false,
+                    isVideo: false,
+                ),
+            );
+        }
+        $messages[] = new Message(
+            messageId: 8,
+            date: $start->modify('+7 minutes')->getTimestamp(),
+            chat: $chat,
+            from: $sender,
+            videoNote: new VideoNote(
+                fileId: 'private-video-note-file-id',
+                fileUniqueId: 'private-video-note-unique-id',
+                length: 360,
+                duration: 12,
+            ),
+        );
+
+        $records = array_map(
+            static function (Message $message, int $index) use ($chatId, $serializer): UpdateRecord {
+                $update = new Update(updateId: 1000 + $index, message: $message);
+
+                return new UpdateRecord(
+                    updateId: $update->updateId,
+                    update: json_encode($serializer->serialize([$update])[0], \JSON_THROW_ON_ERROR),
+                    chatId: $chatId,
+                    createdAt: $message->date,
+                );
+            },
+            $messages,
+            array_keys($messages),
+        );
+        $executor = new SearchMessagesExecutor($this->makeOrm($this->makeUpdateRepo($records)));
+
+        $wholeDay = $executor->execute(chatId: $chatId, onDate: '2026-05-13', resultLimit: 30);
+        self::assertSame(4, substr_count($wholeDay, 'photo'));
+        self::assertSame(3, substr_count($wholeDay, 'sticker'));
+        self::assertSame(1, substr_count($wholeDay, 'video note'));
+        self::assertStringNotContainsString('private-', $wholeDay);
+        self::assertStringNotContainsString('128.1', $wholeDay);
+
+        self::assertSame(
+            4,
+            substr_count(
+                $executor->execute(chatId: $chatId, queryText: 'photo', onDate: '2026-05-13'),
+                'photo',
+            ),
+        );
+        self::assertSame(
+            3,
+            substr_count(
+                $executor->execute(chatId: $chatId, queryText: 'sticker', onDate: '2026-05-13'),
+                'sticker',
+            ),
+        );
+        self::assertStringContainsString(
+            'video note',
+            $executor->execute(chatId: $chatId, queryText: 'video note', onDate: '2026-05-13'),
+        );
+        self::assertSame(
+            'No Telegram messages or bot outputs found in 2026-05-13 in Asia/Yekaterinburg matching "128.1".',
+            $executor->execute(chatId: $chatId, queryText: '128.1', onDate: '2026-05-13'),
+        );
+    }
+
+    public function testSearchMessagesExecutorFindsFormattedDirectEventPhrases(): void
+    {
+        $chatId     = -100123;
+        $zone       = new DateTimeZone('Asia/Yekaterinburg');
+        $start      = new DateTimeImmutable('2026-05-13 12:00:00', $zone);
+        $chat       = new Chat(id: $chatId, type: 'supergroup', title: 'Tea Room');
+        $sender     = new User(id: 11, isBot: false, firstName: 'User', username: 'alice');
+        $serializer = new Serializer(new Factory());
+        $messages   = [
+            new Message(
+                messageId: 1,
+                date: $start->getTimestamp(),
+                chat: $chat,
+                from: $sender,
+                text: 'hello world',
+            ),
+            new Message(
+                messageId: 2,
+                date: $start->modify('+1 minute')->getTimestamp(),
+                chat: $chat,
+                from: $sender,
+                photo: [new PhotoSize(
+                    fileId: 'private-photo-file-id',
+                    fileUniqueId: 'private-photo-unique-id',
+                    width: 640,
+                    height: 480,
+                )],
+            ),
+            new Message(
+                messageId: 3,
+                date: $start->modify('+2 minutes')->getTimestamp(),
+                chat: $chat,
+                from: $sender,
+                voice: new Voice(
+                    fileId: 'private-voice-file-id',
+                    fileUniqueId: 'private-voice-unique-id',
+                    duration: 12,
+                ),
+            ),
+            new Message(
+                messageId: 4,
+                date: $start->modify('+3 minutes')->getTimestamp(),
+                chat: $chat,
+                from: $sender,
+                dice: new Dice(emoji: '🎲', value: 4),
+            ),
+            new Message(
+                messageId: 5,
+                date: $start->modify('+4 minutes')->getTimestamp(),
+                chat: $chat,
+                from: $sender,
+                story: new Story(chat: $chat, id: 77),
+            ),
+            new Message(
+                messageId: 6,
+                date: $start->modify('+5 minutes')->getTimestamp(),
+                chat: $chat,
+                from: $sender,
+                successfulPayment: new SuccessfulPayment(
+                    currency: 'XTR',
+                    totalAmount: 100,
+                    invoicePayload: 'private-invoice-payload',
+                    telegramPaymentChargeId: 'private-telegram-charge-id',
+                    providerPaymentChargeId: 'private-provider-charge-id',
+                ),
+            ),
+        ];
+        $records = array_map(
+            static function (Message $message, int $index) use ($chatId, $serializer): UpdateRecord {
+                $update = new Update(updateId: 2000 + $index, message: $message);
+
+                return new UpdateRecord(
+                    updateId: $update->updateId,
+                    update: json_encode($serializer->serialize([$update])[0], \JSON_THROW_ON_ERROR),
+                    chatId: $chatId,
+                    createdAt: $message->date,
+                );
+            },
+            $messages,
+            array_keys($messages),
+        );
+        $executor = new SearchMessagesExecutor($this->makeOrm($this->makeUpdateRepo($records)));
+
+        foreach ([
+            'photo'              => 'photo',
+            'voice message'      => 'voice message',
+            'dice roll'          => 'dice roll',
+            'forwarded story'    => 'forwarded story',
+            'successful payment' => 'completed a successful payment',
+        ] as $query => $expected) {
+            self::assertStringContainsString(
+                $expected,
+                $executor->execute(chatId: $chatId, queryText: $query, onDate: '2026-05-13'),
+                $query,
+            );
+        }
+    }
+
     public function testSpaceSearchNeverCrossesTheTopicBoundary(): void
     {
         $chatId = -100123;
@@ -317,6 +530,29 @@ class ChatExecutorsTest extends TestCase
         self::assertStringContainsString('root private', $root);
         self::assertStringNotContainsString('topic 42', $root);
         self::assertStringNotContainsString('topic 99', $root);
+    }
+
+    public function testDatedSpaceSearchNeverCrossesTheTopicBoundary(): void
+    {
+        $chatId = -100123;
+        $zone   = new DateTimeZone('Asia/Yekaterinburg');
+        $at     = (new DateTimeImmutable('2026-05-13 12:00:00', $zone))->getTimestamp();
+        $repo   = $this->makeUpdateRepo([
+            $this->makeUpdateRecord(3, $chatId, 'dated topic 99 note', $at + 2, 'eve', topicId: 99),
+            $this->makeUpdateRecord(2, $chatId, 'dated topic 42 note', $at + 1, 'bob', topicId: 42),
+            $this->makeUpdateRecord(1, $chatId, 'dated root note', $at, 'alice'),
+        ]);
+        $executor = new SearchMessagesExecutor($this->makeOrm($repo));
+
+        $topic = $executor->executeInSpace($chatId, 42, onDate: '2026-05-13', resultLimit: 30);
+        self::assertStringContainsString('dated topic 42', $topic);
+        self::assertStringNotContainsString('dated topic 99', $topic);
+        self::assertStringNotContainsString('dated root', $topic);
+
+        $root = $executor->executeInSpace($chatId, null, onDate: '2026-05-13', resultLimit: 30);
+        self::assertStringContainsString('dated root', $root);
+        self::assertStringNotContainsString('dated topic 42', $root);
+        self::assertStringNotContainsString('dated topic 99', $root);
     }
 
     public function testSearchMessagesExecutorReturnsAUsefulNoMatchMessage(): void
@@ -432,7 +668,14 @@ class ChatExecutorsTest extends TestCase
                             return false;
                         }
 
-                        $payload = mb_strtolower($record->update);
+                        $decoded = json_decode($record->update, true, flags: \JSON_THROW_ON_ERROR);
+                        $update  = (new Serializer(new Factory()))
+                            ->deserialize($decoded, \Phenogram\Bindings\Types\Interfaces\UpdateInterface::class);
+                        $payload = mb_strtolower(
+                            (new \Bot\Telegram\TelegramUpdateViewFactory())
+                                ->create($update)
+                                ->directHistoryText ?? '',
+                        );
 
                         foreach ($tokens as $token) {
                             if (!str_contains($payload, $token)) {
@@ -483,6 +726,28 @@ class ChatExecutorsTest extends TestCase
                 );
 
                 return array_slice($records, $offset, $limit);
+            }
+
+            /** @return list<UpdateRecord> */
+            public function searchInPeriodInTopic(
+                int $chatId,
+                ?int $topicId,
+                int $startInclusive,
+                int $endExclusive,
+                array $tokens,
+                int $limit,
+                int $offset = 0,
+            ): array {
+                return array_slice(array_values(array_filter(
+                    $this->searchInPeriod(
+                        $chatId,
+                        $startInclusive,
+                        $endExclusive,
+                        $tokens,
+                        PHP_INT_MAX,
+                    ),
+                    static fn (UpdateRecord $record): bool => $record->topicId === $topicId,
+                )), $offset, $limit);
             }
 
             /** @return list<UpdateRecord> */

@@ -11,9 +11,11 @@ use Phenogram\Bindings\Types\Contact;
 use Phenogram\Bindings\Types\Location;
 use Phenogram\Bindings\Types\Message;
 use Phenogram\Bindings\Types\PhotoSize;
+use Phenogram\Bindings\Types\Sticker;
 use Phenogram\Bindings\Types\Update;
 use Phenogram\Bindings\Types\User;
 use Phenogram\Bindings\Types\Venue;
+use Phenogram\Bindings\Types\VideoNote;
 use Tests\TestCase;
 
 class TelegramUpdateViewFactoryTest extends TestCase
@@ -35,6 +37,7 @@ class TelegramUpdateViewFactoryTest extends TestCase
         $this->assertSame(0, $view->imageAttachmentCount);
         $this->assertSame(42, $view->updateId);
         $this->assertSame("hello\nthere", $view->memoryEvidenceText);
+        $this->assertSame("hello\nthere", $view->directHistoryText);
         $this->assertSame(1_710_000_000, $view->messageTimestamp);
         $this->assertStringContainsString('Telegram update: message', $view->text);
         $this->assertStringContainsString('From: Alice (@alice, id 7)', $view->text);
@@ -64,10 +67,91 @@ class TelegramUpdateViewFactoryTest extends TestCase
         $this->assertSame('telegram_user:11', $view->participantReference);
         $this->assertSame(1, $view->imageAttachmentCount);
         $this->assertSame(1_710_000_000, $view->messageTimestamp);
+        $this->assertStringContainsString('Cat tax', $view->directHistoryText);
+        $this->assertStringContainsString('photo', $view->directHistoryText);
         $this->assertStringContainsString('Telegram update: edited message', $view->text);
         $this->assertStringContainsString('Edited at:', $view->text);
         $this->assertStringContainsString("Caption:\nCat tax", $view->text);
         $this->assertStringContainsString('- edited a photo (1280x960)', $view->text);
+    }
+
+    public function testBuildsSafeDirectHistoryTextForMediaOnlyMessages(): void
+    {
+        $chat   = new Chat(id: -100555, type: 'supergroup', title: 'Visual Lab');
+        $sender = new User(id: 11, isBot: false, firstName: 'Nora');
+        $reply  = new Message(
+            messageId: 100,
+            date: 1_709_999_999,
+            chat: $chat,
+            from: new User(id: 99, isBot: true, firstName: 'Bot'),
+            text: 'nested notebook claim under article 128.1',
+        );
+        $messages = [
+            new Message(
+                messageId: 201,
+                date: 1_710_000_000,
+                chat: $chat,
+                from: $sender,
+                photo: [
+                    new PhotoSize(
+                        fileId: 'private-photo-file-id',
+                        fileUniqueId: 'private-photo-unique-id',
+                        width: 640,
+                        height: 480,
+                    ),
+                ],
+                replyToMessage: $reply,
+            ),
+            new Message(
+                messageId: 202,
+                date: 1_710_000_001,
+                chat: $chat,
+                from: $sender,
+                sticker: new Sticker(
+                    fileId: 'private-sticker-file-id',
+                    fileUniqueId: 'private-sticker-unique-id',
+                    type: 'regular',
+                    width: 512,
+                    height: 512,
+                    isAnimated: false,
+                    isVideo: false,
+                    emoji: '😈',
+                    setName: 'private-sticker-set',
+                ),
+                replyToMessage: $reply,
+            ),
+            new Message(
+                messageId: 203,
+                date: 1_710_000_002,
+                chat: $chat,
+                from: $sender,
+                videoNote: new VideoNote(
+                    fileId: 'private-video-note-file-id',
+                    fileUniqueId: 'private-video-note-unique-id',
+                    length: 360,
+                    duration: 12,
+                ),
+                replyToMessage: $reply,
+            ),
+        ];
+
+        $history = array_map(
+            fn (Message $message, int $index): string => (new TelegramUpdateViewFactory())
+                ->create(new Update(updateId: 1000 + $index, message: $message))
+                ->directHistoryText ?? '',
+            $messages,
+            array_keys($messages),
+        );
+
+        self::assertSame('photo', $history[0]);
+        self::assertSame('sticker', $history[1]);
+        self::assertSame('video note', $history[2]);
+        foreach ($history as $text) {
+            self::assertStringNotContainsString('file-id', $text);
+            self::assertStringNotContainsString('unique-id', $text);
+            self::assertStringNotContainsString('128.1', $text);
+            self::assertStringNotContainsString('nested notebook claim', $text);
+        }
     }
 
     public function testCallbackViewOmitsInternalQueryIdentity(): void
@@ -78,13 +162,48 @@ class TelegramUpdateViewFactoryTest extends TestCase
                 id: 'callback-123',
                 from: new User(id: 7, isBot: false, firstName: 'Alice', username: 'alice'),
                 chatInstance: 'chat-instance',
+                message: new Message(
+                    messageId: 87,
+                    date: 1_710_000_000,
+                    chat: new Chat(id: -100555, type: 'supergroup', title: 'Visual Lab'),
+                    from: new User(id: 99, isBot: true, firstName: 'Bot'),
+                    photo: [new PhotoSize(
+                        fileId: 'nested-callback-photo-id',
+                        fileUniqueId: 'nested-callback-photo-unique-id',
+                        width: 640,
+                        height: 480,
+                    )],
+                ),
                 data: 'approve',
             ),
         ));
 
         self::assertSame('telegram_user:7', $view->participantReference);
+        self::assertNull($view->directHistoryText);
         self::assertStringNotContainsString('callback-123', $view->text);
         self::assertStringContainsString('Data: approve', $view->text);
+    }
+
+    public function testEmptyAndFalseMediaFieldsDoNotCreateDirectHistory(): void
+    {
+        $view = (new TelegramUpdateViewFactory())->create(new Update(
+            updateId: 89,
+            message: new Message(
+                messageId: 203,
+                date: 1_710_000_000,
+                chat: new Chat(id: -100555, type: 'supergroup', title: 'Visual Lab'),
+                from: new User(id: 11, isBot: false, firstName: 'Nora'),
+                photo: [],
+                deleteChatPhoto: false,
+                groupChatCreated: false,
+                supergroupChatCreated: false,
+                channelChatCreated: false,
+                showCaptionAboveMedia: false,
+                hasMediaSpoiler: false,
+            ),
+        ));
+
+        self::assertSame('', $view->directHistoryText);
     }
 
     public function testAnonymousMessageUsesSenderChatIdentity(): void

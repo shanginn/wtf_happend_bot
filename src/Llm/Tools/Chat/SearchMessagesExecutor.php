@@ -210,14 +210,24 @@ final class SearchMessagesExecutor
                 self::PERIOD_CANDIDATE_LIMIT,
                 $offset + max(($limit + 1) * self::SEARCH_CANDIDATE_MULTIPLIER, 100),
             );
-            $records = $updateRepo->searchInPeriod(
-                chatId: $chatId,
-                startInclusive: $period['start'],
-                endExclusive: $period['end'],
-                tokens: $queryTokens,
-                limit: $candidateLimit,
-                offset: 0,
-            );
+            $records = $spaceScoped
+                ? $updateRepo->searchInPeriodInTopic(
+                    chatId: $chatId,
+                    topicId: $topicId,
+                    startInclusive: $period['start'],
+                    endExclusive: $period['end'],
+                    tokens: $queryTokens,
+                    limit: $candidateLimit,
+                    offset: 0,
+                )
+                : $updateRepo->searchInPeriod(
+                    chatId: $chatId,
+                    startInclusive: $period['start'],
+                    endExclusive: $period['end'],
+                    tokens: $queryTokens,
+                    limit: $candidateLimit,
+                    offset: 0,
+                );
             $items             = $this->loadUpdateItems($records, newestFirst: false);
             $botCandidateLimit = $candidateLimit;
         } elseif ($query === '') {
@@ -480,7 +490,7 @@ final class SearchMessagesExecutor
             $decoded    = json_decode($record->update, true, flags: \JSON_THROW_ON_ERROR);
             $update     = $this->telegramSerializer->deserialize($decoded, UpdateInterface::class);
             $view       = $this->updateViewFactory->create($update);
-            $directText = trim((string) ($view->memoryEvidenceText ?? ''));
+            $directText = trim((string) ($view->directHistoryText ?? ''));
             if ($directText === '') {
                 continue;
             }
