@@ -63,14 +63,21 @@ final readonly class SpaceMembershipStateStore
                     membership_status = EXCLUDED.membership_status,
                     active = EXCLUDED.active,
                     event_at = EXCLUDED.event_at,
-                    updated_at = EXCLUDED.updated_at
+                    updated_at = GREATEST(
+                        space_membership_states.updated_at,
+                        EXCLUDED.updated_at
+                    )
                 WHERE
-                    space_membership_states.last_update_id < EXCLUDED.last_update_id
+                    space_membership_states.event_at < EXCLUDED.event_at
                     OR (
-                        space_membership_states.last_update_id = EXCLUDED.last_update_id
+                        space_membership_states.event_at = EXCLUDED.event_at
+                        AND space_membership_states.last_update_id < EXCLUDED.last_update_id
+                    )
+                    OR (
+                        space_membership_states.event_at = EXCLUDED.event_at
+                        AND space_membership_states.last_update_id = EXCLUDED.last_update_id
                         AND space_membership_states.membership_status = EXCLUDED.membership_status
                         AND space_membership_states.active = EXCLUDED.active
-                        AND space_membership_states.event_at = EXCLUDED.event_at
                     )
                 RETURNING last_update_id
                 SQL, [
