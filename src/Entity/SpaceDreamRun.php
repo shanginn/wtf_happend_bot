@@ -15,7 +15,7 @@ use Cycle\Annotated\Annotation\Table\Index;
 #[ForeignKey(target: SpaceRelease::class, innerKey: 'proposedReleaseId', action: 'NO ACTION', indexCreate: false)]
 #[Index(['spaceId', 'dreamDate'], unique: true)]
 #[Index(['status', 'startedAt'])]
-final class SpaceDreamRun
+class SpaceDreamRun
 {
     public const string STATUS_COMPLETED = 'completed';
     public const string STATUS_FAILED    = 'failed';

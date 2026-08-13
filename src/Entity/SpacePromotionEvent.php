@@ -16,7 +16,7 @@ use Cycle\Annotated\Annotation\Table\Index;
 #[ForeignKey(target: SpaceRelease::class, innerKey: 'toReleaseId', action: 'NO ACTION', indexCreate: false)]
 #[Index(['spaceId', 'releaseGenerationAfter'], unique: true)]
 #[Index(['proposalId'])]
-final class SpacePromotionEvent
+class SpacePromotionEvent
 {
     public const string ACTION_PROMOTE  = 'promote';
     public const string ACTION_ROLLBACK = 'rollback';

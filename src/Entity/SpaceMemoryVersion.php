@@ -17,7 +17,7 @@ use Cycle\Annotated\Annotation\Table\Index;
 #[Index(['spaceId', 'idempotencyKey'], unique: true)]
 #[Index(['spaceId', 'participantKey', 'status'])]
 #[Index(['supersedesMemoryId'])]
-final class SpaceMemoryVersion
+class SpaceMemoryVersion
 {
     public const string STATUS_ACTIVE     = 'active';
     public const string STATUS_FORGOTTEN  = 'forgotten';

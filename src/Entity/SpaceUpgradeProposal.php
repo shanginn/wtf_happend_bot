@@ -17,7 +17,7 @@ use Cycle\Annotated\Annotation\Table\Index;
 #[Index(['spaceId', 'status'])]
 #[Index(['dreamRunId'])]
 #[Index(['candidateReleaseId'], unique: true)]
-final class SpaceUpgradeProposal
+class SpaceUpgradeProposal
 {
     public const string STATUS_ACCEPTED   = 'accepted';
     public const string STATUS_EVALUATING = 'evaluating';

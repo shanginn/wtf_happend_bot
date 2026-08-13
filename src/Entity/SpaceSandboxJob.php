@@ -18,7 +18,7 @@ use Cycle\Annotated\Annotation\Table\Index;
 #[Index(['spaceId', 'status'])]
 #[Index(['dreamRunId'])]
 #[Index(['proposalId'])]
-final class SpaceSandboxJob
+class SpaceSandboxJob
 {
     public const string STATUS_CANCELLED = 'cancelled';
     public const string STATUS_COMPLETED = 'completed';

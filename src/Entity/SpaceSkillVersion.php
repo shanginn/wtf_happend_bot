@@ -16,7 +16,7 @@ use Cycle\Annotated\Annotation\Table\Index;
 #[Index(['releaseId', 'name'], unique: true)]
 #[Index(['spaceId', 'name', 'version'], unique: true)]
 #[Index(['releaseId', 'enabled'])]
-final class SpaceSkillVersion
+class SpaceSkillVersion
 {
     public function __construct(
         #[Column(type: 'text', primary: true)]

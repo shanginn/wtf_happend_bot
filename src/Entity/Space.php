@@ -14,7 +14,7 @@ use Cycle\Annotated\Annotation\Table\Index;
 #[ForeignKey(target: SpaceRelease::class, innerKey: 'activeReleaseId', action: 'NO ACTION', indexCreate: false)]
 #[Index(['status', 'dreamEnabled'])]
 #[Index(['activeReleaseId'])]
-final class Space
+class Space
 {
     public const string STATUS_ACTIVE   = 'active';
     public const string STATUS_DISABLED = 'disabled';

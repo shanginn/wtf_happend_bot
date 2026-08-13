@@ -17,7 +17,7 @@ use Cycle\Annotated\Annotation\Table\Index;
     unique: true,
 )]
 #[Index(['spaceId'])]
-final class SpaceBinding
+class SpaceBinding
 {
     public function __construct(
         #[Column(type: 'text', primary: true)]

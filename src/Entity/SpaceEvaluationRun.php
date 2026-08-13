@@ -14,7 +14,7 @@ use Cycle\Annotated\Annotation\Table\Index;
 #[Index(['proposalId', 'status'])]
 #[Index(['proposalId'], unique: true)]
 #[Index(['suiteDigest'])]
-final class SpaceEvaluationRun
+class SpaceEvaluationRun
 {
     public const string STATUS_FAILED  = 'failed';
     public const string STATUS_PASSED  = 'passed';

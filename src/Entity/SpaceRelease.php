@@ -17,7 +17,7 @@ use Cycle\Annotated\Annotation\Table\Index;
 #[Index(['spaceId', 'sequence'], unique: true)]
 #[Index(['spaceId', 'status'])]
 #[Index(['sourceProposalId'], unique: true)]
-final class SpaceRelease
+class SpaceRelease
 {
     public const string STATUS_ACTIVE      = 'active';
     public const string STATUS_BUILDING    = 'building';
