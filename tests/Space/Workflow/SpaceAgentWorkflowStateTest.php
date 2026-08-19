@@ -243,6 +243,62 @@ final class SpaceAgentWorkflowStateTest extends TestCase
         self::assertSame(1, $reflection->getProperty('processedCount')->getValue($workflow));
     }
 
+    public function testUnregisteredUntargetedGroupCommandIsSilentlyDiscarded(): void
+    {
+        $reflection = new ReflectionClass(SpaceAgentWorkflow::class);
+        $workflow   = $reflection->newInstanceWithoutConstructor();
+        $prior      = ['role' => 'assistant', 'content' => [['type' => 'text', 'text' => 'prior']]];
+        $command    = ['role' => 'user', 'content' => [['type' => 'text', 'text' => '/edit']]];
+        $reflection->getProperty('input')->setValue($workflow, self::input());
+        $reflection->getProperty('messages')->setValue($workflow, [$prior, $command]);
+        $reflection->getProperty('pendingBatchMessageCount')->setValue($workflow, 1);
+        $reflection->getProperty('pendingCommandInvocation')->setValue(
+            $workflow,
+            new SpaceCommandInvocation('edit'),
+        );
+
+        self::assertTrue((new ReflectionMethod(SpaceAgentWorkflow::class, 'runCommand'))->invoke(
+            $workflow,
+            self::snapshot(),
+            null,
+            new SpaceCommandInvocation('edit'),
+            'terminal-scope',
+            'idempotency-key',
+        ));
+        self::assertSame([$prior], $reflection->getProperty('messages')->getValue($workflow));
+        self::assertSame(
+            0,
+            $reflection->getProperty('pendingBatchMessageCount')->getValue($workflow),
+        );
+        self::assertNull($reflection->getProperty('pendingTerminalText')->getValue($workflow));
+    }
+
+    public function testExplicitlyAddressedOrPrivateUnknownCommandIsNotSilentlyIgnored(): void
+    {
+        $reflection = new ReflectionClass(SpaceAgentWorkflow::class);
+        $workflow   = $reflection->newInstanceWithoutConstructor();
+        $method     = new ReflectionMethod(SpaceAgentWorkflow::class, 'shouldSilentlyIgnoreUnboundCommand');
+        $reflection->getProperty('input')->setValue($workflow, self::input());
+
+        self::assertFalse($method->invoke(
+            $workflow,
+            new SpaceCommandInvocation('edit', targetUsername: 'wtf_happend_bot'),
+        ));
+
+        $reflection->getProperty('input')->setValue($workflow, new SpaceAgentWorkflowInput(
+            spaceId: self::snapshot()->spaceId,
+            platform: 'telegram',
+            botInstanceId: 'primary-bot',
+            externalConversationId: '7001',
+            externalThreadId: null,
+            chatId: 7001,
+            chatType: 'private',
+            topicId: null,
+            botUsername: 'wtf_happend_bot',
+        ));
+        self::assertFalse($method->invoke($workflow, new SpaceCommandInvocation('edit')));
+    }
+
     private static function input(): SpaceAgentWorkflowInput
     {
         return new SpaceAgentWorkflowInput(

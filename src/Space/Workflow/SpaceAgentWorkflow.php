@@ -1059,6 +1059,12 @@ final class SpaceAgentWorkflow
         }
 
         if ($binding === null) {
+            if ($this->shouldSilentlyIgnoreUnboundCommand($invocation)) {
+                $this->discardPendingCommandFromAgentHistory();
+
+                return true;
+            }
+
             return $this->queueTerminalNotification(
                 sprintf('Команда /%s не зарегистрирована или выключена.', $invocation->name),
                 $terminalScopeId,
@@ -1091,6 +1097,28 @@ final class SpaceAgentWorkflow
         }
 
         return $this->queueTerminalNotification($text, $terminalScopeId);
+    }
+
+    private function shouldSilentlyIgnoreUnboundCommand(
+        SpaceCommandInvocation $invocation,
+    ): bool {
+        return $this->input->chatType !== 'private'
+            && $invocation->targetUsername === null;
+    }
+
+    private function discardPendingCommandFromAgentHistory(): void
+    {
+        if (
+            $this->pendingBatchMessageCount !== 1
+            || count($this->messages) < $this->pendingBatchMessageCount
+        ) {
+            throw new LogicException(
+                'An unbound Telegram command must be the only pending agent message.',
+            );
+        }
+
+        array_pop($this->messages);
+        $this->pendingBatchMessageCount = 0;
     }
 
     /**
