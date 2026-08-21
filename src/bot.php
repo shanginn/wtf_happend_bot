@@ -20,6 +20,7 @@ use Bot\Space\Persistence\SpaceReleaseSeed;
 use Bot\Space\Persistence\SpaceStore;
 use Bot\Space\Runtime\SpaceCapabilityPolicy;
 use Bot\Space\Runtime\TelegramSpaceIdentityResolver;
+use Bot\Space\Workflow\SpaceAgentControlStore;
 use Bot\Space\Workflow\SpaceAgentRuntime;
 use Bot\Space\Workflow\SpaceAgentWorkflowHandler;
 use Bot\Telegram\Factory;
@@ -67,6 +68,9 @@ $spaceStore = new SpaceStore(
     $orm,
     $orm->getSource(Space::class)->getDatabase(),
 );
+$spaceAgentControls = new SpaceAgentControlStore(
+    $orm->getSource(Space::class)->getDatabase(),
+);
 $spaceResolver = new TelegramSpaceIdentityResolver(
     botInstanceId: $temporalConfig->botInstanceId,
     store: $spaceStore,
@@ -82,6 +86,7 @@ $spaceResolver = new TelegramSpaceIdentityResolver(
 $spaceWorkflowHandler = new SpaceAgentWorkflowHandler(
     client: $workflowClient,
     spaces: $spaceResolver,
+    controls: $spaceAgentControls,
     taskQueue: $temporalConfig->agentTaskQueue,
     hostReleaseId: $temporalConfig->hostReleaseId,
     botUsername: $botUsername,
@@ -112,6 +117,7 @@ $workflowControlCommandHandler = new WorkflowControlCommandHandler(
     $spaceResolver,
     $authorization,
     $durableReplies,
+    $spaceAgentControls,
     $botUsername,
     $temporalConfig->hostReleaseId,
 );

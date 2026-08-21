@@ -163,6 +163,7 @@ if (in_array($command, [
     ))->reconcile(
         releaseId: $releaseId,
         dreamTaskQueue: $config->dreamTaskQueue,
+        dreamEnabled: $config->dreamEnabled,
         dreamTimeZone: $config->dreamTimeZone,
         dreamHour: $config->dreamHour,
         dreamMinute: $config->dreamMinute,

@@ -12,6 +12,7 @@ use Temporal\Client\Schedule\Policy\ScheduleOverlapPolicy;
 use Temporal\Client\Schedule\Policy\SchedulePolicies;
 use Temporal\Client\Schedule\Schedule;
 use Temporal\Client\Schedule\Spec\ScheduleSpec;
+use Temporal\Client\Schedule\Spec\ScheduleState;
 use Temporal\Common\IdReusePolicy;
 
 final class DreamScheduleFactory
@@ -21,6 +22,7 @@ final class DreamScheduleFactory
     public static function nightly(
         string $taskQueue,
         string $hostReleaseId,
+        bool $enabled = true,
         string $timeZone = 'Asia/Yekaterinburg',
         int $hour = 3,
         int $minute = 17,
@@ -56,6 +58,11 @@ final class DreamScheduleFactory
         return Schedule::new()
             ->withAction($action)
             ->withSpec($spec)
-            ->withPolicies($policies);
+            ->withPolicies($policies)
+            ->withState(ScheduleState::new()
+                ->withPaused(!$enabled)
+                ->withNotes($enabled
+                    ? 'Dream v2 is enabled by the active host release.'
+                    : 'Dream v2 remains disabled until its offline evaluation gate is qualified.'));
     }
 }

@@ -21,6 +21,7 @@ final readonly class SpaceAgentWorkflowHandler
     public function __construct(
         private WorkflowClientInterface $client,
         private SpaceIdentityResolverInterface $spaces,
+        private SpaceAgentControlStoreInterface $controls,
         private string $botUsername,
         private string $taskQueue = 'space-agent-v1',
         private string $hostReleaseId = 'local',
@@ -63,7 +64,11 @@ final readonly class SpaceAgentWorkflowHandler
             workflow: $workflow,
             signal: 'addUpdate',
             signalArgs: [$update],
-            startArgs: [SpaceAgentWorkflowInput::start($space, $this->botUsername)],
+            startArgs: [SpaceAgentWorkflowInput::start(
+                $space,
+                $this->botUsername,
+                $this->controls->isPaused($space->spaceId),
+            )],
         );
 
         return null;

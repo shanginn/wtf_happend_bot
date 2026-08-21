@@ -25,6 +25,7 @@ use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
 use Bot\Llm\Tools\Telegram\TelegramApiSchemaExecutor;
 use Bot\Memory\ParticipantMemoryStore;
 use Bot\Space\Command\SpaceCommandActivity;
+use Bot\Space\Attention\SpaceResponseDecisionActivity;
 use Bot\Space\Dream\DreamActivities;
 use Bot\Space\Dream\DreamCoordinatorWorkflow;
 use Bot\Space\Dream\SpaceDreamWorkflow;
@@ -149,6 +150,9 @@ return [
             DurableAgentWorkflow::class,
         ],
         'activities' => [
+            SpaceResponseDecisionActivity::class => fn (): SpaceResponseDecisionActivity => new SpaceResponseDecisionActivity(
+                $modelGateway,
+            ),
             SpaceCommandActivity::class => fn (): SpaceCommandActivity => new SpaceCommandActivity(
                 $replyTypingModelGateway,
             ),

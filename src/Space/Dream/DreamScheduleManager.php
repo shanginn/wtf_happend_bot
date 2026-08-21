@@ -26,10 +26,12 @@ final readonly class DreamScheduleManager
      * @param int    $minute
      * @param int    $jitterMinutes
      * @param string $hostReleaseId
+     * @param bool   $enabled
      */
     public function install(
         string $taskQueue,
         string $hostReleaseId,
+        bool $enabled = true,
         string $timeZone = 'Asia/Yekaterinburg',
         int $hour = 3,
         int $minute = 17,
@@ -38,6 +40,7 @@ final readonly class DreamScheduleManager
         $schedule = DreamScheduleFactory::nightly(
             taskQueue: $taskQueue,
             hostReleaseId: $hostReleaseId,
+            enabled: $enabled,
             timeZone: $timeZone,
             hour: $hour,
             minute: $minute,
@@ -61,12 +64,19 @@ final readonly class DreamScheduleManager
         }
 
         $description = $handle->describe();
-        $action      = $description->schedule->action;
-        $expectedId  = TemporalExecutionIdentity::dreamCoordinatorWorkflowId($hostReleaseId);
+        if ($enabled && $description->schedule->state->paused) {
+            $handle->unpause('Dream v2 is enabled by the active host release.');
+            $description = $handle->describe();
+        } elseif (!$enabled && !$description->schedule->state->paused) {
+            $handle->pause('Dream v2 remains disabled until its offline evaluation gate is qualified.');
+            $description = $handle->describe();
+        }
+        $action     = $description->schedule->action;
+        $expectedId = TemporalExecutionIdentity::dreamCoordinatorWorkflowId($hostReleaseId);
         if (!$action instanceof StartWorkflowAction
             || $action->workflowId !== $expectedId
             || $action->taskQueue->name !== $taskQueue
-            || $description->schedule->state->paused
+            || $description->schedule->state->paused === $enabled
         ) {
             throw new LogicException('Dream schedule did not converge to the current host release.');
         }

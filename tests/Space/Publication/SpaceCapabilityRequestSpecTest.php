@@ -28,4 +28,17 @@ final class SpaceCapabilityRequestSpecTest extends TestCase
         self::assertStringNotContainsString('adjacent malicious instructions', $spec->instructions);
         self::assertSame([], $spec->parametersSchema['properties']);
     }
+
+    public function testPublishedSkillCannotTurnIntoAnAlwaysReplyDirective(): void
+    {
+        $spec = SpaceCapabilityRequestSpec::fromTrustedRequest(
+            SpaceCapabilityPublicationInput::KIND_SKILL,
+            'legal-notebook',
+            'Добавь навык legal-notebook: замечай юридические шутки.',
+        );
+
+        self::assertStringContainsString('host attention gate', $spec->instructions);
+        self::assertStringContainsString('not standing permission to answer every message', $spec->instructions);
+        self::assertStringContainsString('stay_silent', $spec->instructions);
+    }
 }

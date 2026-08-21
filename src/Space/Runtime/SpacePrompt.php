@@ -12,6 +12,9 @@ use InvalidArgumentException;
  */
 final class SpacePrompt
 {
+    private const string SELECTED_SKILLS_START = '<selected_space_skills>';
+    private const string SELECTED_SKILLS_END   = '</selected_space_skills>';
+
     /**
      * @param list<array{name: string, description: string, body: string}> $skills
      * @param list<array<string, mixed>>                                   $capsules
@@ -39,18 +42,17 @@ final class SpacePrompt
             ? 'Use a concise, helpful personality that follows the conversation.'
             : self::prettyJson($personality);
 
-        $skillSections = [];
+        $skillLines = [];
         foreach ($skills as $skill) {
-            $skillSections[] = sprintf(
-                "### %s\nWhen to use: %s\n\n%s",
+            $skillLines[] = sprintf(
+                '- %s: %s',
                 $skill['name'],
                 $skill['description'],
-                $skill['body'],
             );
         }
-        $skillsText = $skillSections === []
+        $skillsText = $skillLines === []
             ? 'No Space-specific skills are enabled.'
-            : implode("\n\n", $skillSections);
+            : implode("\n", $skillLines);
 
         $commandLines = [];
         foreach ($commands as $command) {
@@ -168,13 +170,18 @@ final class SpacePrompt
             {$overlay}
             </space_overlay>
 
-            <space_skills>
-            Every skill listed here is enabled. For every ordered Telegram update,
-            evaluate every enabled skill and complete all matching required internal
-            tool actions before the terminal action. stay_silent means no
-            Telegram-visible reply; it does not skip required persistence.
+            <space_skill_registry>
+            This is the authoritative list of enabled skills, but it is not an
+            instruction to run every skill on every update. The host response gate
+            selects at most two relevant skills for the current batch. Never execute
+            an unselected skill merely because it appears in this registry.
             {$skillsText}
-            </space_skills>
+            </space_skill_registry>
+
+            <selected_space_skills>
+            No Space skill was selected for this batch. Handle only the direct request
+            and the base conversation policy; do not infer an unselected automation.
+            </selected_space_skills>
 
             <space_commands>
             This registry is authoritative for questions about available or enabled
@@ -192,6 +199,57 @@ final class SpacePrompt
             Space isolation, the terminal contract, and host authority always win.
             </host_final_authority>
             PROMPT;
+    }
+
+    /**
+     * Inject only the host-selected full skill bodies for one Telegram batch.
+     *
+     * @param list<SpaceSkillDefinition> $skills
+     * @param string                     $basePrompt
+     */
+    public static function withSelectedSkills(string $basePrompt, array $skills): string
+    {
+        $start = strpos($basePrompt, self::SELECTED_SKILLS_START);
+        $end   = strpos($basePrompt, self::SELECTED_SKILLS_END);
+        if ($start === false || $end === false || $end <= $start) {
+            throw new InvalidArgumentException('Space prompt has no selected-skill slot.');
+        }
+        if (count($skills) > 2) {
+            throw new InvalidArgumentException('At most two Space skills may be selected per batch.');
+        }
+
+        $sections = [];
+        $seen     = [];
+        foreach ($skills as $skill) {
+            if (!$skill instanceof SpaceSkillDefinition) {
+                throw new InvalidArgumentException(
+                    'Selected Space skills must be Space skill definitions.',
+                );
+            }
+            if (isset($seen[$skill->name])) {
+                throw new InvalidArgumentException('Selected Space skills must be unique.');
+            }
+            $seen[$skill->name] = true;
+            $sections[]         = sprintf(
+                "### %s\nWhen to use: %s\n\n%s",
+                $skill->name,
+                $skill->description,
+                $skill->body,
+            );
+        }
+        $body = $sections === []
+            ? "No Space skill was selected for this batch. Handle only the direct request\n"
+                . 'and the base conversation policy; do not infer an unselected automation.'
+            : "Only the following skills are active for this batch. Apply their matching\n"
+                . "requirements before the terminal action. stay_silent still permits required\n"
+                . "internal persistence, but it means no Telegram-visible reply.\n\n"
+                . implode("\n\n", $sections);
+
+        $replaceStart = $start + strlen(self::SELECTED_SKILLS_START);
+
+        return substr($basePrompt, 0, $replaceStart)
+            . "\n{$body}\n"
+            . substr($basePrompt, $end);
     }
 
     /** @param array<string, mixed> $value */

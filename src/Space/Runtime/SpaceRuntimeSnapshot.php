@@ -18,6 +18,7 @@ final readonly class SpaceRuntimeSnapshot
     /**
      * @param list<array<string, mixed>> $tools
      * @param list<SpaceCommandBinding>  $commands
+     * @param list<SpaceSkillDefinition> $skills
      * @param list<array<string, mixed>> $capsuleArtifactRefs
      * @param string                     $snapshotId
      * @param string                     $spaceId
@@ -37,6 +38,8 @@ final readonly class SpaceRuntimeSnapshot
         public string $model,
         public string $systemPrompt,
         public array $tools,
+        #[MarshalArray(of: SpaceSkillDefinition::class, nullable: false)]
+        public array $skills = [],
         #[MarshalArray(of: SpaceCommandBinding::class, nullable: false)]
         public array $commands = [],
         public array $capsuleArtifactRefs = [],
@@ -61,9 +64,14 @@ final readonly class SpaceRuntimeSnapshot
             }
         }
 
-        if (!array_is_list($tools) || !array_is_list($commands) || !array_is_list($capsuleArtifactRefs)) {
+        if (
+            !array_is_list($tools)
+            || !array_is_list($skills)
+            || !array_is_list($commands)
+            || !array_is_list($capsuleArtifactRefs)
+        ) {
             throw new InvalidArgumentException(
-                'Space runtime tools, commands, and capsule artifact references must be lists.',
+                'Space runtime tools, skills, commands, and capsule artifact references must be lists.',
             );
         }
         foreach ($tools as $index => $tool) {
@@ -72,6 +80,20 @@ final readonly class SpaceRuntimeSnapshot
                     sprintf('Space runtime tool %d must be an object.', $index),
                 );
             }
+        }
+        $previousSkill = null;
+        foreach ($skills as $index => $skill) {
+            if (!$skill instanceof SpaceSkillDefinition) {
+                throw new InvalidArgumentException(
+                    sprintf('Space runtime skill %d must be a Space skill definition.', $index),
+                );
+            }
+            if ($previousSkill !== null && strcmp($previousSkill, $skill->name) >= 0) {
+                throw new InvalidArgumentException(
+                    'Space runtime skills must be uniquely sorted by canonical name.',
+                );
+            }
+            $previousSkill = $skill->name;
         }
         $previousCommand = null;
         foreach ($commands as $index => $command) {
@@ -136,6 +158,18 @@ final readonly class SpaceRuntimeSnapshot
         foreach ($this->commands as $command) {
             if ($command->name === $name) {
                 return $command;
+            }
+        }
+
+        return null;
+    }
+
+    public function skill(string $name): ?SpaceSkillDefinition
+    {
+        $name = trim($name);
+        foreach ($this->skills as $skill) {
+            if ($skill->name === $name) {
+                return $skill;
             }
         }
 

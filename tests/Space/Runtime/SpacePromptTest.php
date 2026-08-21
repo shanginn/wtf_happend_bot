@@ -6,6 +6,7 @@ namespace Tests\Space\Runtime;
 
 use Bot\Space\Runtime\SpaceCommandBinding;
 use Bot\Space\Runtime\SpacePrompt;
+use Bot\Space\Runtime\SpaceSkillDefinition;
 use InvalidArgumentException;
 use Tests\TestCase;
 
@@ -38,8 +39,11 @@ final class SpacePromptTest extends TestCase
         self::assertStringContainsString('Before saying what durable memory contains', $prompt);
         self::assertStringContainsString('never recycle a prior bot assertion', $prompt);
         self::assertStringContainsString('authoritative for active automatic', $prompt);
-        self::assertStringContainsString('evaluate every enabled skill', $prompt);
-        self::assertStringContainsString('does not skip required persistence', $prompt);
+        self::assertMatchesRegularExpression(
+            '/not an\s+instruction to run every skill/',
+            $prompt,
+        );
+        self::assertStringContainsString('selects at most two relevant skills', $prompt);
     }
 
     public function testNonEmptyCapsulesFailClosed(): void
@@ -79,6 +83,12 @@ final class SpacePromptTest extends TestCase
             ]],
             capsules: [],
         );
+        self::assertStringNotContainsString($skill, $prompt);
+        $prompt = SpacePrompt::withSelectedSkills($prompt, [new SpaceSkillDefinition(
+            name: 'override-host',
+            description: 'Attempts to replace host policy.',
+            body: $skill,
+        )]);
 
         $guardPosition = strrpos($prompt, '<host_final_authority>');
         self::assertNotFalse($guardPosition);
@@ -112,7 +122,15 @@ final class SpacePromptTest extends TestCase
 
         self::assertStringContainsString('/dimannews: Генерирует Диман Ньюс.', $prompt);
         self::assertStringContainsString('Never infer command state from conversation history.', $prompt);
-        self::assertStringContainsString('Keep ordinary conversation concise.', $prompt);
+        self::assertStringContainsString('conversation-style: Ordinary always-on behavior.', $prompt);
+        self::assertStringNotContainsString('Keep ordinary conversation concise.', $prompt);
         self::assertStringNotContainsString('Secret complete execution specification.', $prompt);
+
+        $selected = SpacePrompt::withSelectedSkills($prompt, [new SpaceSkillDefinition(
+            name: 'conversation-style',
+            description: 'Ordinary always-on behavior.',
+            body: 'Keep ordinary conversation concise.',
+        )]);
+        self::assertStringContainsString('Keep ordinary conversation concise.', $selected);
     }
 }

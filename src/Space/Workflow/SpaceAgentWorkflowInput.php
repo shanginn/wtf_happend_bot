@@ -46,6 +46,8 @@ final readonly class SpaceAgentWorkflowInput
      * @param ?string                    $pendingTerminalText
      * @param ?string                    $pendingTerminalScopeId
      * @param int                        $notificationFailureCount
+     * @param int                        $lastSpontaneousReplyAt
+     * @param int                        $humanUpdatesSinceSpontaneousReply
      */
     public function __construct(
         public string $spaceId,
@@ -79,6 +81,8 @@ final readonly class SpaceAgentWorkflowInput
         public ?string $pendingTerminalText = null,
         public ?string $pendingTerminalScopeId = null,
         public int $notificationFailureCount = 0,
+        public int $lastSpontaneousReplyAt = 0,
+        public int $humanUpdatesSinceSpontaneousReply = 0,
     ) {
         new SpaceIdentity(
             spaceId: $spaceId,
@@ -112,6 +116,8 @@ final readonly class SpaceAgentWorkflowInput
                 $runtimeSnapshotFailureCount,
                 $pendingBatchMessageCount,
                 $notificationFailureCount,
+                $lastSpontaneousReplyAt,
+                $humanUpdatesSinceSpontaneousReply,
             ] as $counter
         ) {
             if ($counter < 0) {
@@ -209,8 +215,11 @@ final readonly class SpaceAgentWorkflowInput
         }
     }
 
-    public static function start(SpaceIdentity $identity, string $botUsername): self
-    {
+    public static function start(
+        SpaceIdentity $identity,
+        string $botUsername,
+        bool $paused = false,
+    ): self {
         return new self(
             spaceId: $identity->spaceId,
             platform: $identity->platform,
@@ -221,6 +230,7 @@ final readonly class SpaceAgentWorkflowInput
             chatType: $identity->chatType,
             topicId: $identity->topicId,
             botUsername: $botUsername,
+            paused: $paused,
         );
     }
 

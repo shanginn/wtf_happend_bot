@@ -9,7 +9,7 @@ use PiPHP\Temporal\DTO\AgentMessage;
 
 final class SpaceTelegramAgentMessageMapper
 {
-    public static function map(InputMessageView $view): AgentMessage
+    public static function map(InputMessageView $view, bool $botAddressed = false): AgentMessage
     {
         $text = trim($view->text);
         if ($view->participantReference !== null) {
@@ -38,6 +38,7 @@ final class SpaceTelegramAgentMessageMapper
                 'telegramUpdateId'         => $view->updateId,
                 'telegramMemoryEvidence'   => $view->memoryEvidenceText,
                 'telegramMessageTimestamp' => $view->messageTimestamp,
+                'telegramBotAddressed'     => $botAddressed ? true : null,
                 'imageAttachmentCount'     => $view->imageAttachmentCount > 0
                     ? $view->imageAttachmentCount
                     : null,

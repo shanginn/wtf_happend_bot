@@ -134,6 +134,7 @@ final readonly class SpaceRuntimeSnapshotLoaderActivity implements SpaceRuntimeS
                 commands: $commands,
             ),
             'tools'                      => $tools,
+            'skills'                     => $skills,
             'commands'                   => $commands,
             'capsuleArtifactRefs'        => $capsules,
             'capsuleRuntimeImageBuildId' => $capsuleRuntimeImageBuildId,
@@ -436,6 +437,37 @@ final readonly class SpaceRuntimeSnapshotLoaderActivity implements SpaceRuntimeS
         return $commands;
     }
 
+    /**
+     * @param array<string, mixed> $value
+     * @param string               $key
+     *
+     * @return list<SpaceSkillDefinition>
+     */
+    private static function skillList(array $value, string $key): array
+    {
+        $skills = [];
+        foreach (self::list($value, $key) as $index => $skill) {
+            if (!is_array($skill)) {
+                throw new RuntimeException(sprintf('Snapshot skill %d is invalid.', $index));
+            }
+
+            try {
+                $skills[] = new SpaceSkillDefinition(
+                    name: self::string($skill, 'name'),
+                    description: self::string($skill, 'description'),
+                    body: self::string($skill, 'body'),
+                );
+            } catch (InvalidArgumentException $error) {
+                throw new RuntimeException(
+                    sprintf('Snapshot skill %d is invalid.', $index),
+                    previous: $error,
+                );
+            }
+        }
+
+        return $skills;
+    }
+
     private function cached(SpaceRuntimeSnapshotRequest $request): ?SpaceRuntimeSnapshot
     {
         $row = $this->database->query(<<<'SQL'
@@ -476,6 +508,7 @@ final readonly class SpaceRuntimeSnapshotLoaderActivity implements SpaceRuntimeS
             model: self::string($payload, 'model'),
             systemPrompt: self::string($payload, 'systemPrompt'),
             tools: self::list($payload, 'tools'),
+            skills: self::skillList($payload, 'skills'),
             commands: self::commandList($payload, 'commands'),
             capsuleArtifactRefs: $capsuleArtifactRefs,
             capsuleRuntimeImageBuildId: $capsuleRuntimeImageBuildId,

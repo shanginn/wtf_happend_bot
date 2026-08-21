@@ -54,6 +54,7 @@ final class SpaceRuntimeSnapshotActivityRegistrationTest extends TestCase
             'model'                      => 'test-model',
             'systemPrompt'               => 'Test prompt.',
             'tools'                      => [],
+            'skills'                     => [],
             'commands'                   => [],
             'capsuleArtifactRefs'        => [],
             'capsuleRuntimeImageBuildId' => null,

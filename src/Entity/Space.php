@@ -32,6 +32,8 @@ class Space
         public int $memoryRevision = 0,
         #[Column(type: 'boolean')]
         public bool $dreamEnabled = true,
+        #[Column(type: 'boolean')]
+        public bool $agentPaused = false,
         #[Column(type: 'text')]
         public string $dreamTimeZone = 'Asia/Yekaterinburg',
         #[Column(type: 'bigInteger', nullable: true)]

@@ -18,6 +18,7 @@ final readonly class HostReleaseReconciler
      * @param string $releaseId
      * @param string $dreamTaskQueue
      * @param string $dreamTimeZone
+     * @param bool   $dreamEnabled
      * @param int    $dreamHour
      * @param int    $dreamMinute
      * @param int    $dreamJitterMinutes
@@ -27,6 +28,7 @@ final readonly class HostReleaseReconciler
     public function reconcile(
         string $releaseId,
         string $dreamTaskQueue,
+        bool $dreamEnabled,
         string $dreamTimeZone,
         int $dreamHour,
         int $dreamMinute,
@@ -73,6 +75,7 @@ final readonly class HostReleaseReconciler
             $this->schedules->install(
                 taskQueue: $dreamTaskQueue,
                 hostReleaseId: $releaseId,
+                enabled: $dreamEnabled,
                 timeZone: $dreamTimeZone,
                 hour: $dreamHour,
                 minute: $dreamMinute,

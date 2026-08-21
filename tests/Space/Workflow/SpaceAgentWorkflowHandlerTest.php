@@ -7,6 +7,7 @@ namespace Tests\Space\Workflow;
 use Bot\Space\Runtime\SpaceIdentity;
 use Bot\Space\Runtime\SpaceIdentityResolverInterface;
 use Bot\Space\Workflow\SpaceAgentWorkflow;
+use Bot\Space\Workflow\SpaceAgentControlStoreInterface;
 use Bot\Space\Workflow\SpaceAgentWorkflowHandler;
 use Bot\Space\Workflow\SpaceAgentWorkflowInput;
 use Bot\Telegram\Update;
@@ -55,6 +56,8 @@ final class SpaceAgentWorkflowHandlerTest extends TestCase
         );
         $resolver = Mockery::mock(SpaceIdentityResolverInterface::class);
         $resolver->shouldReceive('resolve')->once()->with($update)->andReturn($space);
+        $controls = Mockery::mock(SpaceAgentControlStoreInterface::class);
+        $controls->shouldReceive('isPaused')->once()->with($space->spaceId)->andReturn(true);
 
         $workflowStub = new stdClass();
         $client       = Mockery::mock(WorkflowClientInterface::class);
@@ -85,12 +88,14 @@ final class SpaceAgentWorkflowHandlerTest extends TestCase
                     && $startArgs[0] instanceof SpaceAgentWorkflowInput
                     && $startArgs[0]->spaceId === $space->spaceId
                     && $startArgs[0]->botUsername === 'wtf_happend_bot'
+                    && $startArgs[0]->paused
                     && $startArgs[0]->topicId === null;
             });
 
         (new SpaceAgentWorkflowHandler(
             $client,
             $resolver,
+            $controls,
             botUsername: 'wtf_happend_bot',
         ))->handleUpdate($update);
         $this->addToAssertionCount(1);

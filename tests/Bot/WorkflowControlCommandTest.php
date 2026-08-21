@@ -12,6 +12,7 @@ use Bot\Handler\WorkflowControlCommandHandler;
 use Bot\Space\Runtime\SpaceIdentity;
 use Bot\Space\Runtime\SpaceIdentityResolverInterface;
 use Bot\Space\Workflow\SpaceAgentWorkflow;
+use Bot\Space\Workflow\SpaceAgentControlStoreInterface;
 use Bot\Telegram\TelegramChatAuthorizationPolicy;
 use Bot\Telegram\Update;
 use Mockery;
@@ -116,11 +117,18 @@ class WorkflowControlCommandTest extends TestCase
             ->with(self::CHAT_ID, $response, null, 42)
             ->andReturn(MessageFactory::make());
 
+        $controls = Mockery::mock(SpaceAgentControlStoreInterface::class);
+        $controls
+            ->shouldReceive('setPaused')
+            ->once()
+            ->with(self::SPACE_ID, $signal === SpaceAgentWorkflow::PAUSE_SIGNAL_NAME);
+
         $handler = new WorkflowControlCommandHandler(
             $client,
             self::spaceResolver($update),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
+            $controls,
             'wtf_happend_bot',
         );
         $bot = new TelegramBot('token', $api);
@@ -151,6 +159,7 @@ class WorkflowControlCommandTest extends TestCase
             Mockery::mock(SpaceIdentityResolverInterface::class),
             new TelegramChatAuthorizationPolicy(Mockery::mock(Api::class)),
             self::durableReplies(),
+            Mockery::mock(SpaceAgentControlStoreInterface::class),
             'wtf_happend_bot',
         ))->supportsUpdate($update));
     }
@@ -209,12 +218,15 @@ class WorkflowControlCommandTest extends TestCase
                 42,
             )
             ->andReturn(MessageFactory::make());
+        $controls = Mockery::mock(SpaceAgentControlStoreInterface::class);
+        $controls->shouldReceive('setPaused')->once()->with(self::SPACE_ID, true);
 
         $handler = new WorkflowControlCommandHandler(
             $client,
             self::spaceResolver($update),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
+            $controls,
             'wtf_happend_bot',
         );
         $bot = new TelegramBot('token', $api);
@@ -449,7 +461,7 @@ class WorkflowControlCommandTest extends TestCase
         );
     }
 
-    public function testMissingWorkflowIsReported(): void
+    public function testDurablePauseSucceedsWithoutARunningWorkflow(): void
     {
         $update = UpdateFactory::make(
             message: MessageFactory::make(
@@ -487,14 +499,23 @@ class WorkflowControlCommandTest extends TestCase
         $api
             ->shouldReceive('sendMessage')
             ->once()
-            ->with(self::PRIVATE_CHAT_ID, 'Активного workflow для этого чата нет.', null, null)
+            ->with(
+                self::PRIVATE_CHAT_ID,
+                'Workflow чата приостановлен. Новые сообщения сохраняются в историю, '
+                    . 'но не обрабатываются задним числом.',
+                null,
+                null,
+            )
             ->andReturn(MessageFactory::make());
+        $controls = Mockery::mock(SpaceAgentControlStoreInterface::class);
+        $controls->shouldReceive('setPaused')->once()->with(self::SPACE_ID, true);
 
         $handler = new WorkflowControlCommandHandler(
             $client,
             self::spaceResolver($update),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
+            $controls,
             'wtf_happend_bot',
         );
         self::assertTrue($handler->supportsUpdate($update));
@@ -543,12 +564,15 @@ class WorkflowControlCommandTest extends TestCase
                 null,
             )
             ->andReturn(MessageFactory::make());
+        $controls = Mockery::mock(SpaceAgentControlStoreInterface::class);
+        $controls->shouldNotReceive('setPaused');
 
         $handler = new WorkflowControlCommandHandler(
             $client,
             self::spaceResolver($update, expected: false),
             new TelegramChatAuthorizationPolicy($api),
             self::durableReplies(),
+            $controls,
             'wtf_happend_bot',
         );
         self::assertTrue($handler->supportsUpdate($update));

@@ -48,6 +48,10 @@ $executionIdentity    = new TemporalExecutionIdentity(
     dreamTaskQueue: trim((string) (getenv('SPACE_DREAM_TASK_QUEUE') ?: 'space-dream-v1')),
 );
 $dreamTimeZone        = trim((string) (getenv('SPACE_DREAM_TIME_ZONE') ?: 'Asia/Yekaterinburg'));
+$dreamEnabled         = filter_var(
+    getenv('SPACE_DREAM_ENABLED') ?: 'false',
+    \FILTER_VALIDATE_BOOL,
+);
 $dreamHour            = max(0, min(23, (int) (getenv('SPACE_DREAM_HOUR') ?: 3)));
 $dreamMinute          = max(0, min(59, (int) (getenv('SPACE_DREAM_MINUTE') ?: 17)));
 $dreamJitterMinutes   = max(0, min(180, (int) (getenv('SPACE_DREAM_JITTER_MINUTES') ?: 30)));
@@ -73,6 +77,7 @@ return new TemporalConfig(
     releaseIngressGate: $releaseIngressGate,
     agentTaskQueue: $executionIdentity->agentTaskQueue,
     dreamTaskQueue: $executionIdentity->dreamTaskQueue,
+    dreamEnabled: $dreamEnabled,
     dreamTimeZone: $dreamTimeZone,
     dreamHour: $dreamHour,
     dreamMinute: $dreamMinute,

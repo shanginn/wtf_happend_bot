@@ -6,6 +6,7 @@ namespace Tests\Space\Workflow;
 
 use Bot\Space\Runtime\SpaceCommandBinding;
 use Bot\Space\Runtime\SpaceRuntimeSnapshot;
+use Bot\Space\Runtime\SpaceSkillDefinition;
 use Bot\Space\Workflow\QueuedSpaceUpdate;
 use Bot\Space\Workflow\SpaceAgentWorkflow;
 use Bot\Space\Workflow\SpaceAgentWorkflowInput;
@@ -132,6 +133,8 @@ final class SpaceAgentWorkflowInputDataConverterTest extends TestCase
         self::assertSame('dimannews', $decoded->pendingCommandInvocation?->name);
         self::assertSame('сделай про утро', $decoded->pendingCommandInvocation?->argumentText);
         self::assertSame('release-7', $decoded->pendingRuntimeSnapshot?->releaseId);
+        self::assertSame('totalizator', $decoded->pendingRuntimeSnapshot?->skills[0]->name);
+        self::assertSame('Full skill body.', $decoded->pendingRuntimeSnapshot?->skills[0]->body);
         self::assertSame('dimannews', $decoded->pendingRuntimeSnapshot?->commands[0]->name);
         self::assertSame(
             'Full immutable specification.',
@@ -157,6 +160,11 @@ final class SpaceAgentWorkflowInputDataConverterTest extends TestCase
             model: 'test/model',
             systemPrompt: 'Pinned prompt',
             tools: [['name' => 'stay_silent']],
+            skills: [new SpaceSkillDefinition(
+                name: 'totalizator',
+                description: 'Use for an exact lottery trigger.',
+                body: 'Full skill body.',
+            )],
             commands: [new SpaceCommandBinding(
                 name: 'dimannews',
                 description: 'Generate Diman News.',

@@ -6,6 +6,7 @@ namespace Bot\Handler;
 
 use Bot\Durability\DurableCommandReplyGateway;
 use Bot\Space\Runtime\SpaceIdentityResolverInterface;
+use Bot\Space\Workflow\SpaceAgentControlStoreInterface;
 use Bot\Space\Workflow\SpaceAgentWorkflow;
 use Bot\Space\Workflow\SpaceAgentWorkflowHandler;
 use Bot\Space\Workflow\SpaceCommandInvocation;
@@ -22,10 +23,9 @@ use UnexpectedValueException;
 
 class WorkflowControlCommandHandler extends AbstractCommandHandler
 {
-    private const string PAUSED_MESSAGE      = 'Workflow чата приостановлен. Новые сообщения сохраняются в историю, но не обрабатываются задним числом.';
-    private const string RESUMED_MESSAGE     = 'Workflow чата продолжил работу. Новые сообщения снова обрабатываются.';
-    private const string NO_WORKFLOW_MESSAGE = 'Активного workflow для этого чата нет.';
-    private const string DENIED_MESSAGE      = 'Недостаточно прав: в личном чате команду может выполнить '
+    private const string PAUSED_MESSAGE  = 'Workflow чата приостановлен. Новые сообщения сохраняются в историю, но не обрабатываются задним числом.';
+    private const string RESUMED_MESSAGE = 'Workflow чата продолжил работу. Новые сообщения снова обрабатываются.';
+    private const string DENIED_MESSAGE  = 'Недостаточно прав: в личном чате команду может выполнить '
         . 'только его пользователь, а в группе — владелец или администратор.';
     private const string AUTHORIZATION_FAILURE_MESSAGE = 'Не удалось проверить права в Telegram. '
         . 'Workflow не изменён; попробуйте ещё раз позже.';
@@ -35,6 +35,7 @@ class WorkflowControlCommandHandler extends AbstractCommandHandler
         private readonly SpaceIdentityResolverInterface $spaces,
         private readonly TelegramChatAuthorizationPolicy $authorization,
         private readonly DurableCommandReplyGateway $durableReplies,
+        private readonly SpaceAgentControlStoreInterface $controls,
         private readonly string $botUsername,
         private readonly string $hostReleaseId = 'local',
     ) {
@@ -76,19 +77,23 @@ class WorkflowControlCommandHandler extends AbstractCommandHandler
                     return self::DENIED_MESSAGE;
                 }
 
-                $responseText = $command === SpaceAgentWorkflow::PAUSE_SIGNAL_NAME
+                $paused       = $command === SpaceAgentWorkflow::PAUSE_SIGNAL_NAME;
+                $responseText = $paused
                     ? self::PAUSED_MESSAGE
                     : self::RESUMED_MESSAGE;
 
+                $space = $this->spaces->resolve($update);
+                $this->controls->setPaused($space->spaceId, $paused);
+
                 try {
                     $workflow = $this->client->newUntypedRunningWorkflowStub(
-                        $this->workflowId($update),
+                        SpaceAgentWorkflowHandler::workflowId($space, $this->hostReleaseId),
                         null,
                         SpaceAgentWorkflow::WORKFLOW_TYPE,
                     );
                     $workflow->signal($command);
                 } catch (WorkflowNotFoundException) {
-                    return self::NO_WORKFLOW_MESSAGE;
+                    return $responseText;
                 }
 
                 return $responseText;
@@ -119,19 +124,5 @@ class WorkflowControlCommandHandler extends AbstractCommandHandler
             SpaceAgentWorkflow::RESUME_SIGNAL_NAME => SpaceAgentWorkflow::RESUME_SIGNAL_NAME,
             default                                => null,
         };
-    }
-
-    private function workflowId(UpdateInterface $update): string
-    {
-        if (!$update instanceof Update) {
-            throw new UnexpectedValueException(
-                'Space workflow commands require the bot Telegram update type.',
-            );
-        }
-
-        return SpaceAgentWorkflowHandler::workflowId(
-            $this->spaces->resolve($update),
-            $this->hostReleaseId,
-        );
     }
 }

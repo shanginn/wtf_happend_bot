@@ -20,6 +20,7 @@ final readonly class TemporalConfig
         public bool $releaseIngressGate,
         public string $agentTaskQueue,
         public string $dreamTaskQueue,
+        public bool $dreamEnabled,
         public string $dreamTimeZone,
         public int $dreamHour,
         public int $dreamMinute,

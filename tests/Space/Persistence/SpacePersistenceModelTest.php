@@ -90,6 +90,7 @@ final class SpacePersistenceModelTest extends TestCase
         self::assertSame(0, $space->releaseGeneration);
         self::assertSame(0, $space->memoryRevision);
         self::assertTrue($space->dreamEnabled);
+        self::assertFalse($space->agentPaused);
     }
 
     public function testMemoryVersionPreservesSourceTimestamp(): void

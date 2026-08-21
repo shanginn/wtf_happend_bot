@@ -6,9 +6,13 @@ namespace Bot\Space\Workflow;
 
 use Bot\Activity\TelegramActivity;
 use Bot\Llm\Tools\Telegram\TelegramApiCallExecutor;
+use Bot\Space\Attention\SpaceResponseDecision;
+use Bot\Space\Attention\SpaceResponseDecisionActivityInterface;
+use Bot\Space\Attention\SpaceResponseDecisionInput;
 use Bot\Space\Command\SpaceCommandActivityInterface;
 use Bot\Space\Command\SpaceCommandExecutionInput;
 use Bot\Space\Runtime\SpaceCommandBinding;
+use Bot\Space\Runtime\SpacePrompt;
 use Bot\Space\Runtime\SpaceRuntimeSnapshot;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotLoaderActivityInterface;
 use Bot\Space\Runtime\SpaceRuntimeSnapshotRequest;
@@ -54,13 +58,18 @@ final class SpaceAgentWorkflow
     public const string RESUME_SIGNAL_NAME = 'resume';
 
     private const int PIPELINE_BATCH_WINDOW_SECONDS = 5;
-    private const int MAX_UPDATES_BEFORE_CONTINUE   = 100;
+    private const int MAX_UPDATES_BEFORE_CONTINUE   = 30;
+    private const int MAX_HISTORY_EVENTS            = 300;
+    private const int MAX_HISTORY_BYTES             = 500_000;
     private const int MAX_TELEGRAM_TEXT_LENGTH      = 4096;
     private const int WORKFLOW_TASK_TIMEOUT_SECONDS = 60;
+    private const int SPONTANEOUS_COOLDOWN_SECONDS  = 120;
+    private const int SPONTANEOUS_MIN_HUMAN_UPDATES = 3;
 
     private ActivityProxy|TelegramActivity $telegramActivity;
     private ActivityProxy|SpaceRuntimeSnapshotLoaderActivityInterface $runtimeSnapshotActivity;
     private ActivityProxy|SpaceCommandActivityInterface $commandActivity;
+    private ActivityProxy|SpaceResponseDecisionActivityInterface $responseDecisionActivity;
     private ActivityProxy|DurableAgentActivitiesInterface $agentActivities;
     private SpaceMessageQueue $updatesQueue;
     private SpaceAgentWorkflowInput $input;
@@ -77,6 +86,8 @@ final class SpaceAgentWorkflow
     private int $droppedUpdateCount                           = 0;
     private int $pendingBatchMessageCount                     = 0;
     private int $notificationFailureCount                     = 0;
+    private int $lastSpontaneousReplyAt                       = 0;
+    private int $humanUpdatesSinceSpontaneousReply            = 0;
     private bool $paused                                      = false;
     private bool $ingestionRetryPending                       = false;
     private bool $callbackPending                             = false;
@@ -120,7 +131,21 @@ final class SpaceAgentWorkflow
                 ),
         );
         $this->commandActivity = $commandActivity;
-        $this->agentActivities = Workflow::newActivityStub(
+        /** @var SpaceResponseDecisionActivityInterface $responseDecisionActivity */
+        $responseDecisionActivity = Workflow::newActivityStub(
+            SpaceResponseDecisionActivityInterface::class,
+            ActivityOptions::new()
+                ->withScheduleToCloseTimeout(CarbonInterval::minutes(3))
+                ->withStartToCloseTimeout(CarbonInterval::minutes(2))
+                ->withRetryOptions(
+                    RetryOptions::new()
+                        ->withInitialInterval(1)
+                        ->withMaximumInterval(15)
+                        ->withMaximumAttempts(2),
+                ),
+        );
+        $this->responseDecisionActivity = $responseDecisionActivity;
+        $this->agentActivities          = Workflow::newActivityStub(
             DurableAgentActivitiesInterface::class,
             ActivityOptions::new()
                 ->withScheduleToCloseTimeout(CarbonInterval::minutes(10))
@@ -139,28 +164,30 @@ final class SpaceAgentWorkflow
     #[ReturnType(Type::TYPE_STRING)]
     public function create(SpaceAgentWorkflowInput $input): mixed
     {
-        $this->input                        = $input;
-        $this->messages                     = $input->messages;
-        $this->processedCount               = $input->processedCount;
-        $this->agentRun                     = $input->agentRun;
-        $this->pipelinePendingSince         = $input->pipelinePendingSince;
-        $this->paused                       = $input->paused;
-        $this->callbackPending              = $input->callbackPending;
-        $this->droppedUpdateCount           = $input->droppedUpdateCount;
-        $this->lastNotificationFailure      = $input->lastNotificationFailure;
-        $this->ingestionFailureCount        = $input->ingestionFailureCount;
-        $this->runtimeSnapshotFailureCount  = $input->runtimeSnapshotFailureCount;
-        $this->ingestionRetryPending        = $input->ingestionRetryPending;
-        $this->pendingBatchMessageCount     = $input->pendingBatchMessageCount;
-        $this->pendingBatchId               = $input->pendingBatchId;
-        $this->pendingTopicId               = $input->pendingTopicId;
-        $this->pendingCommandInvocation     = $input->pendingCommandInvocation;
-        $this->pendingActorUserIds          = array_fill_keys($input->pendingActorUserIds, true);
-        $this->pendingActorIdentityComplete = $input->pendingActorIdentityComplete;
-        $this->pendingRuntimeSnapshot       = $input->pendingRuntimeSnapshot;
-        $this->pendingTerminalText          = $input->pendingTerminalText;
-        $this->pendingTerminalScopeId       = $input->pendingTerminalScopeId;
-        $this->notificationFailureCount     = $input->notificationFailureCount;
+        $this->input                             = $input;
+        $this->messages                          = $input->messages;
+        $this->processedCount                    = $input->processedCount;
+        $this->agentRun                          = $input->agentRun;
+        $this->pipelinePendingSince              = $input->pipelinePendingSince;
+        $this->paused                            = $input->paused;
+        $this->callbackPending                   = $input->callbackPending;
+        $this->droppedUpdateCount                = $input->droppedUpdateCount;
+        $this->lastNotificationFailure           = $input->lastNotificationFailure;
+        $this->ingestionFailureCount             = $input->ingestionFailureCount;
+        $this->runtimeSnapshotFailureCount       = $input->runtimeSnapshotFailureCount;
+        $this->ingestionRetryPending             = $input->ingestionRetryPending;
+        $this->pendingBatchMessageCount          = $input->pendingBatchMessageCount;
+        $this->pendingBatchId                    = $input->pendingBatchId;
+        $this->pendingTopicId                    = $input->pendingTopicId;
+        $this->pendingCommandInvocation          = $input->pendingCommandInvocation;
+        $this->pendingActorUserIds               = array_fill_keys($input->pendingActorUserIds, true);
+        $this->pendingActorIdentityComplete      = $input->pendingActorIdentityComplete;
+        $this->pendingRuntimeSnapshot            = $input->pendingRuntimeSnapshot;
+        $this->pendingTerminalText               = $input->pendingTerminalText;
+        $this->pendingTerminalScopeId            = $input->pendingTerminalScopeId;
+        $this->notificationFailureCount          = $input->notificationFailureCount;
+        $this->lastSpontaneousReplyAt            = $input->lastSpontaneousReplyAt;
+        $this->humanUpdatesSinceSpontaneousReply = $input->humanUpdatesSinceSpontaneousReply;
 
         foreach ($input->pendingUpdates as $pendingUpdate) {
             $this->updatesQueue->push($pendingUpdate);
@@ -805,6 +832,44 @@ final class SpaceAgentWorkflow
         );
     }
 
+    /**
+     * Keep enough nearby context to understand who is being addressed while
+     * bounding the cheap routing pass independently of the main agent input.
+     *
+     * @param list<array<string, mixed>> $messages
+     * @param int                        $pendingBatchMessageCount
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function decisionMessages(array $messages, int $pendingBatchMessageCount): array
+    {
+        $candidates = self::messageSuffixCandidates($messages, $pendingBatchMessageCount);
+        $candidate  = $candidates[max(0, count($candidates) - 2)] ?? null;
+        if (!is_array($candidate)) {
+            throw new LogicException('Space attention could not build a bounded message suffix.');
+        }
+
+        return self::collapsePendingBatchMessages($candidate, $pendingBatchMessageCount);
+    }
+
+    /** @param list<array<string, mixed>> $messages */
+    private static function pendingBatchAddressesBot(
+        array $messages,
+        int $pendingBatchMessageCount,
+    ): bool {
+        $start = count($messages) - $pendingBatchMessageCount;
+        if ($start < 0) {
+            throw new LogicException('Pending agent batch message state is inconsistent.');
+        }
+        foreach (array_slice($messages, $start) as $message) {
+            if (($message['metadata']['telegramBotAddressed'] ?? false) === true) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function ingestQueuedUpdates(): void
     {
         [$updates, $remainingUpdates] = self::nextIngestionBatch(
@@ -910,9 +975,15 @@ final class SpaceAgentWorkflow
                 }
                 $this->pendingCommandInvocation = $commandInvocation;
             }
-            $this->messages[] = SpaceTelegramAgentMessageMapper::map($view)->toArray();
+            $botAddressed     = $this->updateAddressesBot($update);
+            $this->messages[] = SpaceTelegramAgentMessageMapper::map($view, $botAddressed)->toArray();
             ++$this->pendingBatchMessageCount;
             $this->trackPendingActor($update);
+            if ($update->effectiveSender instanceof UserInterface
+                && !$update->effectiveSender->isBot
+            ) {
+                ++$this->humanUpdatesSinceSpontaneousReply;
+            }
         }
 
         $this->ingestionFailureCount = 0;
@@ -924,12 +995,6 @@ final class SpaceAgentWorkflow
         $runtimeSnapshot = $this->runtimeSnapshotForPendingBatch();
         if ($runtimeSnapshot === null) {
             return false;
-        }
-
-        try {
-            $this->replaceSystemMessage($runtimeSnapshot->systemPrompt);
-        } catch (InvalidArgumentException $failure) {
-            throw self::agentInputTooLarge($failure);
         }
 
         ++$this->agentRun;
@@ -966,6 +1031,49 @@ final class SpaceAgentWorkflow
             );
         }
 
+        $historyReferenceTimestamp = self::pendingBatchHistoryReferenceTimestamp(
+            $this->messages,
+            $this->pendingBatchMessageCount,
+        );
+        $directRequired = $this->input->chatType === 'private'
+            || self::pendingBatchAddressesBot(
+                $this->messages,
+                $this->pendingBatchMessageCount,
+            );
+        $decision = $this->responseDecision(
+            runtimeSnapshot: $runtimeSnapshot,
+            terminalScopeId: $terminalScopeId,
+            directRequired: $directRequired,
+            historyReferenceTimestamp: $historyReferenceTimestamp,
+        );
+        if (!$decision->runsAgent()) {
+            $this->messages = self::collapsePendingBatchMessages(
+                $this->messages,
+                $this->pendingBatchMessageCount,
+            );
+            $this->pendingBatchMessageCount = 1;
+
+            return true;
+        }
+
+        $selectedSkills = [];
+        foreach ($decision->selectedSkillNames as $name) {
+            $skill = $runtimeSnapshot->skill($name);
+            if ($skill === null) {
+                throw new LogicException('Space attention selected a skill outside the pinned snapshot.');
+            }
+            $selectedSkills[] = $skill;
+        }
+
+        try {
+            $this->replaceSystemMessage(SpacePrompt::withSelectedSkills(
+                $runtimeSnapshot->systemPrompt,
+                $selectedSkills,
+            ));
+        } catch (InvalidArgumentException $failure) {
+            throw self::agentInputTooLarge($failure);
+        }
+
         $agentInput = self::boundedAgentInput(
             agentId: 'space-' . $this->input->spaceId,
             model: $runtimeSnapshot->model,
@@ -985,13 +1093,12 @@ final class SpaceAgentWorkflow
                     $this->messages,
                     $this->pendingBatchMessageCount,
                 ),
-                'historyReferenceTimestamp' => self::pendingBatchHistoryReferenceTimestamp(
-                    $this->messages,
-                    $this->pendingBatchMessageCount,
-                ),
-                'terminalScopeId'    => $terminalScopeId,
-                'parentWorkflowId'   => $parentInfo->execution->getID(),
-                'parentWorkflowType' => self::WORKFLOW_TYPE,
+                'historyReferenceTimestamp' => $historyReferenceTimestamp,
+                'spaceAttentionMode'        => $decision->mode,
+                'selectedSpaceSkills'       => $decision->selectedSkillNames,
+                'terminalScopeId'           => $terminalScopeId,
+                'parentWorkflowId'          => $parentInfo->execution->getID(),
+                'parentWorkflowType'        => self::WORKFLOW_TYPE,
             ],
             pendingBatchMessageCount: $this->pendingBatchMessageCount,
         );
@@ -1030,6 +1137,10 @@ final class SpaceAgentWorkflow
         }
 
         if ($this->hasConfirmedTerminalAction($workflowId)) {
+            if ($decision->isSpontaneous() && $this->hasConfirmedVisibleTerminalAction($workflowId)) {
+                $this->markSpontaneousReply($historyReferenceTimestamp);
+            }
+
             return true;
         }
 
@@ -1040,6 +1151,10 @@ final class SpaceAgentWorkflow
         if ($result->status === AgentWorkflowStatus::Completed) {
             $fallback = self::completedResultText($result);
             if ($fallback !== '') {
+                if ($decision->isSpontaneous()) {
+                    $this->markSpontaneousReply($historyReferenceTimestamp);
+                }
+
                 return $this->queueTerminalNotification($fallback, $terminalScopeId);
             }
         }
@@ -1168,6 +1283,80 @@ final class SpaceAgentWorkflow
         $this->pendingRuntimeSnapshot      = $snapshot;
 
         return $snapshot;
+    }
+
+    private function responseDecision(
+        SpaceRuntimeSnapshot $runtimeSnapshot,
+        string $terminalScopeId,
+        bool $directRequired,
+        ?int $historyReferenceTimestamp,
+    ): SpaceResponseDecision {
+        $spontaneousAllowed = $this->spontaneousAllowed($historyReferenceTimestamp);
+        $input              = new SpaceResponseDecisionInput(
+            model: $runtimeSnapshot->model,
+            messages: self::decisionMessages(
+                $this->messages,
+                $this->pendingBatchMessageCount,
+            ),
+            skills: $runtimeSnapshot->skills,
+            directRequired: $directRequired,
+            spontaneousAllowed: $spontaneousAllowed,
+            idempotencyKey: sprintf(
+                'space-attention:%s:%s',
+                $terminalScopeId,
+                substr(hash('sha256', $runtimeSnapshot->releaseDigest), 0, 16),
+            ),
+        );
+
+        try {
+            $decision = $this->responseDecisionActivity->decide($input);
+        } catch (ActivityFailure $failure) {
+            Workflow::getLogger()->warning(
+                'Space attention gate failed; applying the bounded host fallback.',
+                [
+                    'spaceId'        => $this->input->spaceId,
+                    'batchId'        => $this->pendingBatchId,
+                    'directRequired' => $directRequired,
+                    'failure'        => $failure->getMessage(),
+                ],
+            );
+
+            return new SpaceResponseDecision(
+                $directRequired
+                    ? SpaceResponseDecision::MODE_BASE
+                    : SpaceResponseDecision::MODE_SILENT,
+            );
+        }
+        if (!$decision instanceof SpaceResponseDecision) {
+            throw new LogicException('Space attention activity returned an invalid decision.');
+        }
+
+        return $decision;
+    }
+
+    private function spontaneousAllowed(?int $referenceTimestamp): bool
+    {
+        if ($this->lastSpontaneousReplyAt === 0) {
+            return true;
+        }
+        if ($this->humanUpdatesSinceSpontaneousReply < self::SPONTANEOUS_MIN_HUMAN_UPDATES) {
+            return false;
+        }
+        if ($referenceTimestamp === null) {
+            return false;
+        }
+
+        return $referenceTimestamp - $this->lastSpontaneousReplyAt
+            >= self::SPONTANEOUS_COOLDOWN_SECONDS;
+    }
+
+    private function markSpontaneousReply(?int $referenceTimestamp): void
+    {
+        $this->lastSpontaneousReplyAt = max(
+            1,
+            $referenceTimestamp ?? Workflow::now()->getTimestamp(),
+        );
+        $this->humanUpdatesSinceSpontaneousReply = 0;
     }
 
     private function notifyProcessingFailure(string $terminalScopeId): bool
@@ -1379,6 +1568,53 @@ final class SpaceAgentWorkflow
         return false;
     }
 
+    private function hasConfirmedVisibleTerminalAction(string $childWorkflowId): bool
+    {
+        $terminalToolCalls = $this->visibleTerminalToolCallIds();
+        foreach ($this->messages as $message) {
+            $toolCallId = $message['toolCallId'] ?? null;
+            $metadata   = $message['metadata'] ?? null;
+            if (
+                ($message['role'] ?? null) === 'toolResult'
+                && is_string($toolCallId)
+                && isset($terminalToolCalls[$toolCallId])
+                && is_array($metadata)
+                && ($metadata['workflowId'] ?? null) === $childWorkflowId
+                && ($message['isError'] ?? false) === false
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return array<string, true> */
+    private function visibleTerminalToolCallIds(): array
+    {
+        $calls = [];
+        foreach ($this->messages as $message) {
+            if (($message['role'] ?? null) !== 'assistant' || !is_array($message['content'] ?? null)) {
+                continue;
+            }
+            foreach ($message['content'] as $block) {
+                if (!is_array($block)
+                    || ($block['type'] ?? null) !== 'toolCall'
+                    || !is_string($block['id'] ?? null)
+                    || ($block['name'] ?? null) !== 'telegram_api_call'
+                ) {
+                    continue;
+                }
+                $method = $block['arguments']['method'] ?? null;
+                if (is_string($method) && TelegramApiCallExecutor::isTerminalMethod($method)) {
+                    $calls[$block['id']] = true;
+                }
+            }
+        }
+
+        return $calls;
+    }
+
     /**
      * @return array<string, true>
      */
@@ -1489,8 +1725,7 @@ final class SpaceAgentWorkflow
             return false;
         }
 
-        return $this->processedSinceContinueAsNew >= self::MAX_UPDATES_BEFORE_CONTINUE
-            || Workflow::getInfo()->shouldContinueAsNew;
+        return $this->continuationSuggested();
     }
 
     private function shouldContinueAsNew(bool $allowPendingPipeline = false): bool
@@ -1503,8 +1738,17 @@ final class SpaceAgentWorkflow
             return false;
         }
 
+        return $this->continuationSuggested();
+    }
+
+    private function continuationSuggested(): bool
+    {
+        $info = Workflow::getInfo();
+
         return $this->processedSinceContinueAsNew >= self::MAX_UPDATES_BEFORE_CONTINUE
-            || Workflow::getInfo()->shouldContinueAsNew;
+            || $info->historyLength >= self::MAX_HISTORY_EVENTS
+            || $info->historySize >= self::MAX_HISTORY_BYTES
+            || $info->shouldContinueAsNew;
     }
 
     private function finishPipeline(): void
@@ -1605,6 +1849,41 @@ final class SpaceAgentWorkflow
         }
 
         return true;
+    }
+
+    /**
+     * A conservative host signal for guaranteed replies. The semantic gate
+     * still recognizes natural-language addressing; this method supplies the
+     * deterministic cases that must survive a router/provider failure.
+     *
+     * @param Update $update
+     */
+    private function updateAddressesBot(Update $update): bool
+    {
+        if ($this->input->chatType === 'private' || $update->callbackQuery !== null) {
+            return true;
+        }
+        $message = $update->effectiveMessage;
+        if ($message === null) {
+            return false;
+        }
+        $replyAuthor = $message->replyToMessage?->from;
+        if (
+            $replyAuthor instanceof UserInterface
+            && $replyAuthor->isBot
+            && is_string($replyAuthor->username)
+            && strcasecmp($replyAuthor->username, $this->input->botUsername) === 0
+        ) {
+            return true;
+        }
+        $text = trim((string) ($message->text ?? $message->caption ?? ''));
+        if ($text === '') {
+            return false;
+        }
+        $username = preg_quote($this->input->botUsername, '/');
+
+        return preg_match('/@' . $username . '(?![a-zA-Z0-9_])/iu', $text) === 1
+            || preg_match('/\A\s*(?:бот|bot)\b/iu', $text) === 1;
     }
 
     private function trackPendingActor(Update $update): void
@@ -1727,6 +2006,8 @@ final class SpaceAgentWorkflow
             pendingTerminalText: $this->pendingTerminalText,
             pendingTerminalScopeId: $this->pendingTerminalScopeId,
             notificationFailureCount: $this->notificationFailureCount,
+            lastSpontaneousReplyAt: $this->lastSpontaneousReplyAt,
+            humanUpdatesSinceSpontaneousReply: $this->humanUpdatesSinceSpontaneousReply,
         );
     }
 

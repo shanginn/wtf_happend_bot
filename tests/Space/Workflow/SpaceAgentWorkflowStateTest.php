@@ -19,6 +19,7 @@ use Phenogram\Bindings\Factories\ChatFactory;
 use Phenogram\Bindings\Factories\MessageEntityFactory;
 use Phenogram\Bindings\Factories\MessageFactory;
 use Phenogram\Bindings\Factories\UpdateFactory;
+use Phenogram\Bindings\Factories\UserFactory;
 use ReflectionClass;
 use ReflectionMethod;
 use Spiral\Attributes\AttributeReader;
@@ -299,6 +300,47 @@ final class SpaceAgentWorkflowStateTest extends TestCase
         self::assertFalse($method->invoke($workflow, new SpaceCommandInvocation('edit')));
     }
 
+    public function testHostAddressSignalDoesNotTreatArbitrarySlashCommandsAsAddressed(): void
+    {
+        $reflection = new ReflectionClass(SpaceAgentWorkflow::class);
+        $workflow   = $reflection->newInstanceWithoutConstructor();
+        $reflection->getProperty('input')->setValue($workflow, self::input());
+        $method = new ReflectionMethod(SpaceAgentWorkflow::class, 'updateAddressesBot');
+
+        self::assertFalse($method->invoke($workflow, self::textUpdate('/edit')));
+        self::assertFalse($method->invoke($workflow, self::textUpdate('обсуждаем что-то своё')));
+        self::assertTrue($method->invoke($workflow, self::textUpdate('бот, что думаешь?')));
+        self::assertTrue($method->invoke($workflow, self::textUpdate('@wtf_happend_bot глянь')));
+        self::assertTrue($method->invoke($workflow, self::textUpdate(
+            'а это почему?',
+            MessageFactory::make(
+                chat: ChatFactory::make(id: 7001, type: 'supergroup'),
+                from: UserFactory::make(
+                    id: 99,
+                    isBot: true,
+                    username: 'wtf_happend_bot',
+                ),
+            ),
+        )));
+    }
+
+    public function testSpontaneousGovernorRequiresBothConversationAndTime(): void
+    {
+        $reflection = new ReflectionClass(SpaceAgentWorkflow::class);
+        $workflow   = $reflection->newInstanceWithoutConstructor();
+        $method     = new ReflectionMethod(SpaceAgentWorkflow::class, 'spontaneousAllowed');
+
+        self::assertTrue($method->invoke($workflow, 100));
+
+        $reflection->getProperty('lastSpontaneousReplyAt')->setValue($workflow, 100);
+        $reflection->getProperty('humanUpdatesSinceSpontaneousReply')->setValue($workflow, 2);
+        self::assertFalse($method->invoke($workflow, 1_000));
+
+        $reflection->getProperty('humanUpdatesSinceSpontaneousReply')->setValue($workflow, 3);
+        self::assertFalse($method->invoke($workflow, 219));
+        self::assertTrue($method->invoke($workflow, 220));
+    }
+
     private static function input(): SpaceAgentWorkflowInput
     {
         return new SpaceAgentWorkflowInput(
@@ -348,6 +390,24 @@ final class SpaceAgentWorkflowStateTest extends TestCase
                     offset: 0,
                     length: strlen($text),
                 )],
+            ),
+        );
+        assert($update instanceof Update);
+
+        return $update;
+    }
+
+    private static function textUpdate(
+        string $text,
+        ?\Phenogram\Bindings\Types\Interfaces\MessageInterface $replyTo = null,
+    ): Update {
+        $update = UpdateFactory::make(
+            updateId: 9999,
+            message: MessageFactory::make(
+                chat: ChatFactory::make(id: 7001, type: 'supergroup'),
+                from: UserFactory::make(id: 7, isBot: false),
+                text: $text,
+                replyToMessage: $replyTo,
             ),
         );
         assert($update instanceof Update);

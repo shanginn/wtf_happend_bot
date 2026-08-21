@@ -6,6 +6,7 @@ namespace Bot\Space\Workflow;
 
 use Bot\Space\Runtime\SpaceCommandBinding;
 use Bot\Space\Runtime\SpaceRuntimeSnapshot;
+use Bot\Space\Runtime\SpaceSkillDefinition;
 use Bot\Telegram\Factory;
 use Bot\Telegram\Update;
 use Phenogram\Bindings\Serializer;
@@ -91,6 +92,11 @@ final readonly class SpaceAgentWorkflowInputDataConverter implements PayloadConv
             pendingTerminalText: self::nullableString($data, 'pendingTerminalText'),
             pendingTerminalScopeId: self::nullableString($data, 'pendingTerminalScopeId'),
             notificationFailureCount: self::integer($data, 'notificationFailureCount'),
+            lastSpontaneousReplyAt: self::integer($data, 'lastSpontaneousReplyAt'),
+            humanUpdatesSinceSpontaneousReply: self::integer(
+                $data,
+                'humanUpdatesSinceSpontaneousReply',
+            ),
         );
     }
 
@@ -105,7 +111,15 @@ final readonly class SpaceAgentWorkflowInputDataConverter implements PayloadConv
             'model'         => $snapshot->model,
             'systemPrompt'  => $snapshot->systemPrompt,
             'tools'         => $snapshot->tools,
-            'commands'      => array_map(
+            'skills'        => array_map(
+                static fn (SpaceSkillDefinition $skill): array => [
+                    'name'        => $skill->name,
+                    'description' => $skill->description,
+                    'body'        => $skill->body,
+                ],
+                $snapshot->skills,
+            ),
+            'commands' => array_map(
                 static fn (SpaceCommandBinding $command): array => [
                     'name'             => $command->name,
                     'description'      => $command->description,
@@ -138,6 +152,7 @@ final readonly class SpaceAgentWorkflowInputDataConverter implements PayloadConv
             model: self::string($value, 'model'),
             systemPrompt: self::string($value, 'systemPrompt'),
             tools: self::array($value, 'tools'),
+            skills: self::skillDefinitions(self::array($value, 'skills')),
             commands: self::commandBindings(self::array($value, 'commands')),
             capsuleArtifactRefs: self::array($value, 'capsuleArtifactRefs'),
             capsuleRuntimeImageBuildId: self::nullableString($value, 'capsuleRuntimeImageBuildId'),
@@ -172,6 +187,33 @@ final readonly class SpaceAgentWorkflowInputDataConverter implements PayloadConv
         }
 
         return $commands;
+    }
+
+    /** @param array<mixed> $values @return list<SpaceSkillDefinition> */
+    private static function skillDefinitions(array $values): array
+    {
+        if (!array_is_list($values)) {
+            throw new UnexpectedValueException(
+                'Pending Space runtime skills must be a list.',
+            );
+        }
+
+        $skills = [];
+        foreach ($values as $index => $value) {
+            if (!is_array($value)) {
+                throw new UnexpectedValueException(sprintf(
+                    'Pending Space runtime skill %d must be an object.',
+                    $index,
+                ));
+            }
+            $skills[] = new SpaceSkillDefinition(
+                name: self::string($value, 'name'),
+                description: self::string($value, 'description'),
+                body: self::string($value, 'body'),
+            );
+        }
+
+        return $skills;
     }
 
     private static function commandInvocation(mixed $value): ?SpaceCommandInvocation
@@ -326,9 +368,11 @@ final readonly class SpaceAgentWorkflowInputDataConverter implements PayloadConv
             'pendingRuntimeSnapshot'       => $value->pendingRuntimeSnapshot === null
                 ? null
                 : self::snapshotData($value->pendingRuntimeSnapshot),
-            'pendingTerminalText'      => $value->pendingTerminalText,
-            'pendingTerminalScopeId'   => $value->pendingTerminalScopeId,
-            'notificationFailureCount' => $value->notificationFailureCount,
+            'pendingTerminalText'               => $value->pendingTerminalText,
+            'pendingTerminalScopeId'            => $value->pendingTerminalScopeId,
+            'notificationFailureCount'          => $value->notificationFailureCount,
+            'lastSpontaneousReplyAt'            => $value->lastSpontaneousReplyAt,
+            'humanUpdatesSinceSpontaneousReply' => $value->humanUpdatesSinceSpontaneousReply,
         ], \JSON_THROW_ON_ERROR | \JSON_PRESERVE_ZERO_FRACTION);
     }
 

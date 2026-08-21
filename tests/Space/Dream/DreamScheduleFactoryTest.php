@@ -40,11 +40,24 @@ final class DreamScheduleFactoryTest extends TestCase
             $schedule->action->workflowId,
         );
         self::assertSame('space-dream', $schedule->action->taskQueue->name);
+        self::assertFalse($schedule->state->paused);
 
         $input = $schedule->action->input->getValue(0, DreamCoordinatorInput::class);
         self::assertInstanceOf(DreamCoordinatorInput::class, $input);
         self::assertNull($input->dreamDate);
         self::assertSame('Asia/Yekaterinburg', $input->timeZone);
         self::assertSame($releaseId, $input->hostReleaseId);
+    }
+
+    public function testDisabledScheduleIsCreatedPausedInsteadOfRacingTheFirstAction(): void
+    {
+        $schedule = DreamScheduleFactory::nightly(
+            taskQueue: 'space-dream',
+            hostReleaseId: str_repeat('b', 64),
+            enabled: false,
+        );
+
+        self::assertTrue($schedule->state->paused);
+        self::assertStringContainsString('offline evaluation gate', $schedule->state->notes);
     }
 }
