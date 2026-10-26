@@ -1,0 +1,52 @@
+name: Check existing unified access
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.36.5
+      - name: Prepare existing scoped target access
+        env:
+          WTF_KUBECONFIG: ${{ secrets.KUBECONFIG }}
+        run: python3 scripts/prepare-unified-ci.py
+      - name: Verify the running migrated application without changing it
+        shell: bash
+        run: |
+          python3 - <<'PYCODE'
+          import json,subprocess
+          command=['kubectl','--request-timeout=25s','-n','wtfhappendbot']
+          d=json.loads(subprocess.check_output(command+['get','deployment','wtf-happend-bot','-o','json'],timeout=40))
+          assert d['metadata']['namespace']=='wtfhappendbot' and d['metadata']['name']=='wtf-happend-bot'
+          assert d['spec']['replicas']==1 and d['status'].get('readyReplicas')==1
+          assert d['spec']['strategy']['type']=='Recreate'
+          containers=d['spec']['template']['spec']['containers']
+          assert {c['name'] for c in containers}=={'bot','worker','dream-worker'}
+          assert all(c['image'].startswith('ghcr.io/shanginn/wtf_happend_bot@sha256:') for c in containers)
+          for c in containers+d['spec']['template']['spec'].get('initContainers',[]):
+              env={e['name']:e for e in c.get('env',[])}
+              assert env['DB_HOST'].get('value')=='unified-postgres.database.svc.cluster.local'
+              assert env['TEMPORAL_ADDRESS'].get('value')=='temporal-frontend.temporal-system.svc.cluster.local:7233'
+              assert env['DB_PASSWORD'].get('valueFrom',{}).get('secretKeyRef')=={'name':'unified-app-db','key':'password'}
+              assert env['PGSSLMODE'].get('value')=='verify-full'
+              assert env['PGSSLROOTCERT'].get('value')=='/var/run/unified-postgres/ca.crt'
+          patch=[{'op':'test','path':'/metadata/uid','value':d['metadata']['uid']},
+                 {'op':'test','path':'/metadata/resourceVersion','value':d['metadata']['resourceVersion']}]
+          for i,c in enumerate(containers):
+              patch.extend([{'op':'test','path':f'/spec/template/spec/containers/{i}/image','value':c['image']},
+                            {'op':'replace','path':f'/spec/template/spec/containers/{i}/image','value':c['image']}])
+          result=json.loads(subprocess.check_output(command+['patch','deployment','wtf-happend-bot','--type=json','--dry-run=server','-p',json.dumps(patch),'-o','json'],timeout=45))
+          assert result['metadata']['uid']==d['metadata']['uid'] and result['spec']==d['spec']
+          print('Existing scoped access and unchanged migrated workload admitted; production deploy protocol remains separately held')
+          PYCODE
+      - name: Remove owned transport credentials
+        if: always()
+        run: python3 scripts/prepare-unified-ci.py --cleanup
