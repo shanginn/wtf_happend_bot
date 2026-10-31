@@ -32,6 +32,9 @@ spec:
         metadata:
           labels:
             {{- include "app.selectorLabels" . | nindent 12 }}
+            {{- with .Values.podLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
             app.kubernetes.io/component: release-reconciler
         spec:
           restartPolicy: Never

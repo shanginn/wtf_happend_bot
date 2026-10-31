@@ -464,6 +464,10 @@ render_bootstrap_resource() {
     local auto_authorize_after_epoch="$3"
 
     local previous_bot_image release_values
+    local image_pull_arguments=()
+    if [[ -n "$image_pull_secret" ]]; then
+        image_pull_arguments=(--set-string "imagePullSecrets[0].name=$image_pull_secret")
+    fi
     release_values="$("$helm_bin" get values "$release_name" --namespace "$namespace" --all --output json)" || return 1
     previous_bot_image="$("$jq_bin" -er '[.[].containers[] | select(.name == "bot") | .image] | unique | if length == 1 then .[0] else "" end' <<< "$previous_deployment_snapshot")"
     "$helm_bin" template "$release_name" "$chart_dir" \
@@ -480,7 +484,7 @@ render_bootstrap_resource() {
         --set-string env.HOST_RELEASE_ID="$host_release_id" \
         --set-string env.SPACE_AGENT_TASK_QUEUE="$agent_task_queue" \
         --set-string env.SPACE_DREAM_TASK_QUEUE="$dream_task_queue" \
-        --set-string imagePullSecrets[0].name="$image_pull_secret" \
+        ${image_pull_arguments[@]+"${image_pull_arguments[@]}"} \
         --set-string image.digest="$image_digest" > "$destination"
 }
 
@@ -629,7 +633,7 @@ main() {
             --set-string env.HOST_RELEASE_ID="$host_release_id" \
             --set-string env.SPACE_AGENT_TASK_QUEUE="$agent_task_queue" \
             --set-string env.SPACE_DREAM_TASK_QUEUE="$dream_task_queue" \
-            "${image_pull_arguments[@]}" \
+            ${image_pull_arguments[@]+"${image_pull_arguments[@]}"} \
             --set-string image.digest="$image_digest" \
             --set-string envSecrets.DB_PASSWORD="$DB_PASSWORD" \
             --set-string envSecrets.TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \

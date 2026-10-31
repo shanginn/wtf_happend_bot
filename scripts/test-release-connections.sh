@@ -8,6 +8,8 @@ export CONNECTION_PROFILE="$work/values.json"
 export MOCK_LOG="$work/kubectl.log" MOCK_APPLIED="$work/applied.yaml"
 cat > "$CONNECTION_PROFILE" <<'JSON'
 {
+  "podLabels": {"fixture-network-profile":"allowed"},
+  "releaseControllerApiEgress": [{"to":[{"ipBlock":{"cidr":"192.0.2.10/32"}}],"ports":[{"protocol":"TCP","port":6443}]}],
   "extraEnv": [
     {"name":"DB_HOST","value":"fixture-postgres.database"},
     {"name":"DB_PASSWORD","valueFrom":{"secretKeyRef":{"name":"fixture-db-secret","key":"password"}}},
@@ -27,6 +29,7 @@ check_template() {
     test "$(grep -Fc 'name: fixture-db-secret' "$work/render.yaml")" = "$consumers"
     test "$(grep -Fc 'mountPath: /var/run/test-pg' "$work/render.yaml")" = "$consumers"
     grep -Fq 'value: verify-full' "$work/render.yaml"
+    grep -Fq 'fixture-network-profile: allowed' "$work/render.yaml"
 }
 release_id="$(printf 'a%.0s' {1..64})"
 check_template deployment.yaml 4
@@ -38,6 +41,16 @@ controller=(--set releaseReconciler.enabled=true --set-string release.id="$relea
 check_template release-controller-bootstrap-job.yaml 2 "${controller[@]}" \
     --set releaseControllerBootstrap.enabled=true --set-string releaseControllerBootstrap.id="$release_id"
 check_template release-reconciler.yaml 1 "${controller[@]}"
+
+"$REAL_HELM" template wtf-happend-bot "$root/helm" --values "$CONNECTION_PROFILE" \
+    --show-only templates/release-controller-rbac.yaml "${controller[@]}" > "$work/controller-access.yaml"
+grep -Fq 'kind: NetworkPolicy' "$work/controller-access.yaml"
+grep -Fq '192.0.2.10/32' "$work/controller-access.yaml"
+grep -Fq 'values: [release-bootstrap, release-reconciler]' "$work/controller-access.yaml"
+"$REAL_HELM" template wtf-happend-bot "$root/helm" \
+    --show-only templates/release-controller-rbac.yaml "${controller[@]}" > "$work/default-access.yaml"
+! grep -Fq 'kind: NetworkPolicy' "$work/default-access.yaml"
+! grep -Fq 'networkpolicies' "$work/default-access.yaml"
 
 for name in HOST_RELEASE_ID SPACE_AGENT_TASK_QUEUE SPACE_DREAM_TASK_QUEUE RELEASE_INGRESS_GATE SKIP_MIGRATIONS WORKER_PACKAGE; do
     if "$REAL_HELM" template wtf-happend-bot "$root/helm" \

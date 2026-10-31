@@ -93,3 +93,7 @@ extraVolumeMounts: []
 extraVolumes: []
 nodeSelector: {}
 podLabels: {}
+
+# Additional Kubernetes API egress for release controllers in isolated namespaces.
+# Supply standard NetworkPolicy egress rules; no network changes by default.
+releaseControllerApiEgress: []

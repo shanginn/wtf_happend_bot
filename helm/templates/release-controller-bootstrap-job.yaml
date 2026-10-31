@@ -23,6 +23,9 @@ spec:
     metadata:
       labels:
         {{- include "app.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         app.kubernetes.io/component: release-bootstrap
     spec:
       restartPolicy: Never

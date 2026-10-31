@@ -30,6 +30,9 @@ spec:
     metadata:
       labels:
         {{- include "app.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         app.kubernetes.io/component: release-operation
         app.kubernetes.io/release-id: {{ $releaseLabel | quote }}
         app.kubernetes.io/release-operation: {{ $operation | quote }}
