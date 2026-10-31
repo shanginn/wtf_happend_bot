@@ -31,7 +31,7 @@ recovery_verify_attempts="${RELEASE_RECOVERY_VERIFY_ATTEMPTS:-3}"
 schedule_reconcile_attempts="${DREAM_SCHEDULE_RECONCILE_ATTEMPTS:-3}"
 retry_delay_seconds="${RELEASE_RETRY_DELAY_SECONDS:-10}"
 auto_authorize_delay_seconds="${RELEASE_AUTO_AUTHORIZE_DELAY_SECONDS:-2700}"
-image_pull_secret="${IMAGE_PULL_SECRET:-dockerconfigjson-github-com}"
+image_pull_secret="${IMAGE_PULL_SECRET-dockerconfigjson-github-com}"
 agent_task_queue="${SPACE_AGENT_TASK_QUEUE_BASE:-space-agent-v1}-${host_release_id}"
 dream_task_queue="${SPACE_DREAM_TASK_QUEUE_BASE:-space-dream-v1}-${host_release_id}"
 
@@ -607,6 +607,10 @@ main() {
     # Only the separately applied and successfully exercised controller makes
     # it safe for Helm to replace the combined bot/worker Deployment.
     phase='gated-stable-helm-upgrade'
+    local image_pull_arguments=()
+    if [[ -n "$image_pull_secret" ]]; then
+        image_pull_arguments=(--set-string "imagePullSecrets[0].name=$image_pull_secret")
+    fi
     "$helm_bin" upgrade "$release_name" "$chart_dir" \
             --install \
             --reuse-values \
@@ -625,7 +629,7 @@ main() {
             --set-string env.HOST_RELEASE_ID="$host_release_id" \
             --set-string env.SPACE_AGENT_TASK_QUEUE="$agent_task_queue" \
             --set-string env.SPACE_DREAM_TASK_QUEUE="$dream_task_queue" \
-            --set-string imagePullSecrets[0].name="$image_pull_secret" \
+            "${image_pull_arguments[@]}" \
             --set-string image.digest="$image_digest" \
             --set-string envSecrets.DB_PASSWORD="$DB_PASSWORD" \
             --set-string envSecrets.TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \

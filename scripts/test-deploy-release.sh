@@ -96,4 +96,12 @@ prepare waits_for_active; out="${scenario_dir}/out"; RELEASE_WAIT_ATTEMPTS=2 run
 [[ "$(grep -Fc 'operation release-status' "$scenario_log")" == 2 ]] || fail 'CI did not wait for exact active status'
 missing 'helm rollback' "$scenario_log"
 
+# An explicit empty override retains the stored access instead of referencing
+# an absent legacy registry Secret; an explicit replacement remains supported.
+prepare preserve_registry_access; out="${scenario_dir}/out"; IMAGE_PULL_SECRET='' run success "$out"
+has '--reuse-values' "$scenario_log"
+missing '--set-string imagePullSecrets[0].name=' "$scenario_log"
+prepare override_registry_access; out="${scenario_dir}/out"; IMAGE_PULL_SECRET='fixture-registry' run success "$out"
+has '--set-string imagePullSecrets[0].name=fixture-registry' "$scenario_log"
+
 echo 'deploy-release recovery tests passed'
