@@ -1,7 +1,7 @@
 FROM composer:2 AS composer
 FROM rust:1.94-bookworm AS rust
 
-FROM trueasync/php-true-async:0.8.4-php8.6 AS temporal-builder
+FROM trueasync/php-true-async:0.11.7-php8.6@sha256:38a44c9f0bce2b9d158b6f700be03cadb41595115856e541eaa6251a2d155084 AS temporal-builder
 
 ARG PHP_TEMPORAL_REPOSITORY=https://github.com/shanginn/php-temporal.git
 ARG PHP_TEMPORAL_REF=38d114ab958b7d7df7187deab9f5c05eaed60436
@@ -45,7 +45,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM registry.k8s.io/kubectl:v1.28.3 AS kubectl
 
-FROM trueasync/php-true-async:0.8.4-php8.6 AS runtime
+FROM trueasync/php-true-async:0.11.7-php8.6@sha256:38a44c9f0bce2b9d158b6f700be03cadb41595115856e541eaa6251a2d155084 AS runtime
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git libssl3 unzip \
@@ -58,7 +58,7 @@ COPY --from=temporal-builder /usr/local/lib/libtemporalio_sdk_core_c_bridge.so /
 COPY docker/php/temporal.ini /etc/php.d/20-temporal.ini
 
 RUN ldconfig \
-    && php -r "if (PHP_VERSION_ID < 80600 || !extension_loaded('true_async') || !extension_loaded('temporal')) { exit(1); }" \
+    && php -r "if (PHP_VERSION_ID < 80600 || phpversion('true_async') !== '0.11.7' || !extension_loaded('temporal')) { exit(1); }" \
     && kubectl version --client=true --output=yaml | grep -Fq 'gitVersion: v1.28.3'
 
 RUN groupadd --gid 1337 bot \
