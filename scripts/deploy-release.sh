@@ -463,11 +463,13 @@ render_bootstrap_resource() {
     local destination="$2"
     local auto_authorize_after_epoch="$3"
 
-    local previous_bot_image
+    local previous_bot_image release_values
+    release_values="$("$helm_bin" get values "$release_name" --namespace "$namespace" --all --output json)" || return 1
     previous_bot_image="$("$jq_bin" -er '[.[].containers[] | select(.name == "bot") | .image] | unique | if length == 1 then .[0] else "" end' <<< "$previous_deployment_snapshot")"
     "$helm_bin" template "$release_name" "$chart_dir" \
         --namespace "$namespace" \
         --show-only "$template" \
+        --values <(printf '%s\n' "$release_values") \
         --set releaseReconciler.enabled=true \
         --set releaseControllerBootstrap.enabled=true \
         --set-string releaseControllerBootstrap.id="$host_release_id" \
@@ -607,6 +609,7 @@ main() {
     phase='gated-stable-helm-upgrade'
     "$helm_bin" upgrade "$release_name" "$chart_dir" \
             --install \
+            --reuse-values \
             --atomic \
             --take-ownership \
             --create-namespace \

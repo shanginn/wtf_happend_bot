@@ -43,7 +43,8 @@ if [[ -n "$image_digest" ]]; then
     helm_args+=(--set-string image.digest="$image_digest")
 fi
 
-helm "${helm_args[@]}" > "$manifest"
+release_values="$(helm get values "$release_name" --namespace "$namespace" --all --output json)"
+helm "${helm_args[@]}" --values <(printf '%s\n' "$release_values") > "$manifest"
 
 job_count="$(grep -Ec '^kind: Job$' "$manifest")"
 job_name="$(awk '/^kind: Job$/ { in_job=1; next } in_job && /^metadata:$/ { in_metadata=1; next } in_metadata && /^  name: / { print $2; exit }' "$manifest")"

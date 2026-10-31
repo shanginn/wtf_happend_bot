@@ -56,10 +56,16 @@ spec:
               volumeMounts:
                 - name: release-tools
                   mountPath: /release-tools
+                {{- with .Values.extraVolumeMounts }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
               envFrom:
                 - configMapRef: {name: {{ include "app.fullname" . }}-env}
                 - secretRef: {name: {{ include "app.fullname" . }}-secret}
               env:
+                {{- with .Values.extraEnv }}
+                {{- include "app.extraEnv" $ | nindent 16 }}
+                {{- end }}
                 - name: SKIP_MIGRATIONS
                   value: "true"
                 - name: HOST_RELEASE_ID
@@ -92,4 +98,7 @@ spec:
           volumes:
             - name: release-tools
               emptyDir: {}
+            {{- with .Values.extraVolumes }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
 {{- end }}

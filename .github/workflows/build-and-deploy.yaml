@@ -150,13 +150,10 @@ jobs:
       - name: Verify Helm defaults
         run: bash scripts/verify-helm-defaults.sh
 
-      - name: Save Kube Config
+      - name: Prepare existing unified cluster access
         env:
-          KUBECONFIG: ${{ secrets.KUBECONFIG }}
-        run: |
-          mkdir -p ~/.kube/
-          echo "${KUBECONFIG}" > ~/.kube/config
-          chmod 600 ~/.kube/config
+          WTF_KUBECONFIG: ${{ secrets.KUBECONFIG }}
+        run: python3 scripts/prepare-unified-ci.py
 
       - name: Deploy app
         env:
@@ -166,3 +163,7 @@ jobs:
           IMAGE_DIGEST: ${{ needs.build.outputs.image-digest }}
         run: |
           bash scripts/deploy-release.sh "${IMAGE_DIGEST}"
+
+      - name: Remove private cluster access
+        if: always() && env.WTF_CI_WORK != ''
+        run: python3 scripts/prepare-unified-ci.py --cleanup

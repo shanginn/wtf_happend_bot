@@ -86,3 +86,10 @@ searxng:
   replicas: 1
   image: docker.io/searxng/searxng:latest
   imagePullPolicy: IfNotPresent
+
+# Cluster access and mounted trust material; retained in the Helm release values.
+extraEnv: []
+extraVolumeMounts: []
+extraVolumes: []
+nodeSelector: {}
+podLabels: {}

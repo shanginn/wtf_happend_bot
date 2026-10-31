@@ -22,9 +22,16 @@ spec:
       labels:
         {{- include "app.selectorLabels" . | nindent 8 }}
         service: bot
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       annotations:
         wtf-happend-bot/release-id: {{ .Values.release.id | quote }}
     spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       terminationGracePeriodSeconds: 60
       automountServiceAccountToken: false
       serviceAccountName: {{ include "app.serviceAccountName" . }}
@@ -39,12 +46,25 @@ spec:
           envFrom:
             - configMapRef: {name: {{ include "app.fullname" . }}-env}
             - secretRef: {name: {{ include "app.fullname" . }}-secret}
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           command: ["php", "-r", "require 'config/orm.php';"]
       containers:
         - name: bot
           image: "{{ .Values.image.repository }}{{ if .Values.image.digest }}@{{ .Values.image.digest }}{{ else }}:{{ .Values.image.tag | default .Chart.AppVersion }}{{ end }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          volumeMounts: [{name: php-config, mountPath: /etc/php.ini, subPath: php.ini}, {name: php-config, mountPath: /etc/php.d/opcache.ini, subPath: opcache.ini}]
+          volumeMounts:
+            - {name: php-config, mountPath: /etc/php.ini, subPath: php.ini}
+            - {name: php-config, mountPath: /etc/php.d/opcache.ini, subPath: opcache.ini}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           envFrom:
             - configMapRef: {name: {{ include "app.fullname" . }}-env}
             - secretRef: {name: {{ include "app.fullname" . }}-secret}
@@ -63,11 +83,19 @@ spec:
             - name: SEARCH_BASE_URL
               value: "http://{{ include "app.searxngName" . }}:8080"
             {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- include "app.extraEnv" $ | nindent 12 }}
+            {{- end }}
           command: ["php", "src/bot.php"]
         - name: worker
           image: "{{ .Values.image.repository }}{{ if .Values.image.digest }}@{{ .Values.image.digest }}{{ else }}:{{ .Values.image.tag | default .Chart.AppVersion }}{{ end }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          volumeMounts: [{name: php-config, mountPath: /etc/php.ini, subPath: php.ini}, {name: php-config, mountPath: /etc/php.d/opcache.ini, subPath: opcache.ini}]
+          volumeMounts:
+            - {name: php-config, mountPath: /etc/php.ini, subPath: php.ini}
+            - {name: php-config, mountPath: /etc/php.d/opcache.ini, subPath: opcache.ini}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           envFrom:
             - configMapRef: {name: {{ include "app.fullname" . }}-env}
             - secretRef: {name: {{ include "app.fullname" . }}-secret}
@@ -84,11 +112,19 @@ spec:
             - name: SEARCH_BASE_URL
               value: "http://{{ include "app.searxngName" . }}:8080"
             {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- include "app.extraEnv" $ | nindent 12 }}
+            {{- end }}
           command: ["php", "src/worker.php"]
         - name: dream-worker
           image: "{{ .Values.image.repository }}{{ if .Values.image.digest }}@{{ .Values.image.digest }}{{ else }}:{{ .Values.image.tag | default .Chart.AppVersion }}{{ end }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          volumeMounts: [{name: php-config, mountPath: /etc/php.ini, subPath: php.ini}, {name: php-config, mountPath: /etc/php.d/opcache.ini, subPath: opcache.ini}]
+          volumeMounts:
+            - {name: php-config, mountPath: /etc/php.ini, subPath: php.ini}
+            - {name: php-config, mountPath: /etc/php.d/opcache.ini, subPath: opcache.ini}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           envFrom:
             - configMapRef: {name: {{ include "app.fullname" . }}-env}
             - secretRef: {name: {{ include "app.fullname" . }}-secret}
@@ -105,7 +141,13 @@ spec:
             - name: SEARCH_BASE_URL
               value: "http://{{ include "app.searxngName" . }}:8080"
             {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- include "app.extraEnv" $ | nindent 12 }}
+            {{- end }}
           command: ["php", "src/worker.php"]
       volumes:
         - name: php-config
           configMap: {name: {{ include "app.fullname" . }}-php-config}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}

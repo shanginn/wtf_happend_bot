@@ -125,4 +125,5 @@ if grep -Fq 'continue-on-error:' "$workflow"; then
 fi
 bash "${script_dir}/test-deploy-release.sh"
 bash "${script_dir}/test-reconcile-host-release.sh"
+bash "${script_dir}/test-release-connections.sh"
 echo 'helm release safety checks passed'

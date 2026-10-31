@@ -67,3 +67,17 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/* Connection overrides must not bypass the native release protocol. */}}
+{{- define "app.extraEnv" -}}
+{{- $names := dict -}}
+{{- range .Values.extraEnv -}}
+{{- if or (has .name (list "HOST_RELEASE_ID" "SPACE_AGENT_TASK_QUEUE" "SPACE_DREAM_TASK_QUEUE" "RELEASE_INGRESS_GATE" "SKIP_MIGRATIONS" "WORKER_PACKAGE")) (hasKey $names .name) -}}
+{{- fail (printf "extraEnv cannot override a release control or duplicate %s" .name) -}}
+{{- end -}}
+{{- $_ := set $names .name true -}}
+{{- end -}}
+{{- with .Values.extraEnv -}}
+{{- toYaml . -}}
+{{- end -}}
+{{- end -}}
