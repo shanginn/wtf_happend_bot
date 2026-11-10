@@ -2,170 +2,136 @@ name: Build and Deploy
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
-  group: production-${{ github.workflow }}-${{ github.ref }}
+  group: wtf-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  test:
+    name: Test TypeScript bot
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bot-next
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.10.0'
+          cache: npm
+          cache-dependency-path: bot-next/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+
   build:
+    name: Publish immutable image to GHCR
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    name: Build and push immutable Docker image
-    runs-on: ubuntu-latest
     outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
-
+      image: ${{ steps.image.outputs.name }}
+      digest: ${{ steps.build.outputs.digest }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Convert repository name to lowercase
-        run: echo "REPO_NAME=$(echo ${{ github.repository }} | awk -F '/' '{print tolower($2)}')" >> $GITHUB_ENV
-
-      - name: Build and push Docker image
+      - id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
         id: build
-        uses: docker/build-push-action@v6
         with:
-          target: app
+          context: bot-next
+          file: bot-next/Dockerfile
+          platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ env.REPO_NAME }}:${{ github.sha }}
+          tags: ${{ steps.image.outputs.name }}:${{ github.sha }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  validation:
-    name: Validate immutable release image
-    permissions:
-      contents: read
-      packages: read
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Checkout exact release commit
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Resolve immutable image
+      - name: Verify published container
         env:
-          IMAGE_DIGEST: ${{ needs.build.outputs.image-digest }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          repository="ghcr.io/${REPOSITORY,,}"
-          image_ref="${repository}@${IMAGE_DIGEST}"
-          docker pull "${image_ref}"
-          echo "IMAGE_REF=${image_ref}" >> "${GITHUB_ENV}"
-
-      - name: Verify image provenance and runtime
-        env:
+          IMAGE_REF: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
           EXPECTED_REVISION: ${{ github.sha }}
         run: |
-          actual_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "${IMAGE_REF}")"
-          test "${actual_revision}" = "${EXPECTED_REVISION}"
-          docker run --rm "${IMAGE_REF}" php -r '
-            if (PHP_MAJOR_VERSION !== 8 || PHP_MINOR_VERSION !== 6) { exit(1); }
-            foreach (["true_async", "temporal"] as $extension) {
-                if (!extension_loaded($extension)) { exit(1); }
-            }
-            $version = json_decode(shell_exec("kubectl version --client=true --output=json"), true, 512, JSON_THROW_ON_ERROR);
-            if (($version["clientVersion"]["gitVersion"] ?? null) !== "v1.28.3") { exit(1); }
-          '
-
-      - name: Run full PHPUnit suite in release image
-        run: docker run --rm "${IMAGE_REF}" php vendor/bin/phpunit
-
-      - name: Install Helm
-        uses: azure/setup-helm@v3
-        with:
-          version: v3.17.3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Verify Helm release client
-        run: test "$(helm version --template '{{ .Version }}')" = v3.17.3
-
-      - name: Verify Helm release safety
-        run: bash scripts/verify-helm-defaults.sh
-
-      - name: Set up pinned formatter dependencies
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          tools: composer:v2
-          coverage: none
-
-      - name: Install pinned formatter dependencies
-        run: composer install --working-dir=tools --prefer-dist --no-interaction --no-progress
-
-      - name: Check formatting in release image
-        run: |
-          docker run --rm \
-            --mount "type=bind,src=${PWD}/tools/vendor,dst=/app/tools/vendor,readonly" \
-            --env PHP_CS_FIXER_IGNORE_ENV=1 \
-            "${IMAGE_REF}" \
-            php tools/vendor/bin/php-cs-fixer fix --dry-run --diff --using-cache=no --config=.php-cs-fixer.php
+          docker pull "$IMAGE_REF"
+          revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_REF")"
+          test "$revision" = "$EXPECTED_REVISION"
+          docker run --rm --read-only --tmpfs /tmp "$IMAGE_REF" node dist/src/verify-runtime.js
 
   deploy:
-    permissions:
-      contents: read
+    name: Release production bot
+    needs: [test, build]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
-    needs: [build, validation]
+    timeout-minutes: 20
+    concurrency:
+      group: production-wtf-happend-bot
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: bot-next
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
-
-      - name: Install Helm
-        uses: azure/setup-helm@v3
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          version: v3.17.3
+          node-version: '24.10.0'
+          cache: npm
+          cache-dependency-path: bot-next/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.36.5
+      - name: Check release is still master
+        id: current
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Verify Helm release client
-        run: test "$(helm version --template '{{ .Version }}')" = v3.17.3
-
-      - name: Verify Helm defaults
-        run: bash scripts/verify-helm-defaults.sh
-
-      - name: Prepare existing unified cluster access
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: |
+          actual="$(gh api "repos/${REPOSITORY}/commits/master" --jq .sha)"
+          if [ "$actual" = "$EXPECTED_REVISION" ]; then
+            echo 'release=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'release=false' >> "$GITHUB_OUTPUT"
+            echo 'A newer commit owns the next production release.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Prepare existing namespace access
+        if: steps.current.outputs.release == 'true'
         env:
           WTF_KUBECONFIG: ${{ secrets.KUBECONFIG }}
-        run: python3 scripts/prepare-unified-ci.py
-
-      - name: Deploy app
+        run: node --import tsx scripts/ci-access.ts
+      - name: Run preflight and switch the single poller
+        if: steps.current.outputs.release == 'true'
         env:
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          IMAGE_DIGEST: ${{ needs.build.outputs.image-digest }}
-          # Empty means retain the current Helm registry access, including public images.
-          IMAGE_PULL_SECRET: ${{ vars.IMAGE_PULL_SECRET }}
-        run: |
-          bash scripts/deploy-release.sh "${IMAGE_DIGEST}"
-
+          IMAGE_REF: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+        run: node --import tsx scripts/deploy.ts
       - name: Remove private cluster access
         if: always() && env.WTF_CI_WORK != ''
-        run: python3 scripts/prepare-unified-ci.py --cleanup
+        run: node --import tsx scripts/ci-access.ts --cleanup

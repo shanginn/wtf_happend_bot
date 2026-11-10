@@ -1,0 +1,3249 @@
+{
+  "provenance": {
+    "repository": "https://github.com/google-research/harness2",
+    "commit": "6868817518876de8fd170c6a8354daca273b6191",
+    "license": "Apache-2.0; Copyright 2026 Google LLC",
+    "sources": [
+      "harness2/core/recursion.py",
+      "harness2/core/selection.py",
+      "harness2/core/context.py",
+      "harness2/core/ledger.py"
+    ],
+    "capturedWith": "Unmodified pinned upstream via the original local bridge.py, Python 3.13; deterministic offline callbacks; no provider calls",
+    "normalization": "Trace captures callback labels, evidence paths, editable/pool tree hashes, decision notes, candidate answer text and adoption mapping. Complete upstream ModeResult is preserved; provider callback cost is one USD micro each. Host validates trees separately."
+  },
+  "scenarios": [
+    {
+      "name": "parallel-k1",
+      "k": 1,
+      "mode": "parallel",
+      "behavior": "choose-final",
+      "request": {
+        "taskId": "upstream-parity-parallel-k1",
+        "chatId": "parity-chat",
+        "prompt": "Choose the most useful complete answer.",
+        "base": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+        },
+        "k": 1,
+        "mode": "parallel",
+        "maximumCalls": 40,
+        "maximumCostMicros": 400,
+        "perCallMaximumMicros": 10
+      },
+      "trace": [
+        {
+          "kind": "probe",
+          "label": "base1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "inv1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "propose",
+          "label": "dom1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "probe",
+          "label": "inv1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>inv1"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "dom1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>dom1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "agg1.a1",
+          "evidencePaths": [
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence."
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "agg1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>agg1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "select.agg1",
+          "evidencePaths": [
+            "candidates/A.md",
+            "candidates/B.md",
+            "candidates/C.md",
+            "candidates/D.md",
+            "task.md"
+          ],
+          "harness": {},
+          "pool": {},
+          "decisions": {},
+          "candidates": {
+            "candidates/A.md": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+            "candidates/B.md": "d99ff30a6d2be7769e4018ac6f2d07a129fbba8df0e6a7560f7b91efdb7551ab",
+            "candidates/C.md": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+            "candidates/D.md": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "experience.agg1",
+          "evidencePaths": [
+            "adoption.json",
+            "base_harness/AGENTS.md",
+            "decisions/agg1.md",
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/agg1/INDEX.md",
+            "deliverables/agg1/answer.txt",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/dom1/INDEX.md",
+            "deliverables/dom1/answer.txt",
+            "deliverables/inv1/INDEX.md",
+            "deliverables/inv1/answer.txt",
+            "harness/AGENTS.md",
+            "pool/agg1/harness.diff",
+            "pool/agg1/harness/AGENTS.md",
+            "pool/agg1/produced.md",
+            "pool/agg1/rollout.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/agg1.md",
+            "rollouts/base1.md",
+            "rollouts/dom1.md",
+            "rollouts/inv1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d99ff30a6d2be7769e4018ac6f2d07a129fbba8df0e6a7560f7b91efdb7551ab",
+              "chars": 60
+            }
+          },
+          "pool": {
+            "pool/agg1/harness/AGENTS.md": {
+              "sha256": "d99ff30a6d2be7769e4018ac6f2d07a129fbba8df0e6a7560f7b91efdb7551ab",
+              "chars": 60
+            },
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/agg1.md": "Adopt agg1 evidence.",
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence."
+          },
+          "adoption": {
+            "chosen_label": "agg1",
+            "candidate_ids": {
+              "A": "dom1",
+              "B": "agg1",
+              "C": "base1",
+              "D": "inv1"
+            },
+            "reason": "The complete answer meets the task."
+          }
+        }
+      ],
+      "result": {
+        "engineCommit": "6868817518876de8fd170c6a8354daca273b6191",
+        "tree": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>agg1"
+        },
+        "selectedLabel": "agg1",
+        "experience": {
+          "cue": "Comparing complete outputs",
+          "lesson": "Keep supported changes and retain a strong baseline",
+          "evidence": "The selector compared delivered answers",
+          "confidence": "medium",
+          "edits": "Keep the chosen lineage only."
+        },
+        "summary": {
+          "mode": "agg",
+          "task_id": "b241f635a64b9f7ad487b45a19776f0cbe31cd3971a6a24b78690697a728c93e",
+          "k": 1,
+          "finals": [
+            "agg1"
+          ],
+          "ok": true,
+          "fell_back": [],
+          "kept_base": [],
+          "stages": [
+            {
+              "label": "inv1",
+              "dim": "INV",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt inv1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "dom1",
+              "dim": "DOM",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt dom1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "agg1",
+              "dim": "AGG",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt agg1 evidence.",
+              "error": ""
+            }
+          ],
+          "similarity": {
+            "n": 1,
+            "n_distinct": 1,
+            "mean_line_jaccard": 1
+          },
+          "ledger": {
+            "mode": "agg",
+            "task_id": "b241f635a64b9f7ad487b45a19776f0cbe31cd3971a6a24b78690697a728c93e",
+            "k": 1,
+            "R": 4,
+            "expected_R": 4,
+            "P": 3,
+            "session_attempts": 3,
+            "expected_P": 3,
+            "usd": 0.000003,
+            "rollout_usd": 0,
+            "session_usd": 0.000003,
+            "rollouts": [
+              "base1",
+              "inv1",
+              "dom1",
+              "agg1"
+            ],
+            "sessions": [
+              "inv1",
+              "dom1",
+              "agg1"
+            ]
+          },
+          "errors": []
+        },
+        "calls": 9,
+        "costMicros": 9
+      }
+    },
+    {
+      "name": "sequential-k1",
+      "k": 1,
+      "mode": "sequential",
+      "behavior": "choose-final",
+      "request": {
+        "taskId": "upstream-parity-sequential-k1",
+        "chatId": "parity-chat",
+        "prompt": "Choose the most useful complete answer.",
+        "base": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+        },
+        "k": 1,
+        "mode": "sequential",
+        "maximumCalls": 40,
+        "maximumCostMicros": 400,
+        "perCallMaximumMicros": 10
+      },
+      "trace": [
+        {
+          "kind": "probe",
+          "label": "base1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "inv1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "propose",
+          "label": "dom1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "probe",
+          "label": "inv1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>inv1"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "dom1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>dom1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "c1.a1",
+          "evidencePaths": [
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence."
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "c1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>c1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "select.seq1",
+          "evidencePaths": [
+            "candidates/A.md",
+            "candidates/B.md",
+            "candidates/C.md",
+            "candidates/D.md",
+            "task.md"
+          ],
+          "harness": {},
+          "pool": {},
+          "decisions": {},
+          "candidates": {
+            "candidates/A.md": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+            "candidates/B.md": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+            "candidates/C.md": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+            "candidates/D.md": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "experience.seq1",
+          "evidencePaths": [
+            "adoption.json",
+            "base_harness/AGENTS.md",
+            "decisions/c1.md",
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/c1/INDEX.md",
+            "deliverables/c1/answer.txt",
+            "deliverables/dom1/INDEX.md",
+            "deliverables/dom1/answer.txt",
+            "deliverables/inv1/INDEX.md",
+            "deliverables/inv1/answer.txt",
+            "harness/AGENTS.md",
+            "pool/c1/harness.diff",
+            "pool/c1/harness/AGENTS.md",
+            "pool/c1/produced.md",
+            "pool/c1/rollout.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/base1.md",
+            "rollouts/c1.md",
+            "rollouts/dom1.md",
+            "rollouts/inv1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            }
+          },
+          "pool": {
+            "pool/c1/harness/AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            },
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/c1.md": "Adopt c1 evidence.",
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence."
+          },
+          "adoption": {
+            "chosen_label": "c1",
+            "candidate_ids": {
+              "A": "inv1",
+              "B": "dom1",
+              "C": "c1",
+              "D": "base1"
+            },
+            "reason": "The complete answer meets the task."
+          }
+        }
+      ],
+      "result": {
+        "engineCommit": "6868817518876de8fd170c6a8354daca273b6191",
+        "tree": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>c1"
+        },
+        "selectedLabel": "c1",
+        "experience": {
+          "cue": "Comparing complete outputs",
+          "lesson": "Keep supported changes and retain a strong baseline",
+          "evidence": "The selector compared delivered answers",
+          "confidence": "medium",
+          "edits": "Keep the chosen lineage only."
+        },
+        "summary": {
+          "mode": "seq",
+          "task_id": "99dade2bff5a6462075875bdb7328143e3d4067e6671ed5f17ccec25002758f1",
+          "k": 1,
+          "finals": [
+            "c1"
+          ],
+          "ok": true,
+          "fell_back": [],
+          "kept_base": [],
+          "stages": [
+            {
+              "label": "inv1",
+              "dim": "INV",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt inv1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "dom1",
+              "dim": "DOM",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt dom1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "c1",
+              "dim": "COMPOSE",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt c1 evidence.",
+              "error": ""
+            }
+          ],
+          "similarity": null,
+          "ledger": {
+            "mode": "seq",
+            "task_id": "99dade2bff5a6462075875bdb7328143e3d4067e6671ed5f17ccec25002758f1",
+            "k": 1,
+            "R": 4,
+            "expected_R": 4,
+            "P": 3,
+            "session_attempts": 3,
+            "expected_P": 3,
+            "usd": 0.000003,
+            "rollout_usd": 0,
+            "session_usd": 0.000003,
+            "rollouts": [
+              "base1",
+              "inv1",
+              "dom1",
+              "c1"
+            ],
+            "sessions": [
+              "inv1",
+              "dom1",
+              "c1"
+            ]
+          },
+          "errors": []
+        },
+        "calls": 9,
+        "costMicros": 9
+      }
+    },
+    {
+      "name": "parallel-k2",
+      "k": 2,
+      "mode": "parallel",
+      "behavior": "choose-final",
+      "request": {
+        "taskId": "upstream-parity-parallel-k2",
+        "chatId": "parity-chat",
+        "prompt": "Choose the most useful complete answer.",
+        "base": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+        },
+        "k": 2,
+        "mode": "parallel",
+        "maximumCalls": 40,
+        "maximumCostMicros": 400,
+        "perCallMaximumMicros": 10
+      },
+      "trace": [
+        {
+          "kind": "probe",
+          "label": "base1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "base2",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "inv1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "propose",
+          "label": "dom1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "propose",
+          "label": "inv2.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "propose",
+          "label": "dom2.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "probe",
+          "label": "inv1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>inv1"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "dom1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>dom1"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "inv2",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>inv2"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "dom2",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>dom2"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "agg1.a1",
+          "evidencePaths": [
+            "decisions/dom1.md",
+            "decisions/dom2.md",
+            "decisions/inv1.md",
+            "decisions/inv2.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/dom2/harness.diff",
+            "pool/dom2/harness/AGENTS.md",
+            "pool/dom2/produced.md",
+            "pool/dom2/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "pool/inv2/harness.diff",
+            "pool/inv2/harness/AGENTS.md",
+            "pool/inv2/produced.md",
+            "pool/inv2/rollout.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/dom2/harness/AGENTS.md": {
+              "sha256": "1f1703536363eac6272b753e1d6129479e6ef33262fe825dc2d4bb3d19303f4e",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            },
+            "pool/inv2/harness/AGENTS.md": {
+              "sha256": "95f3cf006b5d1e98141e3124e462671528a3afd6158aca6c61f0967c316d6b79",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/dom2.md": "Adopt dom2 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence.",
+            "decisions/inv2.md": "Adopt inv2 evidence."
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "agg2.a1",
+          "evidencePaths": [
+            "decisions/dom1.md",
+            "decisions/dom2.md",
+            "decisions/inv1.md",
+            "decisions/inv2.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/dom2/harness.diff",
+            "pool/dom2/harness/AGENTS.md",
+            "pool/dom2/produced.md",
+            "pool/dom2/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "pool/inv2/harness.diff",
+            "pool/inv2/harness/AGENTS.md",
+            "pool/inv2/produced.md",
+            "pool/inv2/rollout.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/dom2/harness/AGENTS.md": {
+              "sha256": "1f1703536363eac6272b753e1d6129479e6ef33262fe825dc2d4bb3d19303f4e",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            },
+            "pool/inv2/harness/AGENTS.md": {
+              "sha256": "95f3cf006b5d1e98141e3124e462671528a3afd6158aca6c61f0967c316d6b79",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/dom2.md": "Adopt dom2 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence.",
+            "decisions/inv2.md": "Adopt inv2 evidence."
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "agg1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>agg1"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "agg2",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>agg2"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "select.agg2",
+          "evidencePaths": [
+            "candidates/A.md",
+            "candidates/B.md",
+            "candidates/C.md",
+            "candidates/D.md",
+            "candidates/E.md",
+            "candidates/F.md",
+            "candidates/G.md",
+            "candidates/H.md",
+            "task.md"
+          ],
+          "harness": {},
+          "pool": {},
+          "decisions": {},
+          "candidates": {
+            "candidates/A.md": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+            "candidates/B.md": "d99ff30a6d2be7769e4018ac6f2d07a129fbba8df0e6a7560f7b91efdb7551ab",
+            "candidates/C.md": "95f3cf006b5d1e98141e3124e462671528a3afd6158aca6c61f0967c316d6b79",
+            "candidates/D.md": "1f1703536363eac6272b753e1d6129479e6ef33262fe825dc2d4bb3d19303f4e",
+            "candidates/E.md": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+            "candidates/F.md": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+            "candidates/G.md": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+            "candidates/H.md": "0a25dd738eb476e41776139102f059af8d043c4195b54925ae15ed20219d8fbf"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "experience.agg2",
+          "evidencePaths": [
+            "adoption.json",
+            "base_harness/AGENTS.md",
+            "decisions/agg1.md",
+            "decisions/agg2.md",
+            "decisions/dom1.md",
+            "decisions/dom2.md",
+            "decisions/inv1.md",
+            "decisions/inv2.md",
+            "deliverables/agg1/INDEX.md",
+            "deliverables/agg1/answer.txt",
+            "deliverables/agg2/INDEX.md",
+            "deliverables/agg2/answer.txt",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "deliverables/dom1/INDEX.md",
+            "deliverables/dom1/answer.txt",
+            "deliverables/dom2/INDEX.md",
+            "deliverables/dom2/answer.txt",
+            "deliverables/inv1/INDEX.md",
+            "deliverables/inv1/answer.txt",
+            "deliverables/inv2/INDEX.md",
+            "deliverables/inv2/answer.txt",
+            "harness/AGENTS.md",
+            "pool/agg1/harness.diff",
+            "pool/agg1/harness/AGENTS.md",
+            "pool/agg1/produced.md",
+            "pool/agg1/rollout.md",
+            "pool/agg2/harness.diff",
+            "pool/agg2/harness/AGENTS.md",
+            "pool/agg2/produced.md",
+            "pool/agg2/rollout.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/dom2/harness.diff",
+            "pool/dom2/harness/AGENTS.md",
+            "pool/dom2/produced.md",
+            "pool/dom2/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "pool/inv2/harness.diff",
+            "pool/inv2/harness/AGENTS.md",
+            "pool/inv2/produced.md",
+            "pool/inv2/rollout.md",
+            "rollouts/agg1.md",
+            "rollouts/agg2.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "rollouts/dom1.md",
+            "rollouts/dom2.md",
+            "rollouts/inv1.md",
+            "rollouts/inv2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "0a25dd738eb476e41776139102f059af8d043c4195b54925ae15ed20219d8fbf",
+              "chars": 60
+            }
+          },
+          "pool": {
+            "pool/agg1/harness/AGENTS.md": {
+              "sha256": "d99ff30a6d2be7769e4018ac6f2d07a129fbba8df0e6a7560f7b91efdb7551ab",
+              "chars": 60
+            },
+            "pool/agg2/harness/AGENTS.md": {
+              "sha256": "0a25dd738eb476e41776139102f059af8d043c4195b54925ae15ed20219d8fbf",
+              "chars": 60
+            },
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/dom2/harness/AGENTS.md": {
+              "sha256": "1f1703536363eac6272b753e1d6129479e6ef33262fe825dc2d4bb3d19303f4e",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            },
+            "pool/inv2/harness/AGENTS.md": {
+              "sha256": "95f3cf006b5d1e98141e3124e462671528a3afd6158aca6c61f0967c316d6b79",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/agg1.md": "Adopt agg1 evidence.",
+            "decisions/agg2.md": "Adopt agg2 evidence.",
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/dom2.md": "Adopt dom2 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence.",
+            "decisions/inv2.md": "Adopt inv2 evidence."
+          },
+          "adoption": {
+            "chosen_label": "agg2",
+            "candidate_ids": {
+              "A": "inv1",
+              "B": "agg1",
+              "C": "inv2",
+              "D": "dom2",
+              "E": "base2",
+              "F": "base1",
+              "G": "dom1",
+              "H": "agg2"
+            },
+            "reason": "The complete answer meets the task."
+          }
+        }
+      ],
+      "result": {
+        "engineCommit": "6868817518876de8fd170c6a8354daca273b6191",
+        "tree": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>agg2"
+        },
+        "selectedLabel": "agg2",
+        "experience": {
+          "cue": "Comparing complete outputs",
+          "lesson": "Keep supported changes and retain a strong baseline",
+          "evidence": "The selector compared delivered answers",
+          "confidence": "medium",
+          "edits": "Keep the chosen lineage only."
+        },
+        "summary": {
+          "mode": "agg",
+          "task_id": "52b0cf15b2610107da2d7e086e64d4a08ae560d0132652478b856f2033648fb5",
+          "k": 2,
+          "finals": [
+            "agg1",
+            "agg2"
+          ],
+          "ok": true,
+          "fell_back": [],
+          "kept_base": [],
+          "stages": [
+            {
+              "label": "inv1",
+              "dim": "INV",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt inv1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "dom1",
+              "dim": "DOM",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt dom1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "inv2",
+              "dim": "INV",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt inv2 evidence.",
+              "error": ""
+            },
+            {
+              "label": "dom2",
+              "dim": "DOM",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt dom2 evidence.",
+              "error": ""
+            },
+            {
+              "label": "agg1",
+              "dim": "AGG",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt agg1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "agg2",
+              "dim": "AGG",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt agg2 evidence.",
+              "error": ""
+            }
+          ],
+          "similarity": {
+            "n": 2,
+            "n_distinct": 2,
+            "mean_line_jaccard": 0.3333
+          },
+          "ledger": {
+            "mode": "agg",
+            "task_id": "52b0cf15b2610107da2d7e086e64d4a08ae560d0132652478b856f2033648fb5",
+            "k": 2,
+            "R": 8,
+            "expected_R": 8,
+            "P": 6,
+            "session_attempts": 6,
+            "expected_P": 6,
+            "usd": 0.000006,
+            "rollout_usd": 0,
+            "session_usd": 0.000006,
+            "rollouts": [
+              "base1",
+              "base2",
+              "inv1",
+              "dom1",
+              "inv2",
+              "dom2",
+              "agg1",
+              "agg2"
+            ],
+            "sessions": [
+              "inv1",
+              "dom1",
+              "inv2",
+              "dom2",
+              "agg1",
+              "agg2"
+            ]
+          },
+          "errors": []
+        },
+        "calls": 16,
+        "costMicros": 16
+      }
+    },
+    {
+      "name": "sequential-k2",
+      "k": 2,
+      "mode": "sequential",
+      "behavior": "choose-final",
+      "request": {
+        "taskId": "upstream-parity-sequential-k2",
+        "chatId": "parity-chat",
+        "prompt": "Choose the most useful complete answer.",
+        "base": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+        },
+        "k": 2,
+        "mode": "sequential",
+        "maximumCalls": 40,
+        "maximumCostMicros": 400,
+        "perCallMaximumMicros": 10
+      },
+      "trace": [
+        {
+          "kind": "probe",
+          "label": "base1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "base2",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "inv1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "propose",
+          "label": "dom1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "probe",
+          "label": "inv1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>inv1"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "dom1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>dom1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "c1.a1",
+          "evidencePaths": [
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence."
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "c1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>c1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "inv2.a1",
+          "evidencePaths": [
+            "decisions/c1.md",
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "pool/c1/harness.diff",
+            "pool/c1/harness/AGENTS.md",
+            "pool/c1/produced.md",
+            "pool/c1/rollout.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            }
+          },
+          "pool": {
+            "pool/c1/harness/AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            },
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/c1.md": "Adopt c1 evidence.",
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence."
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "dom2.a1",
+          "evidencePaths": [
+            "decisions/c1.md",
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "pool/c1/harness.diff",
+            "pool/c1/harness/AGENTS.md",
+            "pool/c1/produced.md",
+            "pool/c1/rollout.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            }
+          },
+          "pool": {
+            "pool/c1/harness/AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            },
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/c1.md": "Adopt c1 evidence.",
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence."
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "inv2",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>c1>inv2"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "dom2",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>c1>dom2"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "c2.a1",
+          "evidencePaths": [
+            "decisions/c1.md",
+            "decisions/dom1.md",
+            "decisions/dom2.md",
+            "decisions/inv1.md",
+            "decisions/inv2.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "pool/c1/harness.diff",
+            "pool/c1/harness/AGENTS.md",
+            "pool/c1/produced.md",
+            "pool/c1/rollout.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/dom2/harness.diff",
+            "pool/dom2/harness/AGENTS.md",
+            "pool/dom2/produced.md",
+            "pool/dom2/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "pool/inv2/harness.diff",
+            "pool/inv2/harness/AGENTS.md",
+            "pool/inv2/produced.md",
+            "pool/inv2/rollout.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            }
+          },
+          "pool": {
+            "pool/c1/harness/AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            },
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/dom2/harness/AGENTS.md": {
+              "sha256": "93fb9ecd804c6d7a4499afc0a8ba4ecefdeadf336c6c490d60be0603cd0c0a4e",
+              "chars": 63
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            },
+            "pool/inv2/harness/AGENTS.md": {
+              "sha256": "4b929be3bfdc31d79caaf2d8fe2a367f692823b856a9d9af5e99acc984ec46e5",
+              "chars": 63
+            }
+          },
+          "decisions": {
+            "decisions/c1.md": "Adopt c1 evidence.",
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/dom2.md": "Adopt dom2 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence.",
+            "decisions/inv2.md": "Adopt inv2 evidence."
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "c2",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>c1>c2"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "select.seq2",
+          "evidencePaths": [
+            "candidates/A.md",
+            "candidates/B.md",
+            "candidates/C.md",
+            "candidates/D.md",
+            "candidates/E.md",
+            "candidates/F.md",
+            "candidates/G.md",
+            "candidates/H.md",
+            "task.md"
+          ],
+          "harness": {},
+          "pool": {},
+          "decisions": {},
+          "candidates": {
+            "candidates/A.md": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+            "candidates/B.md": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+            "candidates/C.md": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+            "candidates/D.md": "93fb9ecd804c6d7a4499afc0a8ba4ecefdeadf336c6c490d60be0603cd0c0a4e",
+            "candidates/E.md": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+            "candidates/F.md": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+            "candidates/G.md": "4b929be3bfdc31d79caaf2d8fe2a367f692823b856a9d9af5e99acc984ec46e5",
+            "candidates/H.md": "01f57bda5c750fe8f332f5cb6d85931e97b8e22e589401dc9fe5936546006c92"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "experience.seq2",
+          "evidencePaths": [
+            "adoption.json",
+            "base_harness/AGENTS.md",
+            "decisions/c1.md",
+            "decisions/c2.md",
+            "decisions/dom1.md",
+            "decisions/dom2.md",
+            "decisions/inv1.md",
+            "decisions/inv2.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "deliverables/c1/INDEX.md",
+            "deliverables/c1/answer.txt",
+            "deliverables/c2/INDEX.md",
+            "deliverables/c2/answer.txt",
+            "deliverables/dom1/INDEX.md",
+            "deliverables/dom1/answer.txt",
+            "deliverables/dom2/INDEX.md",
+            "deliverables/dom2/answer.txt",
+            "deliverables/inv1/INDEX.md",
+            "deliverables/inv1/answer.txt",
+            "deliverables/inv2/INDEX.md",
+            "deliverables/inv2/answer.txt",
+            "harness/AGENTS.md",
+            "pool/c1/harness.diff",
+            "pool/c1/harness/AGENTS.md",
+            "pool/c1/produced.md",
+            "pool/c1/rollout.md",
+            "pool/c2/harness.diff",
+            "pool/c2/harness/AGENTS.md",
+            "pool/c2/produced.md",
+            "pool/c2/rollout.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/dom2/harness.diff",
+            "pool/dom2/harness/AGENTS.md",
+            "pool/dom2/produced.md",
+            "pool/dom2/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "pool/inv2/harness.diff",
+            "pool/inv2/harness/AGENTS.md",
+            "pool/inv2/produced.md",
+            "pool/inv2/rollout.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "rollouts/c1.md",
+            "rollouts/c2.md",
+            "rollouts/dom1.md",
+            "rollouts/dom2.md",
+            "rollouts/inv1.md",
+            "rollouts/inv2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "01f57bda5c750fe8f332f5cb6d85931e97b8e22e589401dc9fe5936546006c92",
+              "chars": 61
+            }
+          },
+          "pool": {
+            "pool/c1/harness/AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            },
+            "pool/c2/harness/AGENTS.md": {
+              "sha256": "01f57bda5c750fe8f332f5cb6d85931e97b8e22e589401dc9fe5936546006c92",
+              "chars": 61
+            },
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/dom2/harness/AGENTS.md": {
+              "sha256": "93fb9ecd804c6d7a4499afc0a8ba4ecefdeadf336c6c490d60be0603cd0c0a4e",
+              "chars": 63
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            },
+            "pool/inv2/harness/AGENTS.md": {
+              "sha256": "4b929be3bfdc31d79caaf2d8fe2a367f692823b856a9d9af5e99acc984ec46e5",
+              "chars": 63
+            }
+          },
+          "decisions": {
+            "decisions/c1.md": "Adopt c1 evidence.",
+            "decisions/c2.md": "Adopt c2 evidence.",
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/dom2.md": "Adopt dom2 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence.",
+            "decisions/inv2.md": "Adopt inv2 evidence."
+          },
+          "adoption": {
+            "chosen_label": "c2",
+            "candidate_ids": {
+              "A": "base2",
+              "B": "c1",
+              "C": "base1",
+              "D": "dom2",
+              "E": "dom1",
+              "F": "inv1",
+              "G": "inv2",
+              "H": "c2"
+            },
+            "reason": "The complete answer meets the task."
+          }
+        }
+      ],
+      "result": {
+        "engineCommit": "6868817518876de8fd170c6a8354daca273b6191",
+        "tree": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>c1>c2"
+        },
+        "selectedLabel": "c2",
+        "experience": {
+          "cue": "Comparing complete outputs",
+          "lesson": "Keep supported changes and retain a strong baseline",
+          "evidence": "The selector compared delivered answers",
+          "confidence": "medium",
+          "edits": "Keep the chosen lineage only."
+        },
+        "summary": {
+          "mode": "seq",
+          "task_id": "d8ac9208e2e71937355cfea276560ec74cb8f75e529b63cde0c9ab417fbe5bcb",
+          "k": 2,
+          "finals": [
+            "c1",
+            "c2"
+          ],
+          "ok": true,
+          "fell_back": [],
+          "kept_base": [],
+          "stages": [
+            {
+              "label": "inv1",
+              "dim": "INV",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt inv1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "dom1",
+              "dim": "DOM",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt dom1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "c1",
+              "dim": "COMPOSE",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt c1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "inv2",
+              "dim": "INV",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt inv2 evidence.",
+              "error": ""
+            },
+            {
+              "label": "dom2",
+              "dim": "DOM",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt dom2 evidence.",
+              "error": ""
+            },
+            {
+              "label": "c2",
+              "dim": "COMPOSE",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt c2 evidence.",
+              "error": ""
+            }
+          ],
+          "similarity": null,
+          "ledger": {
+            "mode": "seq",
+            "task_id": "d8ac9208e2e71937355cfea276560ec74cb8f75e529b63cde0c9ab417fbe5bcb",
+            "k": 2,
+            "R": 8,
+            "expected_R": 8,
+            "P": 6,
+            "session_attempts": 6,
+            "expected_P": 6,
+            "usd": 0.000006,
+            "rollout_usd": 0,
+            "session_usd": 0.000006,
+            "rollouts": [
+              "base1",
+              "base2",
+              "inv1",
+              "dom1",
+              "c1",
+              "inv2",
+              "dom2",
+              "c2"
+            ],
+            "sessions": [
+              "inv1",
+              "dom1",
+              "c1",
+              "inv2",
+              "dom2",
+              "c2"
+            ]
+          },
+          "errors": []
+        },
+        "calls": 16,
+        "costMicros": 16
+      }
+    },
+    {
+      "name": "baseline-adoption",
+      "k": 2,
+      "mode": "sequential",
+      "behavior": "choose-baseline",
+      "request": {
+        "taskId": "upstream-parity-baseline-adoption",
+        "chatId": "parity-chat",
+        "prompt": "Choose the most useful complete answer.",
+        "base": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+        },
+        "k": 2,
+        "mode": "sequential",
+        "maximumCalls": 40,
+        "maximumCostMicros": 400,
+        "perCallMaximumMicros": 10
+      },
+      "trace": [
+        {
+          "kind": "probe",
+          "label": "base1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "base2",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "inv1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "propose",
+          "label": "dom1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "probe",
+          "label": "inv1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>inv1"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "dom1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>dom1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "c1.a1",
+          "evidencePaths": [
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence."
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "c1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>c1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "inv2.a1",
+          "evidencePaths": [
+            "decisions/c1.md",
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "pool/c1/harness.diff",
+            "pool/c1/harness/AGENTS.md",
+            "pool/c1/produced.md",
+            "pool/c1/rollout.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            }
+          },
+          "pool": {
+            "pool/c1/harness/AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            },
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/c1.md": "Adopt c1 evidence.",
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence."
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "dom2.a1",
+          "evidencePaths": [
+            "decisions/c1.md",
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "pool/c1/harness.diff",
+            "pool/c1/harness/AGENTS.md",
+            "pool/c1/produced.md",
+            "pool/c1/rollout.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            }
+          },
+          "pool": {
+            "pool/c1/harness/AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            },
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/c1.md": "Adopt c1 evidence.",
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence."
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "inv2",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>c1>inv2"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "dom2",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>c1>dom2"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "c2.a1",
+          "evidencePaths": [
+            "decisions/c1.md",
+            "decisions/dom1.md",
+            "decisions/dom2.md",
+            "decisions/inv1.md",
+            "decisions/inv2.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "harness/AGENTS.md",
+            "pool/c1/harness.diff",
+            "pool/c1/harness/AGENTS.md",
+            "pool/c1/produced.md",
+            "pool/c1/rollout.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/dom2/harness.diff",
+            "pool/dom2/harness/AGENTS.md",
+            "pool/dom2/produced.md",
+            "pool/dom2/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "pool/inv2/harness.diff",
+            "pool/inv2/harness/AGENTS.md",
+            "pool/inv2/produced.md",
+            "pool/inv2/rollout.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            }
+          },
+          "pool": {
+            "pool/c1/harness/AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            },
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/dom2/harness/AGENTS.md": {
+              "sha256": "93fb9ecd804c6d7a4499afc0a8ba4ecefdeadf336c6c490d60be0603cd0c0a4e",
+              "chars": 63
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            },
+            "pool/inv2/harness/AGENTS.md": {
+              "sha256": "4b929be3bfdc31d79caaf2d8fe2a367f692823b856a9d9af5e99acc984ec46e5",
+              "chars": 63
+            }
+          },
+          "decisions": {
+            "decisions/c1.md": "Adopt c1 evidence.",
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/dom2.md": "Adopt dom2 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence.",
+            "decisions/inv2.md": "Adopt inv2 evidence."
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "c2",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>c1>c2"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "select.seq2",
+          "evidencePaths": [
+            "candidates/A.md",
+            "candidates/B.md",
+            "candidates/C.md",
+            "candidates/D.md",
+            "candidates/E.md",
+            "candidates/F.md",
+            "candidates/G.md",
+            "candidates/H.md",
+            "task.md"
+          ],
+          "harness": {},
+          "pool": {},
+          "decisions": {},
+          "candidates": {
+            "candidates/A.md": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+            "candidates/B.md": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+            "candidates/C.md": "01f57bda5c750fe8f332f5cb6d85931e97b8e22e589401dc9fe5936546006c92",
+            "candidates/D.md": "93fb9ecd804c6d7a4499afc0a8ba4ecefdeadf336c6c490d60be0603cd0c0a4e",
+            "candidates/E.md": "4b929be3bfdc31d79caaf2d8fe2a367f692823b856a9d9af5e99acc984ec46e5",
+            "candidates/F.md": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+            "candidates/G.md": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+            "candidates/H.md": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "experience.seq2",
+          "evidencePaths": [
+            "adoption.json",
+            "base_harness/AGENTS.md",
+            "decisions/c1.md",
+            "decisions/c2.md",
+            "decisions/dom1.md",
+            "decisions/dom2.md",
+            "decisions/inv1.md",
+            "decisions/inv2.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/base2/INDEX.md",
+            "deliverables/base2/answer.txt",
+            "deliverables/c1/INDEX.md",
+            "deliverables/c1/answer.txt",
+            "deliverables/c2/INDEX.md",
+            "deliverables/c2/answer.txt",
+            "deliverables/dom1/INDEX.md",
+            "deliverables/dom1/answer.txt",
+            "deliverables/dom2/INDEX.md",
+            "deliverables/dom2/answer.txt",
+            "deliverables/inv1/INDEX.md",
+            "deliverables/inv1/answer.txt",
+            "deliverables/inv2/INDEX.md",
+            "deliverables/inv2/answer.txt",
+            "harness/AGENTS.md",
+            "pool/c1/harness.diff",
+            "pool/c1/harness/AGENTS.md",
+            "pool/c1/produced.md",
+            "pool/c1/rollout.md",
+            "pool/c2/harness.diff",
+            "pool/c2/harness/AGENTS.md",
+            "pool/c2/produced.md",
+            "pool/c2/rollout.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/dom2/harness.diff",
+            "pool/dom2/harness/AGENTS.md",
+            "pool/dom2/produced.md",
+            "pool/dom2/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "pool/inv2/harness.diff",
+            "pool/inv2/harness/AGENTS.md",
+            "pool/inv2/produced.md",
+            "pool/inv2/rollout.md",
+            "rollouts/base1.md",
+            "rollouts/base2.md",
+            "rollouts/c1.md",
+            "rollouts/c2.md",
+            "rollouts/dom1.md",
+            "rollouts/dom2.md",
+            "rollouts/inv1.md",
+            "rollouts/inv2.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {
+            "pool/c1/harness/AGENTS.md": {
+              "sha256": "46702a575100be8ff7abd7778c33d433c190e4779a10d7e32f8a8ccb22c88cfb",
+              "chars": 58
+            },
+            "pool/c2/harness/AGENTS.md": {
+              "sha256": "01f57bda5c750fe8f332f5cb6d85931e97b8e22e589401dc9fe5936546006c92",
+              "chars": 61
+            },
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/dom2/harness/AGENTS.md": {
+              "sha256": "93fb9ecd804c6d7a4499afc0a8ba4ecefdeadf336c6c490d60be0603cd0c0a4e",
+              "chars": 63
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            },
+            "pool/inv2/harness/AGENTS.md": {
+              "sha256": "4b929be3bfdc31d79caaf2d8fe2a367f692823b856a9d9af5e99acc984ec46e5",
+              "chars": 63
+            }
+          },
+          "decisions": {
+            "decisions/c1.md": "Adopt c1 evidence.",
+            "decisions/c2.md": "Adopt c2 evidence.",
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/dom2.md": "Adopt dom2 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence.",
+            "decisions/inv2.md": "Adopt inv2 evidence."
+          },
+          "adoption": {
+            "chosen_label": "base1",
+            "candidate_ids": {
+              "A": "c1",
+              "B": "dom1",
+              "C": "c2",
+              "D": "dom2",
+              "E": "inv2",
+              "F": "base1",
+              "G": "base2",
+              "H": "inv1"
+            },
+            "reason": "The complete answer meets the task."
+          }
+        }
+      ],
+      "result": {
+        "engineCommit": "6868817518876de8fd170c6a8354daca273b6191",
+        "tree": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+        },
+        "selectedLabel": "base1",
+        "experience": {
+          "cue": "Comparing complete outputs",
+          "lesson": "Keep supported changes and retain a strong baseline",
+          "evidence": "The selector compared delivered answers",
+          "confidence": "medium",
+          "edits": "Keep the chosen lineage only."
+        },
+        "summary": {
+          "mode": "seq",
+          "task_id": "55ca78a944d8d66e00921f3e40d98f0e2ea5e199e56c5cfad89568564514708d",
+          "k": 2,
+          "finals": [
+            "c1",
+            "c2"
+          ],
+          "ok": true,
+          "fell_back": [],
+          "kept_base": [],
+          "stages": [
+            {
+              "label": "inv1",
+              "dim": "INV",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt inv1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "dom1",
+              "dim": "DOM",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt dom1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "c1",
+              "dim": "COMPOSE",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt c1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "inv2",
+              "dim": "INV",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt inv2 evidence.",
+              "error": ""
+            },
+            {
+              "label": "dom2",
+              "dim": "DOM",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt dom2 evidence.",
+              "error": ""
+            },
+            {
+              "label": "c2",
+              "dim": "COMPOSE",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt c2 evidence.",
+              "error": ""
+            }
+          ],
+          "similarity": null,
+          "ledger": {
+            "mode": "seq",
+            "task_id": "55ca78a944d8d66e00921f3e40d98f0e2ea5e199e56c5cfad89568564514708d",
+            "k": 2,
+            "R": 8,
+            "expected_R": 8,
+            "P": 6,
+            "session_attempts": 6,
+            "expected_P": 6,
+            "usd": 0.000006,
+            "rollout_usd": 0,
+            "session_usd": 0.000006,
+            "rollouts": [
+              "base1",
+              "base2",
+              "inv1",
+              "dom1",
+              "c1",
+              "inv2",
+              "dom2",
+              "c2"
+            ],
+            "sessions": [
+              "inv1",
+              "dom1",
+              "c1",
+              "inv2",
+              "dom2",
+              "c2"
+            ]
+          },
+          "errors": []
+        },
+        "calls": 16,
+        "costMicros": 16
+      }
+    },
+    {
+      "name": "proposal-validation-retry",
+      "k": 1,
+      "mode": "parallel",
+      "behavior": "invalid-proposal-once",
+      "request": {
+        "taskId": "upstream-parity-proposal-validation-retry",
+        "chatId": "parity-chat",
+        "prompt": "Choose the most useful complete answer.",
+        "base": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+        },
+        "k": 1,
+        "mode": "parallel",
+        "maximumCalls": 40,
+        "maximumCostMicros": 400,
+        "perCallMaximumMicros": 10
+      },
+      "trace": [
+        {
+          "kind": "probe",
+          "label": "base1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "inv1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "propose",
+          "label": "inv1.a2",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d7c8dd4b019bc6cac896ccbf279967c3c8b4f61bd6a7172a7dce113e18ec85bf",
+              "chars": 16001
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "propose",
+          "label": "dom1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "probe",
+          "label": "inv1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>inv1"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "dom1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>dom1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "agg1.a1",
+          "evidencePaths": [
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence."
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "agg1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>agg1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "select.agg1",
+          "evidencePaths": [
+            "candidates/A.md",
+            "candidates/B.md",
+            "candidates/C.md",
+            "candidates/D.md",
+            "task.md"
+          ],
+          "harness": {},
+          "pool": {},
+          "decisions": {},
+          "candidates": {
+            "candidates/A.md": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+            "candidates/B.md": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+            "candidates/C.md": "d99ff30a6d2be7769e4018ac6f2d07a129fbba8df0e6a7560f7b91efdb7551ab",
+            "candidates/D.md": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "experience.agg1",
+          "evidencePaths": [
+            "adoption.json",
+            "base_harness/AGENTS.md",
+            "decisions/agg1.md",
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/agg1/INDEX.md",
+            "deliverables/agg1/answer.txt",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "deliverables/dom1/INDEX.md",
+            "deliverables/dom1/answer.txt",
+            "deliverables/inv1/INDEX.md",
+            "deliverables/inv1/answer.txt",
+            "harness/AGENTS.md",
+            "pool/agg1/harness.diff",
+            "pool/agg1/harness/AGENTS.md",
+            "pool/agg1/produced.md",
+            "pool/agg1/rollout.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/agg1.md",
+            "rollouts/base1.md",
+            "rollouts/dom1.md",
+            "rollouts/inv1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d99ff30a6d2be7769e4018ac6f2d07a129fbba8df0e6a7560f7b91efdb7551ab",
+              "chars": 60
+            }
+          },
+          "pool": {
+            "pool/agg1/harness/AGENTS.md": {
+              "sha256": "d99ff30a6d2be7769e4018ac6f2d07a129fbba8df0e6a7560f7b91efdb7551ab",
+              "chars": 60
+            },
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/agg1.md": "Adopt agg1 evidence.",
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence."
+          },
+          "adoption": {
+            "chosen_label": "agg1",
+            "candidate_ids": {
+              "A": "inv1",
+              "B": "dom1",
+              "C": "agg1",
+              "D": "base1"
+            },
+            "reason": "The complete answer meets the task."
+          }
+        }
+      ],
+      "result": {
+        "engineCommit": "6868817518876de8fd170c6a8354daca273b6191",
+        "tree": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>agg1"
+        },
+        "selectedLabel": "agg1",
+        "experience": {
+          "cue": "Comparing complete outputs",
+          "lesson": "Keep supported changes and retain a strong baseline",
+          "evidence": "The selector compared delivered answers",
+          "confidence": "medium",
+          "edits": "Keep the chosen lineage only."
+        },
+        "summary": {
+          "mode": "agg",
+          "task_id": "7fad3f27baa167b1f194b4b60f7045669a2d2b269259553a949227fa2b26a984",
+          "k": 1,
+          "finals": [
+            "agg1"
+          ],
+          "ok": true,
+          "fell_back": [],
+          "kept_base": [],
+          "stages": [
+            {
+              "label": "inv1",
+              "dim": "INV",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 2,
+              "usd": 0.000002,
+              "cached": false,
+              "notes": "Adopt inv1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "dom1",
+              "dim": "DOM",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt dom1 evidence.",
+              "error": ""
+            },
+            {
+              "label": "agg1",
+              "dim": "AGG",
+              "fell_back": false,
+              "kept_base": false,
+              "execution_failed": false,
+              "attempts": 1,
+              "usd": 0.000001,
+              "cached": false,
+              "notes": "Adopt agg1 evidence.",
+              "error": ""
+            }
+          ],
+          "similarity": {
+            "n": 1,
+            "n_distinct": 1,
+            "mean_line_jaccard": 1
+          },
+          "ledger": {
+            "mode": "agg",
+            "task_id": "7fad3f27baa167b1f194b4b60f7045669a2d2b269259553a949227fa2b26a984",
+            "k": 1,
+            "R": 4,
+            "expected_R": 4,
+            "P": 3,
+            "session_attempts": 4,
+            "expected_P": 3,
+            "usd": 0.000004,
+            "rollout_usd": 0,
+            "session_usd": 0.000004,
+            "rollouts": [
+              "base1",
+              "inv1",
+              "dom1",
+              "agg1"
+            ],
+            "sessions": [
+              "inv1",
+              "dom1",
+              "agg1"
+            ]
+          },
+          "errors": []
+        },
+        "calls": 10,
+        "costMicros": 10
+      }
+    },
+    {
+      "name": "proposal-validation-exhausted",
+      "k": 1,
+      "mode": "parallel",
+      "behavior": "invalid-proposal-always",
+      "request": {
+        "taskId": "upstream-parity-proposal-validation-exhausted",
+        "chatId": "parity-chat",
+        "prompt": "Choose the most useful complete answer.",
+        "base": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+        },
+        "k": 1,
+        "mode": "parallel",
+        "maximumCalls": 40,
+        "maximumCostMicros": 400,
+        "perCallMaximumMicros": 10
+      },
+      "trace": [
+        {
+          "kind": "probe",
+          "label": "base1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "inv1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "propose",
+          "label": "inv1.a2",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d7c8dd4b019bc6cac896ccbf279967c3c8b4f61bd6a7172a7dce113e18ec85bf",
+              "chars": 16001
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "propose",
+          "label": "dom1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "probe",
+          "label": "inv1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "dom1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>dom1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "agg1.a1",
+          "evidencePaths": [
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "decisions": {
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "always-on content is 16001 chars, over the 16000 cap; Keep conversational context small"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "agg1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>agg1"
+          }
+        }
+      ],
+      "failure": {
+        "engineError": "RuntimeError",
+        "calls": 8,
+        "costMicros": 8
+      }
+    },
+    {
+      "name": "selection-invalid-no-retry",
+      "k": 1,
+      "mode": "parallel",
+      "behavior": "invalid-selection",
+      "request": {
+        "taskId": "upstream-parity-selection-invalid-no-retry",
+        "chatId": "parity-chat",
+        "prompt": "Choose the most useful complete answer.",
+        "base": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+        },
+        "k": 1,
+        "mode": "parallel",
+        "maximumCalls": 40,
+        "maximumCostMicros": 400,
+        "perCallMaximumMicros": 10
+      },
+      "trace": [
+        {
+          "kind": "probe",
+          "label": "base1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "inv1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "propose",
+          "label": "dom1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "probe",
+          "label": "inv1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>inv1"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "dom1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>dom1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "agg1.a1",
+          "evidencePaths": [
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+              "chars": 60
+            }
+          },
+          "decisions": {
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "Adopt inv1 evidence."
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "agg1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>agg1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "select.agg1",
+          "evidencePaths": [
+            "candidates/A.md",
+            "candidates/B.md",
+            "candidates/C.md",
+            "candidates/D.md",
+            "task.md"
+          ],
+          "harness": {},
+          "pool": {},
+          "decisions": {},
+          "candidates": {
+            "candidates/A.md": "f86aaad6533fd04daac11e5dbab633baf2279d30f90a8ff1b74c23c3edf27d5b",
+            "candidates/B.md": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+            "candidates/C.md": "d99ff30a6d2be7769e4018ac6f2d07a129fbba8df0e6a7560f7b91efdb7551ab",
+            "candidates/D.md": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e"
+          }
+        }
+      ],
+      "failure": {
+        "engineError": "RuntimeError",
+        "calls": 8,
+        "costMicros": 8
+      }
+    },
+    {
+      "name": "proposal-malformed-no-retry",
+      "k": 1,
+      "mode": "parallel",
+      "behavior": "malformed-proposal",
+      "request": {
+        "taskId": "upstream-parity-proposal-malformed-no-retry",
+        "chatId": "parity-chat",
+        "prompt": "Choose the most useful complete answer.",
+        "base": {
+          "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+        },
+        "k": 1,
+        "mode": "parallel",
+        "maximumCalls": 40,
+        "maximumCostMicros": 400,
+        "perCallMaximumMicros": 10
+      },
+      "trace": [
+        {
+          "kind": "probe",
+          "label": "base1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "inv1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "propose",
+          "label": "dom1.a1",
+          "evidencePaths": [
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {},
+          "decisions": {}
+        },
+        {
+          "kind": "probe",
+          "label": "inv1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "dom1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>dom1"
+          }
+        },
+        {
+          "kind": "propose",
+          "label": "agg1.a1",
+          "evidencePaths": [
+            "decisions/dom1.md",
+            "decisions/inv1.md",
+            "deliverables/base1/INDEX.md",
+            "deliverables/base1/answer.txt",
+            "harness/AGENTS.md",
+            "pool/dom1/harness.diff",
+            "pool/dom1/harness/AGENTS.md",
+            "pool/dom1/produced.md",
+            "pool/dom1/rollout.md",
+            "pool/inv1/harness.diff",
+            "pool/inv1/harness/AGENTS.md",
+            "pool/inv1/produced.md",
+            "pool/inv1/rollout.md",
+            "rollouts/base1.md",
+            "task.md"
+          ],
+          "harness": {
+            "AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "pool": {
+            "pool/dom1/harness/AGENTS.md": {
+              "sha256": "bcf95698154bd6581ab59d2c69f61b30e330ec7db7f6e02ec312689f2bcf0bad",
+              "chars": 60
+            },
+            "pool/inv1/harness/AGENTS.md": {
+              "sha256": "d5d1ab8c0f583eb7c40136d1a61fb938b411680a4ac290bf4a9d140b74d6d08e",
+              "chars": 55
+            }
+          },
+          "decisions": {
+            "decisions/dom1.md": "Adopt dom1 evidence.",
+            "decisions/inv1.md": "A harness must have between 1 and 100 files"
+          }
+        },
+        {
+          "kind": "probe",
+          "label": "agg1",
+          "tree": {
+            "AGENTS.md": "Read the entire evidence before deciding.\nlineage: root>agg1"
+          }
+        }
+      ],
+      "failure": {
+        "engineError": "RuntimeError",
+        "calls": 7,
+        "costMicros": 7
+      }
+    }
+  ]
+}

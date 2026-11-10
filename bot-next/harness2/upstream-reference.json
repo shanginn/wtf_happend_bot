@@ -1,0 +1,30 @@
+{
+  "repository": "https://github.com/google-research/harness2",
+  "commit": "6868817518876de8fd170c6a8354daca273b6191",
+  "license": "Apache-2.0",
+  "implementation": "wtf-harness2-typescript-v1",
+  "notice": "Provenance of the source used for a modified TypeScript port. These hashes identify original upstream source files; those files are not distributed or executed here.",
+  "originalSourceSha256": {
+    "LICENSE": "8c6db340475136df3c1201d458fa5755698eace76e510471ecc9d857d6083dac",
+    "harness2/__init__.py": "ab337317d4a339d454d585761db6f4bac0cf5115faf3f90cae05fafbf2f65705",
+    "harness2/config.py": "103c2e8389120f30b19ae3dcc8d2baf04e06e822e62ee01f28a890a0303b256d",
+    "harness2/core/__init__.py": "f4edcef689088d7af36216bf83bb63fbfed5d6aacfc70fd4632de81475df3189",
+    "harness2/core/context.py": "b6f0f5ec7becc0da9b56ed81fe4a6eca973153c7485ab1ac2364a713cac6ad29",
+    "harness2/core/ledger.py": "96184463fb0efb82e7fb22dd49735c4208d72ab06dd21d8c89d50e606f86229d",
+    "harness2/core/library.py": "f2460a0d5f3b18d7825ff93e9a11b5d809b319c31d9162042620c95cd5c7999e",
+    "harness2/core/prompts.py": "c1bd72b392b3dcaae188454596832a78a531325befe69c033e8620a6eef877d2",
+    "harness2/core/proposer.py": "ec18673dbd98db66db22b134a58aff3f2a0407380d408ede31a6084331954226",
+    "harness2/core/recursion.py": "a61bc4bb8957d67105d6d104b982035358ca8c8e4e35b341195f2804658c75c4",
+    "harness2/core/selection.py": "fe10fa1e6281c5e984bb6380de8ee93fd7e18e2c750d025c0c2d11c2bf321391",
+    "harness2/core/spec.py": "f7e0237f627feffa9fb27f6af833850ff0f45170f52e80bc9c3d24e87bb1ee60",
+    "harness2/core/tree.py": "a714607b1058ef4c08487296d0ceb609cdd805631ef618528026192875f25a28"
+  },
+  "portedModules": [
+    "src/harness2/core.ts",
+    "src/harness2/context.ts",
+    "src/harness2/prompts.ts",
+    "src/harness2/selection.ts",
+    "src/harness2/library.ts",
+    "src/harness2/types.ts"
+  ]
+}

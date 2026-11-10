@@ -1,0 +1,8 @@
+.env
+.env.*
+var
+node_modules
+dist
+test
+.git
+README.md

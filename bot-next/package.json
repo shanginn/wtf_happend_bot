@@ -1,0 +1,30 @@
+{
+  "name": "wtf-chat-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import tsx --test test/*.test.ts",
+    "start": "node --env-file-if-exists=.env --import tsx src/main.ts",
+    "cli": "node --env-file-if-exists=.env --import tsx src/cli.ts",
+    "migrate": "node --env-file-if-exists=.env --import tsx src/cli.ts migrate",
+    "evolve": "node --env-file-if-exists=.env --import tsx src/cli.ts evolve"
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.5.0",
+    "@earendil-works/pi-ai": "1.5.0",
+    "@earendil-works/pi-durable": "1.5.0",
+    "@earendil-works/pi-codemode": "1.5.0",
+    "@earendil-works/pi-schema": "1.5.0",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.5",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
