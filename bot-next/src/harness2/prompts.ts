@@ -115,4 +115,3 @@ export function experience(): string {
     '# OUTPUT FORMAT\n\n<edits>\ncomponent: <name as it appears in the harness tree>\ncandidates: <the labels that carried this edit>\nchange: <what the edit did>\nobserved: <the execution difference, and where you saw it>\nverdict: <helped|hurt|no observed effect|confounded>\n(repeat these five lines for each changed component)\n</edits>\n\n<experience>\ncue: <the shape of situation this applies to>\nlesson: <the transferable operation, naming the component>\nevidence: <the edit rows this rests on, and the execution contrast>\nconfidence: <high|medium|low, and why>\n</experience>',
   ].join('\n\n'));
 }
-
