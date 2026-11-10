@@ -20,10 +20,12 @@ import { queueCompletedMedia } from './delivery.js';
 import { canManageChat } from './chat-policy.js';
 
 export function projectMessage(message: TelegramMessage) {
-  return { id: message.message_id, date: new Date(message.date * 1000).toISOString(),
+  return { id: message.message_id, chat_id: message.chat.id, message_thread_id: message.message_thread_id, date: new Date(message.date * 1000).toISOString(),
     author: message.from ? { id: message.from.id, name: message.from.first_name, username: message.from.username } : { senderChat: message.sender_chat?.id },
     text: (message.text ?? message.caption ?? '').slice(0,8000), image: Boolean(message.photo?.length),
-    replyTo: message.reply_to_message?.message_id };
+    files: { photo: message.photo, document: message.document, video: message.video, animation: message.animation, audio: message.audio, voice: message.voice, sticker: message.sticker },
+    poll: message.poll, replyTo: message.reply_to_message?.message_id,
+    replyPoll: message.reply_to_message?.poll };
 }
 
 /** A separate SQLite lock is held for the process lifetime and releases on crash. */
@@ -51,7 +53,7 @@ export async function main(): Promise<void> {
   const learning = new Learning(store, budget, config.dataDir);
   learning.recoverInterrupted();
   const runtime = new Runtime({ directory: join(config.dataDir, 'pi'), provider: config.provider, model: config.model,
-    budget, memory, store, stars, media, extraTools: chat => learning.tools(chat) });
+    budget, memory, store, stars, media, telegram, extraTools: chat => learning.tools(chat) });
   runtime.quote(); // fail before polling if model identity or pricing is missing
   const jev = new Jev(config.jevKey, config.jevModel, budget, fetch, config.jevProvider);
   let stopped = false;
@@ -69,7 +71,7 @@ export async function main(): Promise<void> {
     store.status(item.id, 'processing');
     const update = JSON.parse(item.payload) as TelegramUpdate;
     const message = update.message ?? update.edited_message;
-    if (!message || message.successful_payment || message.refunded_payment || message.from?.is_bot || !(message.text || message.caption || message.photo?.length)) { store.status(item.id, 'done'); return; }
+    if (!message || message.successful_payment || message.refunded_payment || message.from?.is_bot || !(message.text || message.caption || message.photo?.length || message.document || message.video || message.animation || message.audio || message.voice || message.sticker || message.poll)) { store.status(item.id, 'done'); return; }
     const text = message.text ?? message.caption ?? '';
     const match = /^\/(\w+)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$/s.exec(text);
     if (match && match[2] && match[2].toLowerCase() !== identity.username?.toLowerCase()) { store.status(item.id, 'done'); return; }

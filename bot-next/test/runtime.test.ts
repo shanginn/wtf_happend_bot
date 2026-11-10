@@ -11,6 +11,7 @@ import { MemoryStore } from '../src/memory.js';
 import { Store } from '../src/store.js';
 import { Stars } from '../src/stars.js';
 import { Runtime } from '../src/runtime.js';
+import { Telegram } from '../src/telegram.js';
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'wtf-pi-runtime-test-'));
@@ -21,7 +22,7 @@ async function fixture() {
   const stars = new Stars(db, { signingKey: 'x'.repeat(32), botId: 'offline' });
   const options = { directory, provider: 'offline', model: 'test', models, memory, store, budget, stars };
   const runtimes: Runtime[] = [];
-  return { provider, memory, store, budget, create() { const runtime = new Runtime(options); runtimes.push(runtime); return runtime; },
+  return { provider, memory, store, budget, create(telegram?: Telegram) { const runtime = new Runtime({ ...options, telegram }); runtimes.push(runtime); return runtime; },
     async close() { for (const runtime of runtimes) await runtime.close(); db.close(); await rm(directory, { recursive: true, force: true }); } };
 }
 
@@ -39,6 +40,41 @@ test('official Pi Durable responds and reuses persisted root and submission afte
     f.provider.appendResponses([fauxAssistantMessage('Другой чат')]);
     assert.equal(await restarted.respond('-200', 'update:1', 'Привет'), 'Другой чат');
     assert.equal(f.provider.state.callCount, 2);
+  } finally { await f.close(); }
+});
+
+test('existing Pi root gains the universal Telegram API tool and creates a real poll through it', { timeout: 10_000 }, async () => {
+  const f = await fixture();
+  try {
+    f.provider.setResponses([fauxAssistantMessage('Привет!')]);
+    const old = f.create(); await old.respond('-100', 'before:upgrade', 'Привет'); await old.close();
+    let requests = 0;
+    const telegram = new Telegram('private-token', async (url, init) => {
+      assert.equal(String(url).split('/').at(-1), 'sendPoll');
+      assert.deepEqual(JSON.parse(init!.body as string), { chat_id: '-100', message_thread_id: 17, question: 'Восстанавливать память?', options: [{ text: 'Да' }, { text: 'Нет' }], is_anonymous: false });
+      requests++;
+      return Response.json({ ok: true, result: { message_id: 42, poll: { id: 'telegram-poll-id' } } });
+    });
+    f.provider.appendResponses([
+      context => {
+        const tool = context.messages.flatMap(message => message.role === 'system' ? message.toolsAdded ?? [] : []).find(tool => tool.name === 'telegram_api');
+        assert.ok(tool, 'the persisted Pi root must see the new tool on restart');
+        assert.ok(tool.description.includes('-100'));
+        return fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendPoll', parameters: { chat_id: '-100', message_thread_id: 17, question: 'Восстанавливать память?', options: [{ text: 'Да' }, { text: 'Нет' }], is_anonymous: false } }), { stopReason: 'toolUse' });
+      },
+      context => {
+        const results = context.messages.filter(m => m.role === 'toolResult');
+        assert.equal(results.at(-1)?.isError, false);
+        assert.ok(JSON.stringify(results).includes('telegram-poll-id'));
+        assert.ok(!JSON.stringify(context).includes('private-token'));
+        return fauxAssistantMessage('Опрос создан.');
+      },
+    ]);
+    const upgraded = f.create(telegram);
+    assert.equal(await upgraded.respond('-100', 'poll:1', 'Создай опрос, стоит ли восстанавливать память, в теме 17'), 'Опрос создан.');
+    await upgraded.close();
+    assert.equal(await f.create(telegram).respond('-100', 'poll:1', 'Создай опрос, стоит ли восстанавливать память, в теме 17'), 'Опрос создан.');
+    assert.equal(requests, 1, 'replaying Pi input must not create a second poll');
   } finally { await f.close(); }
 });
 

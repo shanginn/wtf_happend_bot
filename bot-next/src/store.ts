@@ -16,10 +16,11 @@ export class Store {
     db.exec(`CREATE TABLE IF NOT EXISTS ingress(id INTEGER PRIMARY KEY, chat TEXT NOT NULL, payload TEXT NOT NULL, decision TEXT, status TEXT NOT NULL DEFAULT 'pending');
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS outgoing(id TEXT PRIMARY KEY, chat TEXT NOT NULL, method TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', result TEXT);
+      CREATE TABLE IF NOT EXISTS telegram_calls(id TEXT PRIMARY KEY, chat TEXT NOT NULL, request_hash TEXT NOT NULL, status TEXT NOT NULL, result TEXT);
       CREATE TABLE IF NOT EXISTS chat_entities(id TEXT PRIMARY KEY, type TEXT, title TEXT, active INTEGER NOT NULL DEFAULT 1, first_seen_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL);`);
   }
   /** Only the process holding the owner lock may perform startup recovery. */
-  recoverInterrupted(): void { this.db.exec("UPDATE outgoing SET status='unknown' WHERE status='sending'; UPDATE ingress SET status='pending' WHERE status='processing';"); }
+  recoverInterrupted(): void { this.db.exec("UPDATE outgoing SET status='unknown' WHERE status='sending'; UPDATE telegram_calls SET status='unknown' WHERE status='running'; UPDATE ingress SET status='pending' WHERE status='processing';"); }
   get(key: string): string | undefined { return (this.db.prepare('SELECT value FROM settings WHERE key=?').get(key) as { value: string } | undefined)?.value; }
   set(key: string, value: string): void { this.db.prepare('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, value); }
   /** Omitted filter admits every chat delivered by Telegram. [] deliberately admits none. */
@@ -64,6 +65,14 @@ export class Store {
     for (const row of sent) {
       const message = row.result ? JSON.parse(row.result) as TelegramMessage : undefined;
       if (message?.from?.is_bot && String(message.chat?.id) === chat && message.text && message.date <= cutoff) messages.set(message.message_id, message);
+    }
+    const calls = this.db.prepare("SELECT result FROM telegram_calls WHERE chat=? AND status='done' ORDER BY rowid DESC LIMIT ?").all(chat, limit) as { result: string }[];
+    for (const row of calls.reverse()) {
+      const result = (JSON.parse(row.result) as { result: unknown }).result;
+      for (const value of Array.isArray(result) ? result : [result]) {
+        const message = value as TelegramMessage | null;
+        if (message && Number.isSafeInteger(message.message_id) && String(message.chat?.id) === chat && message.date <= cutoff && !message.successful_payment && !message.refunded_payment) messages.set(message.message_id, message);
+      }
     }
     const floor = Number(this.get(`memory:context-floor:${chat}`) ?? 0);
     return [...messages.values()].filter(m => m.message_id > floor).sort((a, b) => a.date - b.date || a.message_id - b.message_id).slice(-limit);

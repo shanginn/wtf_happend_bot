@@ -5,6 +5,9 @@ export interface TelegramMessage {
   sender_chat?: { id: number; title?: string }; text?: string; caption?: string; message_thread_id?: number;
   reply_to_message?: TelegramMessage;
   photo?: { file_id: string; file_size?: number; width: number; height: number }[];
+  document?: { file_id: string; file_name?: string; mime_type?: string };
+  video?: { file_id: string }; animation?: { file_id: string }; audio?: { file_id: string }; voice?: { file_id: string }; sticker?: { file_id: string };
+  poll?: { id: string; question: string; options: { text: string; voter_count: number }[]; total_voter_count: number; is_closed: boolean; [key: string]: unknown };
   successful_payment?: { currency: string; total_amount: number; invoice_payload: string; telegram_payment_charge_id: string };
   refunded_payment?: { currency: string; total_amount: number; invoice_payload: string; telegram_payment_charge_id: string };
 }
@@ -15,24 +18,45 @@ export interface TelegramUpdate {
   my_chat_member?: { chat: TelegramChat; new_chat_member: { status: string } };
 }
 
+export interface TelegramFile {
+  field: string; data: string; filename: string; mime_type?: string; encoding?: 'base64' | 'utf8';
+}
+
 export class TelegramError extends Error {
-  constructor(readonly outcome: 'rejected' | 'unknown', readonly code?: number) { super(`Telegram request ${outcome}${code ? ` (${code})` : ''}`); }
+  constructor(readonly outcome: 'rejected' | 'unknown', readonly code?: number, description?: string, readonly parameters?: Record<string, unknown>) {
+    super(description ?? `Telegram request ${outcome}${code ? ` (${code})` : ''}`);
+  }
 }
 
 export class Telegram {
   constructor(private token: string, private request: typeof fetch = fetch) {}
-  async call<T>(method: string, payload: Record<string, unknown> = {}): Promise<T> {
+  async call<T>(method: string, payload: Record<string, unknown> = {}, files: readonly TelegramFile[] = []): Promise<T> {
+    // Validate the URL component, not the set of methods: new Bot API methods work without a release.
+    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(method)) throw new TelegramError('rejected', undefined, 'Invalid Bot API method name');
+    let requestBody: string | FormData = JSON.stringify(payload);
+    if (files.length) {
+      const form = new FormData();
+      for (const [key, value] of Object.entries(payload)) {
+        if (value !== undefined && value !== null) form.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
+      }
+      for (const file of files) {
+        const bytes = Buffer.from(file.data, file.encoding === 'utf8' ? 'utf8' : 'base64');
+        form.append(file.field, new Blob([bytes], { type: file.mime_type ?? 'application/octet-stream' }), file.filename);
+      }
+      requestBody = form;
+    }
     let response: Response;
     try {
       response = await this.request(`https://api.telegram.org/bot${this.token}/${method}`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(method === 'getUpdates' ? 35_000 : method === 'answerPreCheckoutQuery' ? 5_000 : 15_000),
+        method: 'POST', ...(typeof requestBody === 'string' ? { headers: { 'content-type': 'application/json' } } : {}), body: requestBody,
+        signal: AbortSignal.timeout(method === 'getUpdates' ? 35_000 : method === 'answerPreCheckoutQuery' ? 5_000 : files.length ? 120_000 : 30_000),
       });
     } catch { throw new TelegramError('unknown'); }
-    let body: { ok?: boolean; result?: T; error_code?: number };
+    let body: { ok?: boolean; result?: T; error_code?: number; description?: string; parameters?: Record<string, unknown> };
     try { body = await response.json() as typeof body; } catch { throw new TelegramError('unknown'); }
     if (body.ok === true) return body.result as T;
-    throw new TelegramError(response.status >= 500 ? 'unknown' : 'rejected', body.error_code);
+    const description = typeof body.description === 'string' ? body.description.replaceAll(this.token, '[redacted]') : undefined;
+    throw new TelegramError(response.status >= 500 ? 'unknown' : 'rejected', body.error_code, description, body.parameters);
   }
   updates(offset: number): Promise<TelegramUpdate[]> {
     return this.call('getUpdates', { offset, timeout: 25, allowed_updates: ['message', 'edited_message', 'pre_checkout_query', 'message_reaction', 'my_chat_member'] });
