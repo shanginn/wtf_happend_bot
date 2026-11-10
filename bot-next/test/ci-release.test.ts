@@ -85,6 +85,19 @@ test('release requires a CI digest and always stages zero replicas before a real
   assert.equal(value.candidate.spec.template.spec.containers[0]!.imagePullPolicy, 'IfNotPresent');
   assert.equal(value.check.spec.backoffLimit, 0, 'an unknown paid preflight must not retry automatically');
 });
+test('CI wires search into both bot and preflight and permits only the SearXNG service connection', () => {
+  const resources = template(), release = plan();
+  for (const container of [release.candidate.spec.template.spec.containers[0]!, (release.check.spec.template as Deployment['spec']['template']).spec.containers[0]!]) {
+    assert.ok((container.env as { name: string; value?: string }[]).some(entry => entry.name === 'SEARCH_BASE_URL' && entry.value === 'http://wtf-happend-bot-searxng:8080'));
+    assert.ok((container.env as { name: string; value?: string }[]).some(entry => entry.name === 'SEARCH_ENGINES' && entry.value === 'google,bing,wikipedia'));
+  }
+  const egress = resources.find(r => r.kind === 'NetworkPolicy' && r.metadata.name === TARGET)!.spec.egress as { to?: { podSelector?: { matchLabels: Record<string, string> } }[]; ports: { port: number; protocol: string }[] }[];
+  const search = egress.find(rule => rule.to?.some(to => to.podSelector?.matchLabels.service === 'searxng'))!;
+  assert.deepEqual(search.ports, [{ port: 8080, protocol: 'TCP' }]);
+  const ingress = resources.find(r => r.metadata.name === 'wtf-happend-bot-next-search')!;
+  assert.deepEqual(ingress.spec.podSelector, { matchLabels: { 'app.kubernetes.io/instance': 'wtf-happend-bot', 'app.kubernetes.io/name': 'app', service: 'searxng' } });
+  assert.deepEqual(ingress.spec.ingress, [{ from: [{ podSelector: { matchLabels: { app: TARGET } } }], ports: [{ port: 8080, protocol: 'TCP' }] }]);
+});
 test('first release cuts over exactly one poller and disables the legacy release controller', () => {
   const cluster = new FakeCluster(); release(cluster, plan());
   assert.deepEqual([...cluster.running], [TARGET]);

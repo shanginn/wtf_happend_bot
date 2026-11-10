@@ -103,6 +103,14 @@
                   {
                     "name": "EVOLUTION_MAX_USD",
                     "value": "2"
+                  },
+                  {
+                    "name": "SEARCH_BASE_URL",
+                    "value": "http://wtf-happend-bot-searxng:8080"
+                  },
+                  {
+                    "name": "SEARCH_ENGINES",
+                    "value": "google,bing,wikipedia"
                   }
                 ],
                 "securityContext": {
@@ -204,6 +212,20 @@
         "ingress": [],
         "egress": [
           {
+            "to": [
+              {
+                "podSelector": {
+                  "matchLabels": {
+                    "app.kubernetes.io/instance": "wtf-happend-bot",
+                    "app.kubernetes.io/name": "app",
+                    "service": "searxng"
+                  }
+                }
+              }
+            ],
+            "ports": [{ "port": 8080, "protocol": "TCP" }]
+          },
+          {
             "ports": [
               {
                 "port": 53,
@@ -239,6 +261,22 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "apiVersion": "networking.k8s.io/v1",
+      "kind": "NetworkPolicy",
+      "metadata": { "name": "wtf-happend-bot-next-search", "namespace": "wtfhappendbot" },
+      "spec": {
+        "podSelector": {
+          "matchLabels": {
+            "app.kubernetes.io/instance": "wtf-happend-bot",
+            "app.kubernetes.io/name": "app",
+            "service": "searxng"
+          }
+        },
+        "policyTypes": ["Ingress"],
+        "ingress": [{ "from": [{ "podSelector": { "matchLabels": { "app": "wtf-happend-bot-next" } } }], "ports": [{ "port": 8080, "protocol": "TCP" }] }]
       }
     }
   ]

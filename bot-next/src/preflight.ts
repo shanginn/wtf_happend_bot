@@ -9,6 +9,7 @@ import { Runtime } from './runtime.js';
 import { Jev } from './attention.js';
 import { SkillSandbox } from './skills.js';
 import { join } from 'node:path';
+import { InternetSearch } from './search.js';
 
 // Deployment check uses no Telegram sending, generation or payment tools.
 const config = readConfig(), db = openDatabase(config.dataDir), owner = acquireOwner(config.dataDir);
@@ -22,6 +23,11 @@ try {
     [script]: 'return input.reduce((a, b) => a + b, 0);' }, script, [100, -20, 5]);
   if (result !== 85) throw new Error('Isolated skill check failed');
   console.log(JSON.stringify({ phase: 'isolated-skill', ok: true }));
+  if (config.searchBaseUrl) {
+    const found = await new InternetSearch(config.searchBaseUrl, fetch, config.searchEngines).search({ query: 'SearXNG official documentation', limit: 1 });
+    if (!found.results.length) throw new Error('Internet search returned no startup-check results');
+    console.log(JSON.stringify({ phase: 'internet-search', ok: true, results: found.results.length }));
+  }
   const decision = await new Jev(config.jevKey, config.jevModel, budget, fetch, config.jevProvider).decide({
     eventId: `preflight:${randomUUID()}`, chatId: 'preflight', explicit: true, recent: [{ text: '@wtf_happend_bot привет, ответь пожалуйста' }],
     botName: 'wtf_happend_bot', now: Date.now() });

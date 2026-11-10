@@ -15,6 +15,8 @@ export interface Config {
   falKey?: string;
   falEndpoint?: string;
   falPriceMicros?: number;
+  searchBaseUrl?: string;
+  searchEngines?: string;
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -34,6 +36,11 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if ([env.FAL_KEY, env.FAL_ENDPOINT, env.FAL_MAX_COST_USD].filter(Boolean).length % 3 !== 0) throw new Error('Configure all three FAL settings together');
   const ownerIds = (env.TELEGRAM_OWNER_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
   if (ownerIds.some(id => !/^\d+$/.test(id))) throw new Error('Invalid TELEGRAM_OWNER_IDS');
+  const searchBaseUrl = env.SEARCH_BASE_URL?.trim() || undefined;
+  if (searchBaseUrl) {
+    let url: URL; try { url = new URL(searchBaseUrl); } catch { throw new Error('Invalid SEARCH_BASE_URL'); }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Invalid SEARCH_BASE_URL');
+  }
   return {
     dataDir: resolve(env.BOT_DATA_DIR ?? 'var'), telegramToken: required('TELEGRAM_BOT_TOKEN'), chats,
     ownerIds, supportContact: env.TELEGRAM_SUPPORT_CONTACT?.trim() || 'администраторам этого чата',
@@ -41,5 +48,6 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     jevKey: required(jevProvider === 'openrouter' ? 'OPENROUTER_API_KEY' : 'TYPESAFE_API_KEY'),
     jevModel: env.JEV_MODEL ?? (jevProvider === 'openrouter' ? 'typesafe/jev-1.14' : 'jev-1.14.0'), jevProvider,
     falKey: env.FAL_KEY, falEndpoint: env.FAL_ENDPOINT, falPriceMicros,
+    searchBaseUrl, searchEngines: env.SEARCH_ENGINES?.trim() || undefined,
   };
 }

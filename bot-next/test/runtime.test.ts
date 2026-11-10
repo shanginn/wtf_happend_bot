@@ -12,6 +12,7 @@ import { Store } from '../src/store.js';
 import { Stars } from '../src/stars.js';
 import { Runtime } from '../src/runtime.js';
 import { Telegram } from '../src/telegram.js';
+import { InternetSearch } from '../src/search.js';
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'wtf-pi-runtime-test-'));
@@ -22,7 +23,7 @@ async function fixture() {
   const stars = new Stars(db, { signingKey: 'x'.repeat(32), botId: 'offline' });
   const options = { directory, provider: 'offline', model: 'test', models, memory, store, budget, stars };
   const runtimes: Runtime[] = [];
-  return { provider, memory, store, budget, create(telegram?: Telegram) { const runtime = new Runtime({ ...options, telegram }); runtimes.push(runtime); return runtime; },
+  return { provider, memory, store, budget, create(telegram?: Telegram, search?: InternetSearch) { const runtime = new Runtime({ ...options, telegram, search }); runtimes.push(runtime); return runtime; },
     async close() { for (const runtime of runtimes) await runtime.close(); db.close(); await rm(directory, { recursive: true, force: true }); } };
 }
 
@@ -40,6 +41,35 @@ test('official Pi Durable responds and reuses persisted root and submission afte
     f.provider.appendResponses([fauxAssistantMessage('Другой чат')]);
     assert.equal(await restarted.respond('-200', 'update:1', 'Привет'), 'Другой чат');
     assert.equal(f.provider.state.callCount, 2);
+  } finally { await f.close(); }
+});
+
+test('persisted Pi root gains internet_search, receives source URLs and replays without another search', { timeout: 10_000 }, async () => {
+  const f = await fixture();
+  try {
+    f.provider.setResponses([fauxAssistantMessage('Привет!')]);
+    const old = f.create(); await old.respond('-100', 'before:search', 'Привет'); await old.close();
+    let requests = 0;
+    const search = new InternetSearch('http://searxng:8080', async input => {
+      assert.equal(new URL(String(input)).searchParams.get('q'), 'TypeScript latest release'); requests++;
+      return Response.json({ results: [{ title: 'Release notes', url: 'https://www.typescriptlang.org/docs/handbook/release-notes/overview.html', content: 'Official release notes', engine: 'google' }] });
+    });
+    f.provider.appendResponses([
+      context => {
+        assert.ok(context.messages.some(message => message.role === 'system' && message.toolsAdded?.some(tool => tool.name === 'internet_search')));
+        return fauxAssistantMessage(fauxToolCall('internet_search', { query: 'TypeScript latest release', limit: 3 }), { stopReason: 'toolUse' });
+      },
+      context => {
+        const result = context.messages.filter(message => message.role === 'toolResult').at(-1);
+        assert.equal(result?.isError, false);
+        assert.ok(JSON.stringify(result).includes('https://www.typescriptlang.org/docs/handbook/release-notes/overview.html'));
+        return fauxAssistantMessage('Нашёл [официальные изменения](https://www.typescriptlang.org/docs/handbook/release-notes/overview.html).');
+      },
+    ]);
+    const upgraded = f.create(undefined, search), answer = await upgraded.respond('-100', 'search:1', 'Поищи последнюю версию TypeScript');
+    assert.ok(answer.includes('https://www.typescriptlang.org/')); await upgraded.close();
+    assert.equal(await f.create(undefined, search).respond('-100', 'search:1', 'Поищи последнюю версию TypeScript'), answer);
+    assert.equal(requests, 1);
   } finally { await f.close(); }
 });
 
