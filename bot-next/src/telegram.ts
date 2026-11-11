@@ -1,5 +1,12 @@
 export interface TelegramUser { id: number; first_name?: string; last_name?: string; username?: string; is_bot?: boolean }
 export interface TelegramChat { id: number; type?: string; title?: string; username?: string; first_name?: string; last_name?: string }
+export interface TelegramWidget {
+  id?: string; html: string; width?: number; height?: number; public_data?: string; chat_data?: string;
+}
+export interface TelegramWidgetQuery {
+  id: string; from: TelegramUser; chat?: TelegramChat; message_id?: number; inline_message_id?: string; chat_instance?: string; chat_type?: string;
+  type?: { type: string; [key: string]: unknown }; data: string; widget_id?: string;
+}
 export interface TelegramMessage {
   message_id: number; date: number; chat: TelegramChat; from?: TelegramUser;
   sender_chat?: TelegramChat; sender_tag?: string; author_signature?: string; via_bot?: TelegramUser;
@@ -12,11 +19,13 @@ export interface TelegramMessage {
   document?: { file_id: string; file_name?: string; mime_type?: string };
   video?: { file_id: string }; animation?: { file_id: string }; audio?: { file_id: string }; voice?: { file_id: string }; sticker?: { file_id: string };
   poll?: { id: string; question: string; options: { text: string; voter_count: number }[]; total_voter_count: number; is_closed: boolean; [key: string]: unknown };
+  widget?: TelegramWidget;
   successful_payment?: { currency: string; total_amount: number; invoice_payload: string; telegram_payment_charge_id: string };
   refunded_payment?: { currency: string; total_amount: number; invoice_payload: string; telegram_payment_charge_id: string };
 }
 export interface TelegramUpdate {
   update_id: number; message?: TelegramMessage; edited_message?: TelegramMessage;
+  widget_query?: TelegramWidgetQuery; shared_widget_query?: TelegramWidgetQuery;
   pre_checkout_query?: { id: string; from: TelegramUser; currency: string; total_amount: number; invoice_payload: string };
   message_reaction?: { chat: { id: number }; message_id: number; user?: TelegramUser; new_reaction: unknown[] };
   my_chat_member?: { chat: TelegramChat; new_chat_member: { status: string } };
@@ -53,7 +62,7 @@ export class Telegram {
     try {
       response = await this.request(`https://api.telegram.org/bot${this.token}/${method}`, {
         method: 'POST', ...(typeof requestBody === 'string' ? { headers: { 'content-type': 'application/json' } } : {}), body: requestBody,
-        signal: AbortSignal.timeout(method === 'getUpdates' ? 35_000 : method === 'answerPreCheckoutQuery' ? 5_000 : files.length ? 120_000 : 30_000),
+        signal: AbortSignal.timeout(method === 'getUpdates' ? 35_000 : method === 'answerPreCheckoutQuery' || method === 'answerWidgetQuery' ? 5_000 : files.length ? 120_000 : 30_000),
       });
     } catch { throw new TelegramError('unknown'); }
     let body: { ok?: boolean; result?: T; error_code?: number; description?: string; parameters?: Record<string, unknown> };
@@ -63,7 +72,7 @@ export class Telegram {
     throw new TelegramError(response.status >= 500 ? 'unknown' : 'rejected', body.error_code, description, body.parameters);
   }
   updates(offset: number): Promise<TelegramUpdate[]> {
-    return this.call('getUpdates', { offset, timeout: 25, allowed_updates: ['message', 'edited_message', 'pre_checkout_query', 'message_reaction', 'my_chat_member'] });
+    return this.call('getUpdates', { offset, timeout: 25, allowed_updates: ['message', 'edited_message', 'pre_checkout_query', 'message_reaction', 'my_chat_member', 'widget_query', 'shared_widget_query'] });
   }
   async image(fileId: string): Promise<{ type: 'image'; data: string; mimeType: string }> {
     const file = await this.call<{ file_path?: string; file_size?: number }>('getFile', { file_id: fileId });

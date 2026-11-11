@@ -19,6 +19,8 @@ import { queueCompletedMedia } from './delivery.js';
 import { canManageChat } from './chat-policy.js';
 import { createSearch } from './search-client.js';
 import { buildTelegramInput, messageFiles, participantReference } from './telegram-context.js';
+import { Widgets } from './widgets.js';
+import { withWidgetState } from './widget-state.js';
 
 export function projectMessage(message: TelegramMessage, canShowSource?: (message: TelegramMessage) => boolean) {
   const author = message.sender_chat ? { reference: participantReference(message), kind: 'chat', senderChat: message.sender_chat.id, name: message.sender_chat.title, username: message.sender_chat.username }
@@ -29,9 +31,9 @@ export function projectMessage(message: TelegramMessage, canShowSource?: (messag
     author,
     text: (message.text ?? message.caption ?? '').slice(0,8000), image: Boolean(message.photo?.length),
     files: messageFiles(message),
-    poll: message.poll, replyTo: message.reply_to_message?.message_id,
+    poll: message.poll, widget: message.widget, replyTo: message.reply_to_message?.message_id,
     reply: replyVisible ? { id: reply.message_id, participant: participantReference(reply), author: reply.sender_chat?.title ?? [reply.from?.first_name, reply.from?.last_name].filter(Boolean).join(' '), is_bot: reply.from?.is_bot, date: new Date(reply.date * 1000).toISOString(), text: (reply.text ?? reply.caption ?? '').slice(0, 80) } : undefined,
-    replyPoll: replyVisible ? reply.poll : undefined };
+    replyPoll: replyVisible ? reply.poll : undefined, replyWidget: replyVisible ? reply.widget : undefined };
 }
 
 /** A separate SQLite lock is held for the process lifetime and releases on crash. */
@@ -50,6 +52,7 @@ export async function main(): Promise<void> {
   try { signingKey = readFileSync(keyPath, 'utf8'); }
   catch { signingKey = randomBytes(32).toString('hex'); writeFileSync(keyPath, signingKey, { mode: 0o600, flag: 'wx' }); }
   const telegram = new Telegram(config.telegramToken);
+  const widgets = new Widgets(store, telegram); widgets.recoverInterrupted();
   const identity = await telegram.call<TelegramUser>('getMe');
   const budget = new Budget(db, config.budgetMicros), memory = new MemoryStore(db);
   const stars = new Stars(db, { botId: String(identity.id), signingKey });
@@ -77,8 +80,9 @@ export async function main(): Promise<void> {
   const handle = async (item: InboxItem) => {
     store.status(item.id, 'processing');
     const update = JSON.parse(item.payload) as TelegramUpdate;
-    const message = update.message ?? update.edited_message;
-    if (!message || message.successful_payment || message.refunded_payment || message.from?.is_bot || !(message.text || message.caption || message.photo?.length || message.document || message.video || message.animation || message.audio || message.voice || message.sticker || message.poll)) { store.status(item.id, 'done'); return; }
+    const rawMessage = update.message ?? update.edited_message;
+    const message = rawMessage ? withWidgetState(store, rawMessage) : undefined;
+    if (!message || message.successful_payment || message.refunded_payment || message.from?.is_bot || !(message.text || message.caption || message.photo?.length || message.document || message.video || message.animation || message.audio || message.voice || message.sticker || message.poll || message.widget)) { store.status(item.id, 'done'); return; }
     const text = message.text ?? message.caption ?? '';
     const match = /^\/(\w+)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$/s.exec(text);
     if (match && match[2] && match[2].toLowerCase() !== identity.username?.toLowerCase()) { store.status(item.id, 'done'); return; }
@@ -108,7 +112,7 @@ export async function main(): Promise<void> {
     if (store.get(`paused:${item.chat}`) === 'yes') { store.status(item.id, 'silent'); return; }
     const floor = Number(store.get(`memory:context-floor:${item.chat}`) ?? 0);
     const canShowSource = (source: TelegramMessage) => String(source.chat.id) === item.chat && source.message_id > floor && !memory.isSourceForgotten(item.chat, `${item.chat}:${source.message_id}`);
-    const history = store.conversationEvents(item.chat, item.id).filter(event => canShowSource(event.message));
+    const history = store.conversationEvents(item.chat, item.id).filter(event => canShowSource(event.message)).map(event => ({ ...event, message: withWidgetState(store, event.message) }));
     const recent = history.map(event => projectMessage(event.message, canShowSource));
     const explicit = message.reply_to_message?.from?.id === identity.id || Boolean(identity.username && text.toLowerCase().includes(`@${identity.username.toLowerCase()}`)) || command === 'wtf';
     const decision = item.decision ? JSON.parse(item.decision) as AttentionDecision : await jev.decide({ eventId: String(item.id), chatId: item.chat, explicit, recent,
@@ -144,6 +148,10 @@ export async function main(): Promise<void> {
 
   const background = async () => {
     while (!stopped) {
+      for (const item of widgets.pending()) if (!active.has(item.session_key)) {
+        const work = widgets.process(item, runtime, config.timezone).finally(() => active.delete(item.session_key));
+        active.set(item.session_key, work);
+      }
       for (const item of store.pending()) if (!active.has(item.chat)) {
         const work = handle(item).catch(() => store.status(item.id, 'failed')).finally(() => active.delete(item.chat));
         active.set(item.chat, work);
@@ -169,7 +177,9 @@ export async function main(): Promise<void> {
       try {
         const updates = await telegram.updates(Number(store.get('offset') ?? 0));
         store.set('poll:last-ok', String(Date.now())); store.set('poll:last-error', '');
+        await Promise.all(updates.filter(update => update.widget_query || update.shared_widget_query).map(update => widgets.accept(update, config.chats)));
         for (const update of updates) {
+          if (update.widget_query || update.shared_widget_query) { store.ingest(update, []); continue; }
           const financial = await handleFinancialUpdate(update, { stars, store, telegram, supportContact: config.supportContact, botUsername: identity.username });
           store.ingest(update, financial ? [] : config.chats);
         }

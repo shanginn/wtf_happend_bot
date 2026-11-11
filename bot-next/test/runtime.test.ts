@@ -16,6 +16,8 @@ import { Telegram } from '../src/telegram.js';
 import { InternetSearch, type SearchClient } from '../src/search.js';
 import { OpenRouterSearch } from '../src/openrouter-search.js';
 import { buildTelegramInput } from '../src/telegram-context.js';
+import { Widgets } from '../src/widgets.js';
+import { messageWidget } from '../src/widget-state.js';
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'wtf-pi-runtime-test-'));
@@ -250,6 +252,55 @@ test('existing Pi root gains the universal Telegram API tool and creates a real 
     await upgraded.close();
     assert.equal(await f.create(telegram).respond('-100', 'poll:1', 'Создай опрос, стоит ли восстанавливать память, в теме 17'), 'Опрос создан.');
     assert.equal(requests, 1, 'replaying Pi input must not create a second poll');
+  } finally { await f.close(); }
+});
+
+test('existing Pi roots generate checked HTML widgets; clicks use isolated durable sessions and never repeat confirmed edits', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let sends = 0, edits = 0, acknowledgements = 0;
+  const html = '<button onclick="TelegramWidget.request(\'inc\')">+</button><b>Counter</b>';
+  const telegram = new Telegram('fixture-token', async (url, init) => {
+    const method = String(url).split('/').at(-1), parameters = JSON.parse(init!.body as string);
+    if (method === 'sendWidget') { sends++; return Response.json({ ok: true, result: { message_id: 99, date: 1794381617, chat: { id: 10, type: 'private' }, widget: { html: parameters.html, chat_data: parameters.chat_data } } }); }
+    if (method === 'editMessageWidgetData') { edits++; assert.equal(parameters.chat_data, '{"n":1}'); }
+    if (method === 'answerWidgetQuery') acknowledgements++;
+    return Response.json({ ok: true, result: true });
+  });
+  try {
+    f.provider.setResponses([fauxAssistantMessage('Принял.')]);
+    const old = f.create(); await old.respond('10', 'ordinary:1', 'ORDINARY_CHAT_PRIVATE_FIXTURE'); await old.close();
+    f.provider.appendResponses([
+      context => {
+        const tools = context.messages.flatMap(message => message.role === 'system' ? message.toolsAdded ?? [] : []);
+        assert.ok(tools.some(tool => tool.name === 'telegram_widget_check'));
+        assert.ok(JSON.stringify(context).includes('Bot API 10.4'));
+        return fauxAssistantMessage(fauxToolCall('telegram_widget_check', { html, chat_data: '{"n":0}' }), { stopReason: 'toolUse' });
+      },
+      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendWidget', parameters: { chat_id: '10', html, chat_data: '{"n":0}', allow_queries: true } }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Виджет создан.'),
+    ]);
+    const upgraded = f.create(telegram); assert.equal(await upgraded.respond('10', 'widget:create', 'Создай счётчик в HTML-виджете.'), 'Виджет создан.');
+    await upgraded.close();
+    const restarted = f.create(telegram);
+    assert.equal(await restarted.respond('10', 'widget:create', 'Создай счётчик в HTML-виджете.'), 'Виджет создан.'); assert.equal(sends, 1);
+    const widgets = new Widgets(f.store, telegram), query = { update_id: 51, widget_query: { id: 'click:1', from: { id: 10 }, chat: { id: 10, type: 'private' }, message_id: 99, data: 'inc', type: { type: 'data' } } };
+    await widgets.accept(query); assert.equal(acknowledgements, 1);
+    f.provider.appendResponses([
+      context => {
+        assert.ok(!JSON.stringify(context).includes('ORDINARY_CHAT_PRIVATE_FIXTURE'), 'widget interactions must not inherit ordinary chat history');
+        return fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'editMessageWidgetData', parameters: { chat_id: '10', message_id: 99, chat_data: '{"n":1}' } }), { stopReason: 'toolUse' });
+      },
+      fauxAssistantMessage('Готово.'),
+    ]);
+    await widgets.process(widgets.pending()[0]!, restarted, 'UTC'); assert.equal(edits, 1);
+    assert.equal(messageWidget(f.store, '10', 99)?.chatData, '{"n":1}');
+    const modelCalls = f.provider.state.callCount; await restarted.close();
+    // Simulate a crash after the edit/submission committed but before the queue completion was retained.
+    f.store.db.prepare("UPDATE widget_inbox SET status='processing'").run();
+    widgets.recoverInterrupted(); await widgets.accept(query);
+    await widgets.process(widgets.pending()[0]!, f.create(telegram), 'UTC');
+    assert.equal(f.store.db.prepare('SELECT status FROM widget_inbox').get()!.status, 'done');
+    assert.equal(edits, 1); assert.equal(acknowledgements, 1); assert.equal(f.provider.state.callCount, modelCalls);
+    assert.equal(f.store.outgoing().length, 0);
   } finally { await f.close(); }
 });
 

@@ -16,6 +16,7 @@ import type { Store } from './store.js';
 import { budgetedModels, modelQuote, inputCeiling, PROBE_INPUT_CEILING } from './model-budget.js';
 import type { Telegram } from './telegram.js';
 import { telegramTool } from './telegram-tool.js';
+import { widgetChatGuidance, widgetCheckTool, widgetInstructions } from './widget-format.js';
 import { internetSearchTool, type SearchClient } from './search.js';
 import { needsRussianRepair } from './language.js';
 import { factualSearchReply, needsSearchReview, searchEvidence, unsupportedSearchDiagnosis } from './search-evidence.js';
@@ -53,7 +54,7 @@ export class Runtime {
   private tools(chat: string): ToolRegistration[] {
     const { memory, store, media, stars, budget } = this.options;
     return [
-      ...(this.options.telegram ? [telegramTool(this.options.telegram, store, chat)] : []),
+      ...(this.options.telegram ? [telegramTool(this.options.telegram, store, chat), widgetCheckTool(chat)] : []),
       ...(this.options.search ? [internetSearchTool(this.options.search, chat)] : []),
       defineTool({ name: 'recall_memory', description: 'Search durable knowledge in this chat. Empty query lists recent facts.', parameters: obj({ query: str() }), replay: 'safe',
         execute: async ({ query }) => textOutput(memory.recall({ scope: chat, query, limit: 12 })) }),
@@ -104,14 +105,14 @@ export class Runtime {
       ...(this.options.extraTools?.(chat) ?? []),
     ];
   }
-  private session(chat: string): Promise<Harness> {
-    let pending = this.sessions.get(chat);
+  private session(chat: string, sessionKey = chat): Promise<Harness> {
+    let pending = this.sessions.get(sessionKey);
     if (!pending) {
       pending = (async () => {
         mkdirSync(this.options.directory, { recursive: true, mode: 0o700 });
-        const storage = await openNodeSqliteStorage(join(this.options.directory, `${createHash('sha256').update(chat).digest('hex')}.sqlite`));
+        const storage = await openNodeSqliteStorage(join(this.options.directory, `${createHash('sha256').update(sessionKey).digest('hex')}.sqlite`));
         const registry = createRegistry();
-        registry.install(defineExtension({ name: 'chat', sections: [section('personality', () => basePrompt)], tools: this.tools(chat) }));
+        registry.install(defineExtension({ name: 'chat', sections: [section('personality', () => basePrompt), section('telegram-widgets', () => `${widgetInstructions}\n${widgetChatGuidance(chat)}`)], tools: this.tools(chat) }));
         const harness = await Harness.open(storage, {
           models: budgetedModels(this.models, this.options.budget, chat), registry,
           settings: { stream: { maxRetries: 0, timeoutMs: 90_000 }, retry: { maxRetries: 0 }, toolExecution: 'sequential' },
@@ -119,13 +120,13 @@ export class Runtime {
         await harness.root(context, { agent: { model: { provider: this.options.provider, modelId: this.options.model }, maxTurns: 8 } });
         harness.resume(); return harness;
       })();
-      this.sessions.set(chat, pending);
-      void pending.catch(() => this.sessions.delete(chat));
+      this.sessions.set(sessionKey, pending);
+      void pending.catch(() => this.sessions.delete(sessionKey));
     }
     return pending;
   }
-  async respond(chat: string, requestId: string, content: UserInput, requestText?: string, inputEntry?: InputEntry): Promise<string> {
-    const harness = await this.session(chat);
+  async respond(chat: string, requestId: string, content: UserInput, requestText?: string, inputEntry?: InputEntry, sessionKey = chat): Promise<string> {
+    const harness = await this.session(chat, sessionKey);
     const root = await harness.root(context);
     const submission = await root.submit({ type: 'input', requestId, content, ...(inputEntry ? { entry: inputEntry } : {}) }, context);
     const result = await submission.wait(context);
