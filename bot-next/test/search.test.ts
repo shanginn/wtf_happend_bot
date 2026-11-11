@@ -6,7 +6,7 @@ test('SearXNG query preserves filters and returns bounded, deduplicated source U
   const search = new InternetSearch('http://searxng:8080/search/', async (input, init) => {
     const url = new URL(String(input));
     assert.equal(url.pathname, '/search');
-    assert.deepEqual(Object.fromEntries(url.searchParams), { q: 'новости TypeScript', format: 'json', safesearch: '0', categories: 'news', language: 'ru', time_range: 'day' });
+    assert.deepEqual(Object.fromEntries(url.searchParams), { q: '!bin новости TypeScript', format: 'json', safesearch: '0', categories: 'news', language: 'ru', time_range: 'day', engines: 'bing news' });
     assert.equal(init?.redirect, 'error');
     return Response.json({ results: [
       { title: '<b>Новая версия</b>', url: 'https://example.org/news', content: 'Подробности &amp; <i>изменения</i>', publishedDate: '2026-11-10', engines: ['google', 'bing'] },
@@ -44,11 +44,67 @@ test('configured working engines are sent explicitly and the tool can choose oth
   const engines: (string | null)[] = [];
   const search = new InternetSearch('http://searxng:8080', async input => {
     engines.push(new URL(String(input)).searchParams.get('engines'));
-    return Response.json({ results: [] });
+    return Response.json({ results: [{ title: 'Result', url: 'https://example.org/result' }] });
   }, 'google,bing,wikipedia');
   await search.search({ query: 'test' });
   await search.search({ query: 'test', engines: 'google news,bing news', categories: 'news' });
   assert.deepEqual(engines, ['google,bing,wikipedia', 'google news,bing news']);
+});
+
+test('news queries select the news engine explicitly and keep the requested day filter', async () => {
+  const search = new InternetSearch('http://searxng:8080', async input => {
+    const url = new URL(String(input));
+    assert.equal(url.searchParams.get('q'), '!bin world news today top stories');
+    assert.equal(url.searchParams.get('categories'), 'news');
+    assert.equal(url.searchParams.get('language'), 'en');
+    assert.equal(url.searchParams.get('time_range'), 'day');
+    return Response.json({ results: [{ title: 'Today', url: 'https://example.org/today', publishedDate: '2026-11-11', engine: 'bing news' }] });
+  }, 'bing');
+  const found = await search.search({ query: 'world news today top stories', time_range: 'day' });
+  assert.equal(found.status, 'ok');
+  assert.equal(found.time_range_applied, true);
+  assert.equal(found.query, 'world news today top stories');
+  assert.equal(found.attempts.length, 1);
+});
+
+test('empty day-filtered web searches retry a news engine before reporting an outage', async () => {
+  const requests: URL[] = [];
+  const search = new InternetSearch('http://searxng:8080', async input => {
+    const url = new URL(String(input)); requests.push(url);
+    return Response.json({ results: requests.length === 1 ? [] : [{ title: 'Release', url: 'https://example.org/release' }] });
+  }, 'bing');
+  const found = await search.search({ query: 'TypeScript release', time_range: 'day' });
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0]!.searchParams.get('q'), '!bing TypeScript release');
+  assert.equal(requests[1]!.searchParams.get('q'), '!bin TypeScript release');
+  assert.equal(requests[1]!.searchParams.get('time_range'), 'day');
+  assert.equal(found.time_range_applied, true);
+  assert.equal(found.results.length, 1);
+});
+
+test('unfiltered fallback is disclosed and cannot masquerade as a successful daily-news filter', async () => {
+  const requests: URL[] = [];
+  const search = new InternetSearch('http://searxng:8080', async input => {
+    const url = new URL(String(input)); requests.push(url);
+    return Response.json({ results: requests.length < 2 ? [] : [{ title: 'Archive', url: 'https://example.org/archive', publishedDate: '2020-01-01' }], unresponsive_engines: requests.length === 1 ? [['bing news', 'parsing error']] : [] });
+  }, 'bing');
+  const found = await search.search({ query: 'главные новости', time_range: 'day' });
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1]!.searchParams.has('time_range'), false);
+  assert.equal(found.time_range_applied, false);
+  assert.equal(found.status, 'partial');
+  assert.ok(found.warnings.some(warning => warning.includes('NOT restricted')));
+});
+
+test('partial engine errors do not discard usable results or trigger extra searches', async () => {
+  let requests = 0;
+  const search = new InternetSearch('http://searxng:8080', async () => {
+    requests++; return Response.json({ results: [{ url: 'https://example.org/source' }], unresponsive_engines: [['brave', 'CAPTCHA']] });
+  });
+  const found = await search.search({ query: 'test' });
+  assert.equal(found.results.length, 1);
+  assert.equal(found.status, 'partial');
+  assert.equal(requests, 1);
 });
 
 test('search reports HTTP, malformed responses and network errors without transport secrets', async () => {

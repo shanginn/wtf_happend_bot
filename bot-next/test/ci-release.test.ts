@@ -89,7 +89,7 @@ test('CI wires search into both bot and preflight and permits only the SearXNG s
   const resources = template(), release = plan();
   for (const container of [release.candidate.spec.template.spec.containers[0]!, (release.check.spec.template as Deployment['spec']['template']).spec.containers[0]!]) {
     assert.ok((container.env as { name: string; value?: string }[]).some(entry => entry.name === 'SEARCH_BASE_URL' && entry.value === 'http://wtf-happend-bot-searxng:8080'));
-    assert.ok((container.env as { name: string; value?: string }[]).some(entry => entry.name === 'SEARCH_ENGINES' && entry.value === 'google,bing,wikipedia'));
+    assert.ok((container.env as { name: string; value?: string }[]).some(entry => entry.name === 'SEARCH_ENGINES' && entry.value === 'bing'));
   }
   const egress = resources.find(r => r.kind === 'NetworkPolicy' && r.metadata.name === TARGET)!.spec.egress as { to?: { podSelector?: { matchLabels: Record<string, string> } }[]; ports: { port: number; protocol: string }[] }[];
   const search = egress.find(rule => rule.to?.some(to => to.podSelector?.matchLabels.service === 'searxng'))!;

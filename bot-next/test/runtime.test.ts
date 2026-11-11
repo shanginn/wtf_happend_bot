@@ -44,6 +44,42 @@ test('official Pi Durable responds and reuses persisted root and submission afte
   } finally { await f.close(); }
 });
 
+test('Chinese output is repaired with zero tools, without repeating Telegram effects, and survives replay', { timeout: 10_000 }, async () => {
+  const f = await fixture();
+  try {
+    let sends = 0;
+    const telegram = new Telegram('private-token', async () => { sends++; return Response.json({ ok: true, result: { message_id: 42 } }); });
+    f.provider.setResponses([
+      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendPoll', parameters: { chat_id: '-100', question: 'Восстановить память?', options: [{ text: 'Да' }, { text: 'Нет' }] } }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('投票已经创建了。现在大家可以选择是否恢复记忆，我不会再次重复发送这个投票。'),
+      context => {
+        assert.equal(context.messages.flatMap(message => message.role === 'system' ? message.toolsAdded ?? [] : []).length, 0);
+        assert.ok(!JSON.stringify(context).includes('sendPoll'), 'the language editor receives only the answer, without action history');
+        return fauxAssistantMessage('Опрос создан.');
+      },
+    ]);
+    const first = f.create(telegram);
+    assert.equal(await first.respond('-100', 'reply:language:1', 'Создай опрос о восстановлении памяти.'), 'Опрос создан.');
+    assert.equal(sends, 1);
+    assert.equal(f.provider.state.callCount, 3);
+    await first.close();
+    assert.equal(await f.create(telegram).respond('-100', 'reply:language:1', 'Создай опрос о восстановлении памяти.'), 'Опрос создан.');
+    assert.equal(sends, 1);
+    assert.equal(f.provider.state.callCount, 3, 'replaying the repaired answer must not call either model again');
+  } finally { await f.close(); }
+});
+
+test('language correction cannot leak another Chinese reply while requested translations remain intact', { timeout: 10_000 }, async () => {
+  const f = await fixture();
+  const chinese = '搜索引擎现在都被挡住了，一个结果都没返回，所以我不会编造新闻。';
+  try {
+    f.provider.setResponses([fauxAssistantMessage(chinese), fauxAssistantMessage(chinese)]);
+    await assert.rejects(f.create().respond('-100', 'bad:language', 'Какие новости?'), /wrong language/);
+    f.provider.appendResponses([fauxAssistantMessage(chinese)]);
+    assert.equal(await f.create().respond('-200', 'requested:language', 'Переведи на китайский'), chinese);
+  } finally { await f.close(); }
+});
+
 test('persisted Pi root gains internet_search, receives source URLs and replays without another search', { timeout: 10_000 }, async () => {
   const f = await fixture();
   try {

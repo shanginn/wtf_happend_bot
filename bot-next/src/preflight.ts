@@ -27,6 +27,9 @@ try {
     const found = await new InternetSearch(config.searchBaseUrl, fetch, config.searchEngines).search({ query: 'SearXNG official documentation', limit: 1 });
     if (!found.results.length) throw new Error('Internet search returned no startup-check results');
     console.log(JSON.stringify({ phase: 'internet-search', ok: true, results: found.results.length }));
+    const news = await new InternetSearch(config.searchBaseUrl, fetch, config.searchEngines).search({ query: 'world news today top stories', time_range: 'day', categories: 'news', limit: 3 });
+    if (!news.results.length || !news.time_range_applied) throw new Error('Daily news search returned no filtered results');
+    console.log(JSON.stringify({ phase: 'daily-news-search', ok: true, results: news.results.length, filtered: news.time_range_applied }));
   }
   const decision = await new Jev(config.jevKey, config.jevModel, budget, fetch, config.jevProvider).decide({
     eventId: `preflight:${randomUUID()}`, chatId: 'preflight', explicit: true, recent: [{ text: '@wtf_happend_bot привет, ответь пожалуйста' }],

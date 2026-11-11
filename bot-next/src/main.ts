@@ -116,7 +116,7 @@ export async function main(): Promise<void> {
     if (!decision.reply) { store.status(item.id, 'silent'); return; }
     const activeSkills = learning.skills.current(item.chat);
     const current = memory.isSourceForgotten(item.chat, `${item.chat}:${message.message_id}`) ? { id: message.message_id, text: '[Источник исключён по запросу забывания]' } : projectMessage(message);
-    const content: Exclude<UserInput, string> = [{ type: 'text', text: `Current message: ${JSON.stringify(current)}\nRecent context: ${JSON.stringify(recent)}\nRelevant memories: ${JSON.stringify(memory.recall({ scope: item.chat, query: '', limit: 12 }))}\nActive skill version: ${activeSkills?.hash ?? 'none'}\nBehavior guidance: ${activeSkills?.tree['AGENTS.md'] ?? ''}\n${command === 'wtf' ? 'Summarize the actual recent discussion, distinguish topics and decisions.' : ''}` }];
+    const content: Exclude<UserInput, string> = [{ type: 'text', text: `Current time (UTC): ${new Date().toISOString()}\nCurrent message: ${JSON.stringify(current)}\nRecent context: ${JSON.stringify(recent)}\nRelevant memories: ${JSON.stringify(memory.recall({ scope: item.chat, query: '', limit: 12 }))}\nActive skill version: ${activeSkills?.hash ?? 'none'}\nBehavior guidance: ${activeSkills?.tree['AGENTS.md'] ?? ''}\n${command === 'wtf' ? 'Summarize the actual recent discussion, distinguish topics and decisions.' : ''}` }];
     const photo = message.photo?.filter(p => (p.file_size ?? Infinity) <= 4_000_000).at(-1);
     if (photo) {
       try { content.push(await telegram.image(photo.file_id)); }
@@ -124,7 +124,7 @@ export async function main(): Promise<void> {
     }
     store.set(`route:${item.chat}`, JSON.stringify({ messageId: message.message_id, topic: message.message_thread_id }));
     try {
-      const answer = await runtime.respond(item.chat, `telegram:${item.id}`, content);
+      const answer = await runtime.respond(item.chat, `telegram:${item.id}`, content, text);
       if (answer) reply(`answer:${item.id}`, message, answer);
       store.status(item.id, 'done');
     } catch {
