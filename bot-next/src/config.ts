@@ -17,6 +17,9 @@ export interface Config {
   falPriceMicros?: number;
   searchBaseUrl?: string;
   searchEngines?: string;
+  searchProvider: 'openrouter' | 'searxng' | 'disabled';
+  searchKey?: string;
+  searchModel?: string;
 }
 
 export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -37,6 +40,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const ownerIds = (env.TELEGRAM_OWNER_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
   if (ownerIds.some(id => !/^\d+$/.test(id))) throw new Error('Invalid TELEGRAM_OWNER_IDS');
   const searchBaseUrl = env.SEARCH_BASE_URL?.trim() || undefined;
+  const searchProvider = env.SEARCH_PROVIDER ?? (searchBaseUrl ? 'searxng' : 'disabled');
+  if (!['openrouter', 'searxng', 'disabled'].includes(searchProvider)) throw new Error('Invalid SEARCH_PROVIDER');
+  if (searchProvider === 'searxng' && !searchBaseUrl) throw new Error('Set SEARCH_BASE_URL for SearXNG');
   if (searchBaseUrl) {
     let url: URL; try { url = new URL(searchBaseUrl); } catch { throw new Error('Invalid SEARCH_BASE_URL'); }
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Invalid SEARCH_BASE_URL');
@@ -49,5 +55,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     jevModel: env.JEV_MODEL ?? (jevProvider === 'openrouter' ? 'typesafe/jev-1.14' : 'jev-1.14.0'), jevProvider,
     falKey: env.FAL_KEY, falEndpoint: env.FAL_ENDPOINT, falPriceMicros,
     searchBaseUrl, searchEngines: env.SEARCH_ENGINES?.trim() || undefined,
+    searchProvider: searchProvider as Config['searchProvider'], searchKey: searchProvider === 'openrouter' ? required('OPENROUTER_API_KEY') : undefined,
+    searchModel: searchProvider === 'openrouter' ? (env.SEARCH_MODEL ?? (env.PI_PROVIDER === 'openrouter' ? required('PI_MODEL') : 'deepseek/deepseek-v4.1-flash')) : undefined,
   };
 }

@@ -18,7 +18,7 @@ import { Learning } from './learning.js';
 import { handleFinancialUpdate } from './payments.js';
 import { queueCompletedMedia } from './delivery.js';
 import { canManageChat } from './chat-policy.js';
-import { InternetSearch } from './search.js';
+import { createSearch } from './search-client.js';
 
 export function projectMessage(message: TelegramMessage) {
   return { id: message.message_id, chat_id: message.chat.id, message_thread_id: message.message_thread_id, date: new Date(message.date * 1000).toISOString(),
@@ -53,7 +53,7 @@ export async function main(): Promise<void> {
   media?.recoverInterruptedSubmissions();
   const learning = new Learning(store, budget, config.dataDir);
   learning.recoverInterrupted();
-  const search = config.searchBaseUrl ? new InternetSearch(config.searchBaseUrl, fetch, config.searchEngines) : undefined;
+  const search = createSearch(config, budget, store);
   const runtime = new Runtime({ directory: join(config.dataDir, 'pi'), provider: config.provider, model: config.model,
     budget, memory, store, stars, media, telegram, search, extraTools: chat => learning.tools(chat) });
   runtime.quote(); // fail before polling if model identity or pricing is missing

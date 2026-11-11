@@ -27,3 +27,11 @@ test('optional chat restriction and direct TypeSafe credentials remain explicit'
   assert.equal(config.jevModel, 'jev-1.14.0');
   assert.throws(() => readConfig({ ...env, TELEGRAM_CHAT_IDS: 'arbitrary' }), /Invalid TELEGRAM_CHAT_IDS/);
 });
+test('OpenRouter search uses the same account and model while preserving explicit legacy selection', () => {
+  const config = readConfig({ ...env, SEARCH_PROVIDER: 'openrouter' });
+  assert.equal(config.searchProvider, 'openrouter'); assert.equal(config.searchKey, env.OPENROUTER_API_KEY); assert.equal(config.searchModel, env.PI_MODEL);
+  assert.equal(readConfig({ ...env, SEARCH_BASE_URL: 'http://searxng:8080' }).searchProvider, 'searxng');
+  assert.equal(readConfig(env).searchProvider, 'disabled');
+  assert.throws(() => readConfig({ ...env, SEARCH_PROVIDER: 'invalid' }), /Invalid SEARCH_PROVIDER/);
+  assert.throws(() => readConfig({ ...env, SEARCH_PROVIDER: 'searxng' }), /SEARCH_BASE_URL/);
+});

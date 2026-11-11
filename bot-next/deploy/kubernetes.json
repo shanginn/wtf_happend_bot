@@ -109,6 +109,10 @@
                     "value": "http://wtf-happend-bot-searxng:8080"
                   },
                   {
+                    "name": "SEARCH_PROVIDER",
+                    "value": "openrouter"
+                  },
+                  {
                     "name": "SEARCH_ENGINES",
                     "value": "bing"
                   }

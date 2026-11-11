@@ -9,7 +9,7 @@ import { Runtime } from './runtime.js';
 import { Jev } from './attention.js';
 import { SkillSandbox } from './skills.js';
 import { join } from 'node:path';
-import { InternetSearch } from './search.js';
+import { createSearch } from './search-client.js';
 
 // Deployment check uses no Telegram sending, generation or payment tools.
 const config = readConfig(), db = openDatabase(config.dataDir), owner = acquireOwner(config.dataDir);
@@ -23,13 +23,15 @@ try {
     [script]: 'return input.reduce((a, b) => a + b, 0);' }, script, [100, -20, 5]);
   if (result !== 85) throw new Error('Isolated skill check failed');
   console.log(JSON.stringify({ phase: 'isolated-skill', ok: true }));
-  if (config.searchBaseUrl) {
-    const found = await new InternetSearch(config.searchBaseUrl, fetch, config.searchEngines).search({ query: 'SearXNG official documentation', limit: 1 });
+  const search = createSearch(config, budget, store);
+  if (search) {
+    const found = await search.search({ query: 'официальная документация SearXNG', limit: 3 }, { id: `preflight:search:${randomUUID()}`, chat: 'preflight' });
     if (!found.results.length) throw new Error('Internet search returned no startup-check results');
-    console.log(JSON.stringify({ phase: 'internet-search', ok: true, results: found.results.length }));
-    const news = await new InternetSearch(config.searchBaseUrl, fetch, config.searchEngines).search({ query: 'world news today top stories', time_range: 'day', categories: 'news', limit: 3 });
-    if (!news.results.length || !news.time_range_applied) throw new Error('Daily news search returned no filtered results');
-    console.log(JSON.stringify({ phase: 'daily-news-search', ok: true, results: news.results.length, filtered: news.time_range_applied }));
+    if (!found.results.some(result => new URL(result.url).hostname === 'docs.searxng.org')) throw new Error('Ordinary search did not return the requested official documentation');
+    console.log(JSON.stringify({ phase: 'internet-search', ok: true, provider: config.searchProvider, results: found.results.length }));
+    const news = await search.search({ query: 'последние новости России сегодня', time_range: 'day', categories: 'news', limit: 5 }, { id: `preflight:news:${randomUUID()}`, chat: 'preflight' });
+    if (!news.results.length) throw new Error('Russian news search returned no sources');
+    console.log(JSON.stringify({ phase: 'russian-news-search', ok: true, results: news.results.length, domains: news.results.map(result => new URL(result.url).hostname), filtered: news.time_range_applied }));
   }
   const decision = await new Jev(config.jevKey, config.jevModel, budget, fetch, config.jevProvider).decide({
     eventId: `preflight:${randomUUID()}`, chatId: 'preflight', explicit: true, recent: [{ text: '@wtf_happend_bot привет, ответь пожалуйста' }],

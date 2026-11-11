@@ -12,7 +12,8 @@ import { Store } from '../src/store.js';
 import { Stars } from '../src/stars.js';
 import { Runtime } from '../src/runtime.js';
 import { Telegram } from '../src/telegram.js';
-import { InternetSearch } from '../src/search.js';
+import { InternetSearch, type SearchClient } from '../src/search.js';
+import { OpenRouterSearch } from '../src/openrouter-search.js';
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'wtf-pi-runtime-test-'));
@@ -23,7 +24,7 @@ async function fixture() {
   const stars = new Stars(db, { signingKey: 'x'.repeat(32), botId: 'offline' });
   const options = { directory, provider: 'offline', model: 'test', models, memory, store, budget, stars };
   const runtimes: Runtime[] = [];
-  return { provider, memory, store, budget, create(telegram?: Telegram, search?: InternetSearch) { const runtime = new Runtime({ ...options, telegram, search }); runtimes.push(runtime); return runtime; },
+  return { provider, memory, store, budget, create(telegram?: Telegram, search?: SearchClient) { const runtime = new Runtime({ ...options, telegram, search }); runtimes.push(runtime); return runtime; },
     async close() { for (const runtime of runtimes) await runtime.close(); db.close(); await rm(directory, { recursive: true, force: true }); } };
 }
 
@@ -105,6 +106,85 @@ test('persisted Pi root gains internet_search, receives source URLs and replays 
     const upgraded = f.create(undefined, search), answer = await upgraded.respond('-100', 'search:1', 'Поищи последнюю версию TypeScript');
     assert.ok(answer.includes('https://www.typescriptlang.org/')); await upgraded.close();
     assert.equal(await f.create(undefined, search).respond('-100', 'search:1', 'Поищи последнюю версию TypeScript'), answer);
+    assert.equal(requests, 1);
+  } finally { await f.close(); }
+});
+
+test('real Pi invokes paid search with a durable chat-bound ID and never charges twice on replay', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let requests = 0;
+  try {
+    const search = new OpenRouterSearch(f.store, f.budget, 'private-native-key', 'deepseek/deepseek-v4.1-flash', async () => {
+      requests++; return Response.json({ usage: { cost: 0.008, server_tool_use_details: { web_search_requests: 1 } }, choices: [{ message: { annotations: [{ type: 'url_citation', url_citation: { url: 'https://example.org/news', title: 'Новость', content: 'Подтверждённая выдержка источника' } }] } }] });
+    });
+    f.provider.setResponses([
+      fauxAssistantMessage(fauxToolCall('internet_search', { query: 'последние новости России' }), { stopReason: 'toolUse' }),
+      context => {
+        assert.ok(JSON.stringify(context).includes('Подтверждённая выдержка источника'));
+        assert.ok(!JSON.stringify(context).includes('private-native-key'));
+        return fauxAssistantMessage('Нашёл источник: https://example.org/news');
+      },
+    ]);
+    const first = f.create(undefined, search), answer = await first.respond('-100', 'native:1', 'Найди российские новости');
+    await first.close();
+    assert.equal(await f.create(undefined, search).respond('-100', 'native:1', 'Найди российские новости'), answer);
+    assert.equal(requests, 1);
+    const charge = f.store.db.prepare("SELECT chat_id,actual_micros,state FROM budget_operations WHERE operation_id LIKE 'search:%'").get()!;
+    assert.equal(charge.chat_id, '-100'); assert.equal(charge.actual_micros, 8_000); assert.equal(charge.state, 'settled');
+  } finally { await f.close(); }
+});
+
+test('search diagnoses are checked against this submission only, excluding old CAPTCHA errors on restart', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let requests = 0;
+  try {
+    const search = new InternetSearch('http://searxng:8080', async input => {
+      requests++; const url = new URL(String(input));
+      if (url.searchParams.get('q')!.includes('old-query')) return Response.json({ results: [], unresponsive_engines: [['brave', 'CAPTCHA']] });
+      if (url.searchParams.has('time_range')) return Response.json({ results: [], unresponsive_engines: [['bing news', 'parsing error']] });
+      return Response.json({ results: Array.from({ length: 8 }, (_, n) => ({ title: `Источник ${n}`, url: `https://example.org/news/${n}`, engine: 'bing' })) });
+    }, 'bing');
+    f.provider.setResponses([
+      fauxAssistantMessage(fauxToolCall('internet_search', { query: 'old-query' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Старый запрос не дал ссылок.'),
+    ]);
+    const first = f.create(undefined, search);
+    await first.respond('-100', 'search:old', 'Старый запрос'); await first.close();
+    f.provider.appendResponses([
+      fauxAssistantMessage(fauxToolCall('internet_search', { query: 'главные новости', time_range: 'day', limit: 8 }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('По российским новостям выдача пустая — русские движки сейчас капчами и лимитами задушены.'),
+      context => {
+        assert.equal(context.messages.flatMap(message => message.role === 'system' ? message.toolsAdded ?? [] : []).length, 0);
+        const input = context.messages.find(message => message.role === 'user');
+        assert.ok(input);
+        const text = typeof input.content === 'string' ? input.content : input.content.flatMap(item => item.type === 'text' ? [item.text] : []).join('\n');
+        const data = JSON.parse(text) as { current_search_results: { query: string; results: unknown[]; warnings: string[] }[] };
+        assert.equal(data.current_search_results.length, 1);
+        assert.equal(data.current_search_results[0]!.query, 'главные новости');
+        assert.equal(data.current_search_results[0]!.results.length, 8);
+        assert.ok(!JSON.stringify(data.current_search_results).includes('CAPTCHA'), 'old failures must not enter the reviewer evidence');
+        return fauxAssistantMessage('Нашёл 8 ссылок. Их свежесть за сутки не подтверждена. https://example.org/news/0');
+      },
+    ]);
+    const upgraded = f.create(undefined, search);
+    const answer = await upgraded.respond('-100', 'search:current', 'Найди российские новости');
+    assert.ok(answer.includes('Нашёл 8 ссылок')); assert.ok(!answer.includes('капч'));
+    const completedRequests = requests, completedCalls = f.provider.state.callCount; await upgraded.close();
+    assert.equal(await f.create(undefined, search).respond('-100', 'search:current', 'Найди российские новости'), answer);
+    assert.equal(requests, completedRequests); assert.equal(f.provider.state.callCount, completedCalls);
+  } finally { await f.close(); }
+});
+
+test('a reviewer repeating an invented search outage is replaced with factual links without retrying actions', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let requests = 0;
+  try {
+    const search = new InternetSearch('http://searxng:8080', async () => { requests++; return Response.json({ results: [{ title: 'Источник', url: 'https://example.org/news' }] }); });
+    f.provider.setResponses([
+      fauxAssistantMessage(fauxToolCall('internet_search', { query: 'новости' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Поиск заблокирован CAPTCHA.'),
+      fauxAssistantMessage('Поиск заблокирован CAPTCHA.'),
+    ]);
+    const answer = await f.create(undefined, search).respond('-100', 'search:still-wrong', 'Найди новости');
+    assert.ok(answer.includes('https://example.org/news'));
+    assert.ok(!answer.includes('CAPTCHA'));
     assert.equal(requests, 1);
   } finally { await f.close(); }
 });

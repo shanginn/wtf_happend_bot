@@ -85,11 +85,12 @@ test('release requires a CI digest and always stages zero replicas before a real
   assert.equal(value.candidate.spec.template.spec.containers[0]!.imagePullPolicy, 'IfNotPresent');
   assert.equal(value.check.spec.backoffLimit, 0, 'an unknown paid preflight must not retry automatically');
 });
-test('CI wires search into both bot and preflight and permits only the SearXNG service connection', () => {
+test('CI selects OpenRouter search in bot and preflight while retaining scoped access to optional legacy SearXNG', () => {
   const resources = template(), release = plan();
   for (const container of [release.candidate.spec.template.spec.containers[0]!, (release.check.spec.template as Deployment['spec']['template']).spec.containers[0]!]) {
     assert.ok((container.env as { name: string; value?: string }[]).some(entry => entry.name === 'SEARCH_BASE_URL' && entry.value === 'http://wtf-happend-bot-searxng:8080'));
     assert.ok((container.env as { name: string; value?: string }[]).some(entry => entry.name === 'SEARCH_ENGINES' && entry.value === 'bing'));
+    assert.ok((container.env as { name: string; value?: string }[]).some(entry => entry.name === 'SEARCH_PROVIDER' && entry.value === 'openrouter'));
   }
   const egress = resources.find(r => r.kind === 'NetworkPolicy' && r.metadata.name === TARGET)!.spec.egress as { to?: { podSelector?: { matchLabels: Record<string, string> } }[]; ports: { port: number; protocol: string }[] }[];
   const search = egress.find(rule => rule.to?.some(to => to.podSelector?.matchLabels.service === 'searxng'))!;
