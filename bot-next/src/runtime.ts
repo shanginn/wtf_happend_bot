@@ -39,7 +39,7 @@ function textOutput(value: unknown) { return { output: [{ type: 'text' as const,
 export interface RuntimeOptions {
   directory: string; provider: string; model: string; budget: Budget; memory: MemoryStore; store: Store;
   media?: Media; stars: Stars; models?: Models; telegram?: Telegram; search?: SearchClient;
-  extraTools?: (chat: string) => ToolRegistration[];
+  extraTools?: (chat: string, operationNamespace: string) => ToolRegistration[];
 }
 
 export class Runtime {
@@ -51,11 +51,14 @@ export class Runtime {
     if (!model) throw new Error('Configured Pi model is absent from the pinned catalog');
     return modelQuote(model, 4096, PROBE_INPUT_CEILING);
   }
-  private tools(chat: string): ToolRegistration[] {
+  private tools(chat: string, sessionKey = chat): ToolRegistration[] {
     const { memory, store, media, stars, budget } = this.options;
+    // Pi task IDs are local to one SQLite file. Keep old chat IDs stable on replay;
+    // separate widget sessions must never share external operation identities.
+    const namespace = sessionKey === chat ? chat : `${chat}:session:${createHash('sha256').update(sessionKey).digest('hex')}`;
     return [
-      ...(this.options.telegram ? [telegramTool(this.options.telegram, store, chat), widgetCheckTool(chat)] : []),
-      ...(this.options.search ? [internetSearchTool(this.options.search, chat)] : []),
+      ...(this.options.telegram ? [telegramTool(this.options.telegram, store, chat, namespace), widgetCheckTool(chat)] : []),
+      ...(this.options.search ? [internetSearchTool(this.options.search, chat, namespace)] : []),
       defineTool({ name: 'recall_memory', description: 'Search durable knowledge in this chat. Empty query lists recent facts.', parameters: obj({ query: str() }), replay: 'safe',
         execute: async ({ query }) => textOutput(memory.recall({ scope: chat, query, limit: 12 })) }),
       defineTool({ name: 'remember', description: 'Remember a useful fact grounded in an exact quote from a chat message.', parameters: obj({ subject: str(), text: str(), message_id: num(), quote: str() }), replay: 'safe',
@@ -83,7 +86,7 @@ export class Runtime {
       defineTool({ name: 'generate_image', description: 'Queue an image through fal.ai within the host budget. The image is delivered separately.', parameters: obj({ prompt: str() }), replay: 'safe',
         execute: async ({ prompt }, api) => {
           if (!media) throw new Error('fal.ai is not configured');
-          const operationId = `image:${chat}:${api.taskId}`;
+          const operationId = `image:${namespace}:${api.taskId}`;
           if (!store.get(`route:${operationId}`)) store.set(`route:${operationId}`, store.get(`route:${chat}`) ?? '{}');
           const job = await media.generate({ operationId, chatId: chat, prompt });
           return textOutput({ id: job.operationId, status: job.state });
@@ -91,7 +94,7 @@ export class Runtime {
       defineTool({ name: 'request_support', description: 'Offer a voluntary Stars invoice for supporting this chat; at most once per day. Never promise a USD conversion.', parameters: obj({ stars: num() }), replay: 'safe',
         execute: async ({ stars: amount }, api) => {
           if (!Number.isSafeInteger(amount) || amount < 1 || amount > 500) throw new Error('Support amount must be 1–500 Stars');
-          const op = `support:${chat}:${api.taskId}`;
+          const op = `support:${namespace}:${api.taskId}`;
           atomic(store.db, () => {
             const last = Number(store.get(`support:last:${chat}`) ?? 0);
             const previous = store.get(`support:operation:${chat}`);
@@ -102,7 +105,7 @@ export class Runtime {
           });
           return textOutput('Support invoice queued');
         } }),
-      ...(this.options.extraTools?.(chat) ?? []),
+      ...(this.options.extraTools?.(chat, namespace) ?? []),
     ];
   }
   private session(chat: string, sessionKey = chat): Promise<Harness> {
@@ -112,7 +115,7 @@ export class Runtime {
         mkdirSync(this.options.directory, { recursive: true, mode: 0o700 });
         const storage = await openNodeSqliteStorage(join(this.options.directory, `${createHash('sha256').update(sessionKey).digest('hex')}.sqlite`));
         const registry = createRegistry();
-        registry.install(defineExtension({ name: 'chat', sections: [section('personality', () => basePrompt), section('telegram-widgets', () => `${widgetInstructions}\n${widgetChatGuidance(chat)}`)], tools: this.tools(chat) }));
+        registry.install(defineExtension({ name: 'chat', sections: [section('personality', () => basePrompt), section('telegram-widgets', () => `${widgetInstructions}\n${widgetChatGuidance(chat)}`)], tools: this.tools(chat, sessionKey) }));
         const harness = await Harness.open(storage, {
           models: budgetedModels(this.models, this.options.budget, chat), registry,
           settings: { stream: { maxRetries: 0, timeoutMs: 90_000 }, retry: { maxRetries: 0 }, toolExecution: 'sequential' },

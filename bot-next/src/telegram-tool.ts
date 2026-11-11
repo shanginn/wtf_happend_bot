@@ -36,12 +36,12 @@ export async function callTelegramTool(store: Store, telegram: Telegram, id: str
   return result;
 }
 
-export function telegramTool(telegram: Telegram, store: Store, chat: string) {
+export function telegramTool(telegram: Telegram, store: Store, chat: string, operationNamespace = chat) {
   return defineTool({
     name: 'telegram_api',
     description: `Call ANY Telegram Bot API method, with its official method name and arbitrary parameters. Direct api.telegram.org uses the latest server API (verified 10.4, 2026-11-09); no SDK version gate or method allowlist. Current chat_id is ${chat}; include it in parameters for chat methods. For example sendPoll: {chat_id:"${chat}",question:"Question?",options:[{text:"Yes"},{text:"No"}]}. HTML widgets: sendWidget {chat_id,html,caption,chat_data,public_data,allow_queries}; check generated HTML with telegram_widget_check first. Widgets currently work only in private chats in production. sendSharedWidget reuses widget_id; editMessageWidgetData changes widget state; editSharedWidgetData changes shared public data. HTML cannot be replaced on an existing widget. Send, edit or delete messages; polls, reactions, pins, moderation, invites, files, stickers, Stars and all other Bot API methods use this same tool. Existing file_id values and HTTPS file URLs go directly in parameters. To upload bytes, use files (base64 by default, or utf8); put attach://FIELD in parameters for nested attachments such as sendMediaGroup. Returns the actual Telegram result or error, including permission errors. On unknown outcome do not repeat the action.`,
     parameters: obj({ method: str(), parameters: map(unknown()), files: opt(arr(obj({ field: str(), data: str(), filename: str(), mime_type: opt(str()), encoding: opt(oneOf(['base64', 'utf8'])) }))) }),
     replay: 'safe',
-    execute: async ({ method, parameters, files }, api) => ({ output: [{ type: 'text' as const, text: JSON.stringify(await callTelegramTool(store, telegram, `telegram-api:${chat}:${api.taskId}`, chat, method, parameters, files)) }] }),
+    execute: async ({ method, parameters, files }, api) => ({ output: [{ type: 'text' as const, text: JSON.stringify(await callTelegramTool(store, telegram, `telegram-api:${operationNamespace}:${api.taskId}`, chat, method, parameters, files)) }] }),
   });
 }

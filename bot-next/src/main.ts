@@ -63,7 +63,7 @@ export async function main(): Promise<void> {
   learning.recoverInterrupted();
   const search = createSearch(config, budget, store);
   const runtime = new Runtime({ directory: join(config.dataDir, 'pi'), provider: config.provider, model: config.model,
-    budget, memory, store, stars, media, telegram, search, extraTools: chat => learning.tools(chat) });
+    budget, memory, store, stars, media, telegram, search, extraTools: (chat, namespace) => learning.tools(chat, namespace) });
   runtime.quote(); // fail before polling if model identity or pricing is missing
   const jev = new Jev(config.jevKey, config.jevModel, budget, fetch, config.jevProvider);
   let stopped = false;

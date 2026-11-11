@@ -90,7 +90,7 @@ export class Learning {
       this.store.db.exec("UPDATE learning_jobs SET status='unknown' WHERE status='running'; UPDATE learning_runs SET status='unknown' WHERE status='running'");
     });
   }
-  tools(chat: string): ToolRegistration[] {
+  tools(chat: string, operationNamespace = chat): ToolRegistration[] {
     const output = (value: unknown) => ({ output: [{ type: 'text' as const, text: JSON.stringify(value) }] });
     return [
       defineTool({ name: 'list_skills', description: 'Read the current versioned skills and available isolated scripts.', parameters: obj({}), replay: 'safe', execute: async () => output(this.skills.current(chat) ?? { tree: starter }) }),
@@ -103,7 +103,7 @@ export class Learning {
       } }),
       defineTool({ name: 'improve_skills', description: 'Ask Harness² to create or improve a reusable skill. Runs asynchronously, tests and activates automatically if better.', parameters: obj({ goal: str() }), replay: 'safe', execute: async ({ goal }, api) => {
         if (!goal.trim() || goal.length > 4000) throw new Error('Invalid improvement goal');
-        const id = `learn:${chat}:${api.taskId}`;
+        const id = `learn:${operationNamespace}:${api.taskId}`;
         this.enqueue(id, chat, goal); return output({ id, status: 'queued' });
       } }),
     ];

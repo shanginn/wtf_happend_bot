@@ -304,6 +304,31 @@ test('existing Pi roots generate checked HTML widgets; clicks use isolated durab
   } finally { await f.close(); }
 });
 
+test('different widget sessions cannot collide on Telegram or search operations with equal local Pi task IDs', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let telegramCalls = 0; const searchIds: string[] = [];
+  const telegram = new Telegram('fixture-token', async () => { telegramCalls++; return Response.json({ ok: true, result: true }); });
+  const source = new InternetSearch('http://fixture:8080', async () => Response.json({ results: [{ title: 'Fixture', url: 'https://example.org/' }] }));
+  const search: SearchClient = { search: async (options, operation) => { searchIds.push(operation!.id); assert.equal(operation!.chat, '10'); return source.search(options); } };
+  try {
+    f.provider.setResponses([1, 2].flatMap(id => [
+      fauxAssistantMessage(fauxToolCall('internet_search', { query: `widget ${id}` }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'editMessageWidgetData', parameters: { chat_id: '10', message_id: id, chat_data: '{"n":1}' } }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Готово.'),
+    ]));
+    const first = f.create(telegram, search);
+    for (const id of [1, 2]) assert.equal(await first.respond('10', `click:${id}`, 'Обнови виджет', 'Обнови виджет', undefined, `widget:message:10:${id}`), 'Готово.');
+    assert.equal(telegramCalls, 2);
+    const rows = f.store.db.prepare("SELECT id FROM telegram_calls WHERE id LIKE 'telegram-api:%' ORDER BY id").all() as { id: string }[];
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0]!.id.split(':').at(-1), rows[1]!.id.split(':').at(-1), 'the fixture must exercise equal task IDs in different Pi files');
+    assert.equal(new Set(searchIds).size, 2); assert.equal(searchIds[0]!.split(':').at(-1), searchIds[1]!.split(':').at(-1));
+    const modelCalls = f.provider.state.callCount; await first.close();
+    const restarted = f.create(telegram, search);
+    for (const id of [1, 2]) assert.equal(await restarted.respond('10', `click:${id}`, 'Обнови виджет', 'Обнови виджет', undefined, `widget:message:10:${id}`), 'Готово.');
+    assert.equal(telegramCalls, 2); assert.equal(searchIds.length, 2); assert.equal(f.provider.state.callCount, modelCalls);
+  } finally { await f.close(); }
+});
+
 test('real Pi tool calls remember and recall only trusted chat scope', { timeout: 10_000 }, async () => {
   const f = await fixture();
   try {
