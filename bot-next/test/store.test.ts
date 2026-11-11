@@ -109,6 +109,9 @@ test('conversation cutoff excludes queued future messages and uses the latest ed
     assert.equal(revised.find(message => message.message_id === 1)?.text, 'corrected after question');
     assert.equal(revised.some(message => message.text === 'future message'), false);
     assert.equal(store.recent('-100').find(message => message.message_id === 1)?.text, 'corrected after question');
+    assert.equal(store.conversationEvents('-100', 2).find(event => event.message.message_id === 1)?.kind, 'message');
+    const edited = store.conversationEvents('-100', 3).find(event => event.message.message_id === 1)!;
+    assert.equal(edited.kind, 'edited message'); assert.equal(edited.updateId, 3);
   } finally { db.close(); }
 });
 

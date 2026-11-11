@@ -4,7 +4,6 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { UserInput } from '@earendil-works/pi-durable';
 import { readConfig } from './config.js';
 import { Store, openDatabase, type InboxItem } from './store.js';
 import { Telegram, TelegramError, type TelegramMessage, type TelegramUpdate, type TelegramUser } from './telegram.js';
@@ -19,14 +18,20 @@ import { handleFinancialUpdate } from './payments.js';
 import { queueCompletedMedia } from './delivery.js';
 import { canManageChat } from './chat-policy.js';
 import { createSearch } from './search-client.js';
+import { buildTelegramInput, messageFiles, participantReference } from './telegram-context.js';
 
-export function projectMessage(message: TelegramMessage) {
+export function projectMessage(message: TelegramMessage, canShowSource?: (message: TelegramMessage) => boolean) {
+  const author = message.sender_chat ? { reference: participantReference(message), kind: 'chat', senderChat: message.sender_chat.id, name: message.sender_chat.title, username: message.sender_chat.username }
+    : message.from ? { reference: participantReference(message), kind: message.from.is_bot ? 'bot' : 'user', id: message.from.id, name: [message.from.first_name, message.from.last_name].filter(Boolean).join(' '), username: message.from.username, is_bot: Boolean(message.from.is_bot), sender_tag: message.sender_tag } : { kind: 'unknown' };
+  const reply = message.reply_to_message;
+  const replyVisible = reply && canShowSource?.(reply) !== false && !reply.successful_payment && !reply.refunded_payment;
   return { id: message.message_id, chat_id: message.chat.id, message_thread_id: message.message_thread_id, date: new Date(message.date * 1000).toISOString(),
-    author: message.from ? { id: message.from.id, name: message.from.first_name, username: message.from.username } : { senderChat: message.sender_chat?.id },
+    author,
     text: (message.text ?? message.caption ?? '').slice(0,8000), image: Boolean(message.photo?.length),
-    files: { photo: message.photo, document: message.document, video: message.video, animation: message.animation, audio: message.audio, voice: message.voice, sticker: message.sticker },
+    files: messageFiles(message),
     poll: message.poll, replyTo: message.reply_to_message?.message_id,
-    replyPoll: message.reply_to_message?.poll };
+    reply: replyVisible ? { id: reply.message_id, participant: participantReference(reply), author: reply.sender_chat?.title ?? [reply.from?.first_name, reply.from?.last_name].filter(Boolean).join(' '), is_bot: reply.from?.is_bot, date: new Date(reply.date * 1000).toISOString(), text: (reply.text ?? reply.caption ?? '').slice(0, 80) } : undefined,
+    replyPoll: replyVisible ? reply.poll : undefined };
 }
 
 /** A separate SQLite lock is held for the process lifetime and releases on crash. */
@@ -101,7 +106,10 @@ export async function main(): Promise<void> {
     }
     if (command && command !== 'wtf') { store.status(item.id, 'done'); return; }
     if (store.get(`paused:${item.chat}`) === 'yes') { store.status(item.id, 'silent'); return; }
-    const recent = store.conversation(item.chat, item.id).filter(m => !memory.isSourceForgotten(item.chat, `${item.chat}:${m.message_id}`)).map(projectMessage);
+    const floor = Number(store.get(`memory:context-floor:${item.chat}`) ?? 0);
+    const canShowSource = (source: TelegramMessage) => String(source.chat.id) === item.chat && source.message_id > floor && !memory.isSourceForgotten(item.chat, `${item.chat}:${source.message_id}`);
+    const history = store.conversationEvents(item.chat, item.id).filter(event => canShowSource(event.message));
+    const recent = history.map(event => projectMessage(event.message, canShowSource));
     const explicit = message.reply_to_message?.from?.id === identity.id || Boolean(identity.username && text.toLowerCase().includes(`@${identity.username.toLowerCase()}`)) || command === 'wtf';
     const decision = item.decision ? JSON.parse(item.decision) as AttentionDecision : await jev.decide({ eventId: String(item.id), chatId: item.chat, explicit, recent,
       botName: identity.username ?? identity.first_name ?? 'bot', now: Date.now(), lastSpokeAt: Number(store.get(`spoke:${item.chat}`) ?? 0) });
@@ -115,16 +123,17 @@ export async function main(): Promise<void> {
     }
     if (!decision.reply) { store.status(item.id, 'silent'); return; }
     const activeSkills = learning.skills.current(item.chat);
-    const current = memory.isSourceForgotten(item.chat, `${item.chat}:${message.message_id}`) ? { id: message.message_id, text: '[Источник исключён по запросу забывания]' } : projectMessage(message);
-    const content: Exclude<UserInput, string> = [{ type: 'text', text: `Current time (UTC): ${new Date().toISOString()}\nCurrent message: ${JSON.stringify(current)}\nRecent context: ${JSON.stringify(recent)}\nRelevant memories: ${JSON.stringify(memory.recall({ scope: item.chat, query: '', limit: 12 }))}\nActive skill version: ${activeSkills?.hash ?? 'none'}\nBehavior guidance: ${activeSkills?.tree['AGENTS.md'] ?? ''}\n${command === 'wtf' ? 'Summarize the actual recent discussion, distinguish topics and decisions.' : ''}` }];
-    const photo = message.photo?.filter(p => (p.file_size ?? Infinity) <= 4_000_000).at(-1);
+    const content = buildTelegramInput({ current: { message, updateId: item.id, kind: update.edited_message ? 'edited message' : 'message' }, history,
+      timezone: config.timezone, bot: identity, canShowSource, now: Date.now(), memories: memory.recall({ scope: item.chat, query: '', limit: 12 }), skillVersion: activeSkills?.hash, guidance: activeSkills?.tree['AGENTS.md'], summarize: command === 'wtf' });
+    const photo = canShowSource(message) ? message.photo?.filter(p => (p.file_size ?? Infinity) <= 4_000_000).at(-1) : undefined;
     if (photo) {
       try { content.push(await telegram.image(photo.file_id)); }
       catch { content.push({ type: 'text', text: 'Image could not be downloaded. Do not pretend to have seen it.' }); }
     }
     store.set(`route:${item.chat}`, JSON.stringify({ messageId: message.message_id, topic: message.message_thread_id }));
     try {
-      const answer = await runtime.respond(item.chat, `telegram:${item.id}`, content, text);
+      const reference = participantReference(message);
+      const answer = await runtime.respond(item.chat, `telegram:${item.id}`, content, text, { kind: 'telegram.message', data: { telegramUpdateId: item.id, telegramMessageId: message.message_id, telegramMessageTimestamp: message.date, ...(reference ? { telegramParticipant: reference } : {}) } });
       if (answer) reply(`answer:${item.id}`, message, answer);
       store.status(item.id, 'done');
     } catch {

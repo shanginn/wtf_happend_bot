@@ -11,6 +11,7 @@ export function openDatabase(directory: string): DatabaseSync {
 }
 
 export interface InboxItem { id: number; chat: string; payload: string; decision: string | null; status: string }
+export interface ConversationEvent { message: TelegramMessage; updateId?: number; kind: 'message' | 'edited message' | 'confirmed bot output' }
 export class Store {
   constructor(readonly db: DatabaseSync) {
     db.exec(`CREATE TABLE IF NOT EXISTS ingress(id INTEGER PRIMARY KEY, chat TEXT NOT NULL, payload TEXT NOT NULL, decision TEXT, status TEXT NOT NULL DEFAULT 'pending');
@@ -49,33 +50,39 @@ export class Store {
   status(id: number, status: string): void { this.db.prepare('UPDATE ingress SET status=? WHERE id=?').run(status, id); }
   decide(id: number, decision: unknown): void { this.db.prepare('UPDATE ingress SET decision=? WHERE id=? AND decision IS NULL').run(JSON.stringify(decision), id); }
   recent(chat: string, limit = 30, beforeUpdateId = Number.MAX_SAFE_INTEGER): TelegramMessage[] {
+    return this.recentEvents(chat, limit, beforeUpdateId).map(event => event.message);
+  }
+  private recentEvents(chat: string, limit: number, beforeUpdateId: number): ConversationEvent[] {
     const rows = this.db.prepare('SELECT payload FROM ingress WHERE chat=? AND id<=? ORDER BY id DESC LIMIT ?').all(chat, beforeUpdateId, limit) as { payload: string }[];
-    const latest = new Map<number, TelegramMessage>();
+    const latest = new Map<number, ConversationEvent>();
     for (const row of rows.reverse()) {
       const update = JSON.parse(row.payload) as TelegramUpdate, message = update.message ?? update.edited_message;
-      if (message && !message.successful_payment && !message.refunded_payment) latest.set(message.message_id, message);
+      if (message && !message.successful_payment && !message.refunded_payment) latest.set(message.message_id, { message, updateId: update.update_id, kind: update.edited_message ? 'edited message' : 'message' });
     }
     return [...latest.values()];
   }
   conversation(chat: string, beforeUpdateId: number, limit = 30): TelegramMessage[] {
-    const incoming = this.recent(chat, limit, beforeUpdateId);
-    const cutoff = Math.max(...incoming.map(m => m.date));
+    return this.conversationEvents(chat, beforeUpdateId, limit).map(event => event.message);
+  }
+  conversationEvents(chat: string, beforeUpdateId: number, limit = 30): ConversationEvent[] {
+    const incoming = this.recentEvents(chat, limit, beforeUpdateId);
+    const cutoff = Math.max(...incoming.map(event => event.message.date));
     const sent = this.db.prepare("SELECT result FROM outgoing WHERE chat=? AND method='sendMessage' AND status='sent' ORDER BY rowid DESC LIMIT ?").all(chat, limit) as { result: string | null }[];
-    const messages = new Map(incoming.map(m => [m.message_id, m]));
+    const messages = new Map(incoming.map(event => [event.message.message_id, event]));
     for (const row of sent) {
       const message = row.result ? JSON.parse(row.result) as TelegramMessage : undefined;
-      if (message?.from?.is_bot && String(message.chat?.id) === chat && message.text && message.date <= cutoff) messages.set(message.message_id, message);
+      if (message?.from?.is_bot && String(message.chat?.id) === chat && message.text && message.date <= cutoff) messages.set(message.message_id, { message, kind: 'confirmed bot output' });
     }
     const calls = this.db.prepare("SELECT result FROM telegram_calls WHERE chat=? AND status='done' ORDER BY rowid DESC LIMIT ?").all(chat, limit) as { result: string }[];
     for (const row of calls.reverse()) {
       const result = (JSON.parse(row.result) as { result: unknown }).result;
       for (const value of Array.isArray(result) ? result : [result]) {
         const message = value as TelegramMessage | null;
-        if (message && Number.isSafeInteger(message.message_id) && String(message.chat?.id) === chat && message.date <= cutoff && !message.successful_payment && !message.refunded_payment) messages.set(message.message_id, message);
+        if (message && Number.isSafeInteger(message.message_id) && String(message.chat?.id) === chat && message.date <= cutoff && !message.successful_payment && !message.refunded_payment) messages.set(message.message_id, { message, kind: 'confirmed bot output' });
       }
     }
     const floor = Number(this.get(`memory:context-floor:${chat}`) ?? 0);
-    return [...messages.values()].filter(m => m.message_id > floor).sort((a, b) => a.date - b.date || a.message_id - b.message_id).slice(-limit);
+    return [...messages.values()].filter(event => event.message.message_id > floor).sort((a, b) => a.message.date - b.message.date || a.message.message_id - b.message.message_id).slice(-limit);
   }
   queue(id: string, chat: string, method: string, payload: Record<string, unknown>): void {
     const body = JSON.stringify({ ...payload, chat_id: chat });

@@ -1,8 +1,12 @@
-export interface TelegramUser { id: number; first_name?: string; username?: string; is_bot?: boolean }
-export interface TelegramChat { id: number; type?: string; title?: string }
+export interface TelegramUser { id: number; first_name?: string; last_name?: string; username?: string; is_bot?: boolean }
+export interface TelegramChat { id: number; type?: string; title?: string; username?: string; first_name?: string; last_name?: string }
 export interface TelegramMessage {
   message_id: number; date: number; chat: TelegramChat; from?: TelegramUser;
-  sender_chat?: { id: number; title?: string }; text?: string; caption?: string; message_thread_id?: number;
+  sender_chat?: TelegramChat; sender_tag?: string; author_signature?: string; via_bot?: TelegramUser;
+  text?: string; caption?: string; message_thread_id?: number; edit_date?: number; media_group_id?: string;
+  is_automatic_forward?: boolean; has_protected_content?: boolean;
+  quote?: { text: string };
+  forward_origin?: { type: string; date?: number; sender_user?: TelegramUser; sender_user_name?: string; sender_chat?: TelegramChat; chat?: TelegramChat; message_id?: number; author_signature?: string };
   reply_to_message?: TelegramMessage;
   photo?: { file_id: string; file_size?: number; width: number; height: number }[];
   document?: { file_id: string; file_name?: string; mime_type?: string };

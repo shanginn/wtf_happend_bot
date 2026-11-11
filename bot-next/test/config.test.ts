@@ -12,6 +12,11 @@ test('OpenRouter startup needs no chat IDs or separate TypeSafe key', () => {
   assert.equal(config.model, env.PI_MODEL);
   assert.deepEqual(config.ownerIds, []);
   assert.equal(config.searchBaseUrl, undefined);
+  assert.equal(config.timezone, 'Asia/Yekaterinburg');
+});
+test('Telegram context timezone is explicit and validates IANA names', () => {
+  assert.equal(readConfig({ ...env, BOT_TIMEZONE: 'UTC' }).timezone, 'UTC');
+  assert.throws(() => readConfig({ ...env, BOT_TIMEZONE: 'bad-zone' }), /Invalid BOT_TIMEZONE/);
 });
 
 test('SearXNG URL is configured without another API key and validates its transport', () => {

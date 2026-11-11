@@ -18,7 +18,7 @@ test('model projection exposes Telegram identifiers for tools but excludes payme
   assert.equal(result.chat_id, -100);
   assert.equal(result.message_thread_id, 17);
   assert.equal(result.files.photo?.[0]?.file_id, 'reusable-file-id');
-  assert.deepEqual(result.author, { id: 7, name: 'Иван', username: 'ivan' });
+  assert.deepEqual(result.author, { reference: 'telegram_user:7', kind: 'user', id: 7, name: 'Иван', username: 'ivan', is_bot: false, sender_tag: undefined });
   const encoded = JSON.stringify(result);
   for (const secret of ['secret-invoice-signature', 'secret-charge', 'nested-private-body', 'successful_payment', 'refunded_payment']) assert.ok(!encoded.includes(secret));
 });
@@ -28,6 +28,6 @@ test('projection bounds text and supports captions and channel senders without c
   const result = projectMessage(message);
   assert.equal(result.text.length, 8000);
   assert.equal(message.caption!.length, 9000);
-  assert.deepEqual(result.author, { senderChat: -200 });
+  assert.deepEqual(result.author, { reference: 'telegram_chat:-200', kind: 'chat', senderChat: -200, name: 'channel', username: undefined });
   assert.equal(result.image, false);
 });

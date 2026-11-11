@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,6 +15,7 @@ import { Runtime } from '../src/runtime.js';
 import { Telegram } from '../src/telegram.js';
 import { InternetSearch, type SearchClient } from '../src/search.js';
 import { OpenRouterSearch } from '../src/openrouter-search.js';
+import { buildTelegramInput } from '../src/telegram-context.js';
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'wtf-pi-runtime-test-'));
@@ -24,7 +26,7 @@ async function fixture() {
   const stars = new Stars(db, { signingKey: 'x'.repeat(32), botId: 'offline' });
   const options = { directory, provider: 'offline', model: 'test', models, memory, store, budget, stars };
   const runtimes: Runtime[] = [];
-  return { provider, memory, store, budget, create(telegram?: Telegram, search?: SearchClient) { const runtime = new Runtime({ ...options, telegram, search }); runtimes.push(runtime); return runtime; },
+  return { directory, provider, memory, store, budget, create(telegram?: Telegram, search?: SearchClient) { const runtime = new Runtime({ ...options, telegram, search }); runtimes.push(runtime); return runtime; },
     async close() { for (const runtime of runtimes) await runtime.close(); db.close(); await rm(directory, { recursive: true, force: true }); } };
 }
 
@@ -42,6 +44,33 @@ test('official Pi Durable responds and reuses persisted root and submission afte
     f.provider.appendResponses([fauxAssistantMessage('Другой чат')]);
     assert.equal(await restarted.respond('-200', 'update:1', 'Привет'), 'Другой чат');
     assert.equal(f.provider.state.callCount, 2);
+  } finally { await f.close(); }
+});
+
+test('legacy Telegram message blocks and participant/timestamp metadata survive Pi persistence and replay', { timeout: 10_000 }, async () => {
+  const f = await fixture();
+  try {
+    const message = { message_id: 42, date: 1794381617, chat: { id: -100, type: 'supergroup' }, from: { id: 7, first_name: 'Ник', is_bot: false }, text: 'Кто это написал?' };
+    const content = buildTelegramInput({ current: { message, updateId: 100, kind: 'message' }, history: [], timezone: 'Asia/Yekaterinburg', bot: { id: 777, first_name: 'Bot', is_bot: true }, now: 1794381620000, memories: [] });
+    const entry = { kind: 'telegram.message', data: { telegramParticipant: 'telegram_user:7', telegramMessageTimestamp: message.date, telegramUpdateId: 100, telegramMessageId: 42 } };
+    f.provider.setResponses([context => {
+      const input = context.messages.find(message => message.role === 'user');
+      assert.deepEqual(input?.content, content);
+      return fauxAssistantMessage('Ник.');
+    }]);
+    const first = f.create();
+    assert.equal(await first.respond('-100', 'telegram:100', content, message.text, entry), 'Ник.');
+    await first.close();
+    const db = new DatabaseSync(join(f.directory, `${createHash('sha256').update('-100').digest('hex')}.sqlite`), { readOnly: true });
+    try {
+      const rows = db.prepare("SELECT record FROM entries WHERE json_extract(record, '$.kind')='telegram.message'").all() as { record: string }[];
+      assert.equal(rows.length, 1);
+      const persisted = JSON.parse(rows[0]!.record);
+      assert.deepEqual(persisted.data, entry.data);
+      assert.deepEqual(persisted.model[0].content, content);
+    } finally { db.close(); }
+    assert.equal(await f.create().respond('-100', 'telegram:100', content, message.text, entry), 'Ник.');
+    assert.equal(f.provider.state.callCount, 1);
   } finally { await f.close(); }
 });
 

@@ -101,6 +101,10 @@
                     "value": "10"
                   },
                   {
+                    "name": "BOT_TIMEZONE",
+                    "value": "Asia/Yekaterinburg"
+                  },
+                  {
                     "name": "EVOLUTION_MAX_USD",
                     "value": "2"
                   },
