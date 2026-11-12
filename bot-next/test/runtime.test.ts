@@ -76,6 +76,58 @@ test('legacy Telegram message blocks and participant/timestamp metadata survive 
   } finally { await f.close(); }
 });
 
+test('sendMessage plus the identical final answer delivers once and remains suppressed on replay, without suppressing later turns', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let sends = 0;
+  const body = 'У каждого ответа есть цена.';
+  const telegram = new Telegram('fixture-token', async (_url, init) => {
+    sends++; const parameters = JSON.parse(init!.body as string);
+    return Response.json({ ok: true, result: { message_id: 42, chat: { id: -100 }, text: parameters.text } });
+  });
+  try {
+    f.provider.setResponses([
+      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: body, reply_parameters: { message_id: 1 } } }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage(body),
+    ]);
+    const first = f.create(telegram);
+    assert.equal(await first.respond('-100', 'telegram:1', 'У тебя конечные токены.'), '', 'main must not queue the already-delivered body again');
+    assert.equal(sends, 1); assert.equal(f.store.outgoing().length, 0);
+    const modelCalls = f.provider.state.callCount; await first.close();
+    const restarted = f.create(telegram);
+    assert.equal(await restarted.respond('-100', 'telegram:1', 'У тебя конечные токены.'), '');
+    assert.equal(sends, 1); assert.equal(f.provider.state.callCount, modelCalls);
+    f.provider.appendResponses([fauxAssistantMessage(body)]);
+    assert.equal(await restarted.respond('-100', 'telegram:2', 'Повтори теперь для другого сообщения.'), body, 'only deliveries in the current submission may suppress its answer');
+  } finally { await f.close(); }
+});
+
+test('an unconfirmed sendMessage is not retried through the automatic final answer after restart', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let sends = 0;
+  const telegram = new Telegram('fixture-token', async () => { sends++; throw new Error('Connection reset after dispatch'); });
+  try {
+    f.provider.setResponses([
+      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: 'Ответ.' } }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Ответ.'),
+    ]);
+    const first = f.create(telegram); assert.equal(await first.respond('-100', 'unknown:reply', 'Привет'), '');
+    await first.close(); assert.equal(await f.create(telegram).respond('-100', 'unknown:reply', 'Привет'), '');
+    assert.equal(sends, 1); assert.equal(f.store.db.prepare('SELECT status FROM telegram_calls').get()!.status, 'unknown');
+  } finally { await f.close(); }
+});
+
+test('language repair cannot re-send a Russian body already delivered by a tool', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let sends = 0;
+  const telegram = new Telegram('fixture-token', async () => { sends++; return Response.json({ ok: true, result: { message_id: 42, chat: { id: -100 }, text: 'Готово.' } }); });
+  try {
+    f.provider.setResponses([
+      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: 'Готово.' } }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('我已经完成了这个请求，不需要再次发送相同的消息给用户。'),
+      fauxAssistantMessage('Готово.'),
+    ]);
+    assert.equal(await f.create(telegram).respond('-100', 'language:delivered', 'Скажи, что готово.'), '');
+    assert.equal(sends, 1); assert.equal(f.provider.state.callCount, 3);
+  } finally { await f.close(); }
+});
+
 test('Chinese output is repaired with zero tools, without repeating Telegram effects, and survives replay', { timeout: 10_000 }, async () => {
   const f = await fixture();
   try {
