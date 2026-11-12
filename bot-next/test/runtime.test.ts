@@ -76,153 +76,101 @@ test('legacy Telegram message blocks and participant/timestamp metadata survive 
   } finally { await f.close(); }
 });
 
-test('sendMessage owns the turn even with a different final answer; replay stays silent and later turns still reply', { timeout: 10_000 }, async () => {
-  for (const final of ['У каждого ответа есть цена.', 'Да, ответы расходуют общий бюджет. Ещё одно уточнение.']) {
-    const f = await fixture(); let sends = 0;
-    const body = 'У каждого ответа есть цена.';
-    const telegram = new Telegram('fixture-token', async (_url, init) => {
-      sends++; const parameters = JSON.parse(init!.body as string);
-      return Response.json({ ok: true, result: { message_id: 42, chat: { id: -100 }, text: parameters.text } });
-    });
-    try {
-      f.provider.setResponses([
-        fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: body, reply_parameters: { message_id: 1 } } }), { stopReason: 'toolUse' }),
-        fauxAssistantMessage(final),
-      ]);
-      const first = f.create(telegram);
-      assert.equal(await first.respond('-100', 'telegram:1', 'У тебя конечные токены.'), '', 'main must not queue another final after the tool delivered the reply');
-      assert.equal(sends, 1); assert.equal(f.store.outgoing().length, 0);
-      const modelCalls = f.provider.state.callCount; await first.close();
-      const restarted = f.create(telegram);
-      assert.equal(await restarted.respond('-100', 'telegram:1', 'У тебя конечные токены.'), '');
-      assert.equal(sends, 1); assert.equal(f.provider.state.callCount, modelCalls);
-      f.provider.appendResponses([fauxAssistantMessage(body)]);
-      assert.equal(await restarted.respond('-100', 'telegram:2', 'Повтори теперь для другого сообщения.'), body, 'only deliveries in the current submission may suppress its answer');
-    } finally { await f.close(); }
-  }
-});
-
-test('a model failure after text delivery cannot trigger a second error reply or borrow evidence from later inputs', { timeout: 10_000 }, async () => {
-  for (const deliveredFirst of [true, false]) {
-    const f = await fixture(); let sends = 0;
-    const telegram = new Telegram('fixture-token', async (_url, init) => {
-      sends++; return Response.json({ ok: true, result: { message_id: sends, chat: { id: -100 }, text: JSON.parse(init!.body as string).text } });
-    });
-    const send = () => fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: 'Ответ через инструмент.' } }), { stopReason: 'toolUse' });
-    try {
-      f.provider.setResponses([...(deliveredFirst ? [send()] : []), fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Provider offline' })]);
-      const first = f.create(telegram);
-      if (deliveredFirst) assert.equal(await first.respond('-100', 'failed:1', 'Ответь'), '');
-      else await assert.rejects(first.respond('-100', 'failed:1', 'Ответь'), /Pi run did not finish/);
-      f.provider.appendResponses([send(), fauxAssistantMessage('Другой финал следующего запроса.')]);
-      assert.equal(await first.respond('-100', 'later:2', 'Теперь следующий запрос'), '');
-      const calls = f.provider.state.callCount; await first.close();
-      const replay = f.create(telegram).respond('-100', 'failed:1', 'Ответь');
-      if (deliveredFirst) assert.equal(await replay, ''); else await assert.rejects(replay, /Pi run did not finish/);
-      assert.equal(sends, deliveredFirst ? 2 : 1); assert.equal(f.provider.state.callCount, calls);
-    } finally { await f.close(); }
-  }
-});
-
-test('an unconfirmed sendMessage is not retried through the automatic final answer after restart', { timeout: 10_000 }, async () => {
-  const f = await fixture(); let sends = 0;
-  const telegram = new Telegram('fixture-token', async () => { sends++; throw new Error('Connection reset after dispatch'); });
+test('reply drafts never send HTTP and a different complete final is preserved through restart', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let sends = 0, draftReceipt: Record<string, unknown> | undefined;
+  const telegram = new Telegram('fixture-token', async (_url, init) => {
+    sends++; return Response.json({ ok: true, result: { message_id: 42, chat: { id: -100 }, text: JSON.parse(init!.body as string).text } });
+  });
   try {
+    const runtime = f.create(telegram), delivery = runtime.replies.open('-100', 'telegram:1', { chat: '-100', messageId: 1 });
+    const entry = { kind: 'telegram.message', data: { telegramUpdateId: 1, replyProtocol: { version: 1, id: delivery.id } } };
+    const final = 'Полный финальный ответ. Важное дополнение, которого не было в черновике.';
     f.provider.setResponses([
-      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: 'Ответ.' } }), { stopReason: 'toolUse' }),
-      fauxAssistantMessage('Переформулированный ответ с дополнением.'),
+      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: 'Предварительный ответ.' } }), { stopReason: 'toolUse' }),
+      context => {
+        const results = context.messages.filter(message => message.role === 'toolResult');
+        const block = results.at(-1)!.content.find(item => item.type === 'text');
+        if (block?.type === 'text') draftReceipt = JSON.parse(block.text);
+        return fauxAssistantMessage(final);
+      },
     ]);
-    const first = f.create(telegram); assert.equal(await first.respond('-100', 'unknown:reply', 'Привет'), '');
-    await first.close(); assert.equal(await f.create(telegram).respond('-100', 'unknown:reply', 'Привет'), '');
-    assert.equal(sends, 1); assert.equal(f.store.db.prepare('SELECT status FROM telegram_calls').get()!.status, 'unknown');
+    const answer = await runtime.respond('-100', 'telegram:1', 'Ответь.', 'Ответь.', entry);
+    assert.equal(draftReceipt?.delivery, 'draft', JSON.stringify(draftReceipt)); assert.equal(draftReceipt?.sent, false);
+    assert.equal(answer, final); assert.equal(sends, 0);
+    runtime.replies.complete(delivery, answer);
+    assert.equal(f.store.outgoing().length, 1); assert.equal(JSON.parse(f.store.outgoing()[0]!.payload).text, final);
+    const modelCalls = f.provider.state.callCount; await runtime.close();
+    const restarted = f.create(telegram);
+    assert.equal(await restarted.respond('-100', 'telegram:1', 'Ответь.', 'Ответь.', entry), final);
+    restarted.replies.complete(delivery, final);
+    assert.equal(f.store.outgoing().length, 1); assert.equal(f.provider.state.callCount, modelCalls);
+    const out = f.store.outgoing()[0]!; assert.equal(f.store.claimOutgoing(out.id), true);
+    f.store.outgoingStatus(out.id, 'sent', await telegram.call(out.method, JSON.parse(out.payload)));
+    restarted.replies.complete(delivery, final); assert.equal(sends, 1); assert.equal(f.store.outgoing().length, 0);
   } finally { await f.close(); }
 });
 
-test('a context reset within the same turn does not hide a delivered reply before model failure', { timeout: 10_000 }, async () => {
-  const f = await fixture(); let sends = 0;
-  const telegram = new Telegram('fixture-token', async () => { sends++; return Response.json({ ok: true, result: { message_id: 42, chat: { id: -100 }, text: 'Забыл.' } }); });
+test('a failure after a reply draft creates one failure delivery rather than sending the draft', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let requests = 0;
+  const telegram = new Telegram('fixture-token', async () => { requests++; throw new Error('Must not dispatch a draft'); });
   try {
-    f.memory.remember({ scope: '-100', subject: 'fixture', text: 'временный факт', sources: [{ id: '-100:1', quote: 'временный факт' }] });
-    const memory = f.memory.recall({ scope: '-100', query: '' })[0]!;
+    const runtime = f.create(telegram), delivery = runtime.replies.open('-100', 'failed:1', { chat: '-100', messageId: 1 });
     f.provider.setResponses([
-      fauxAssistantMessage(fauxToolCall('forget_memory', { id: memory.id }), { stopReason: 'toolUse' }),
-      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: 'Забыл.' } }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: 'Черновик.' } }), { stopReason: 'toolUse' }),
       fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Provider offline' }),
     ]);
-    assert.equal(await f.create(telegram).respond('-100', 'handoff:reply', 'Забудь запись и подтверди.'), '');
-    assert.equal(sends, 1); assert.equal(f.memory.recall({ scope: '-100', query: '' }).length, 0);
+    await assert.rejects(runtime.respond('-100', 'failed:1', 'Ответь.', 'Ответь.', { kind: 'telegram.message', data: { replyProtocol: { version: 1, id: delivery.id } } }), /Pi run did not finish/);
+    assert.equal(requests, 0); assert.equal(f.store.outgoing().length, 0);
+    runtime.replies.fail(delivery, 'Не получилось завершить ответ.');
+    assert.equal(f.store.outgoing().length, 1); assert.equal(JSON.parse(f.store.outgoing()[0]!.payload).text, 'Не получилось завершить ответ.');
   } finally { await f.close(); }
 });
 
-test('explicit multiple text messages remain available through the full API without a third automatic reply', { timeout: 10_000 }, async () => {
-  const f = await fixture(); const texts: string[] = [];
+test('concurrent inputs in one Pi session retain distinct durable reply contexts', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let requests = 0;
+  const telegram = new Telegram('fixture-token', async () => { requests++; throw new Error('Draft HTTP'); });
+  try {
+    const runtime = f.create(telegram);
+    const deliveries = [1, 2].map(id => runtime.replies.open('-100', `turn:${id}`, { chat: '-100', messageId: id }));
+    f.provider.setResponses([1, 2].flatMap(id => [
+      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: `Draft ${id}` } }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage(`Final ${id}`),
+    ]));
+    const answers = await Promise.all(deliveries.map((delivery, i) => runtime.respond('-100', `turn:${i + 1}`, `Request ${i + 1}`, undefined, { kind: 'telegram.message', data: { replyProtocol: { version: 1, id: delivery.id } } })));
+    assert.deepEqual(answers, ['Final 1', 'Final 2']); assert.equal(requests, 0);
+    assert.deepEqual(new Set(f.store.db.prepare('SELECT reply_id FROM reply_drafts').all().map(row => row.reply_id)), new Set(deliveries.map(delivery => delivery.id)));
+    deliveries.forEach((delivery, i) => runtime.replies.complete(delivery, answers[i]!)); assert.equal(f.store.outgoing().length, 2);
+  } finally { await f.close(); }
+});
+
+test('explicit literal API actions are independent of the complete conversational final and replay once', { timeout: 10_000 }, async () => {
+  const f = await fixture(); const sent: string[] = [];
   const telegram = new Telegram('fixture-token', async (_url, init) => {
-    const parameters = JSON.parse(init!.body as string); texts.push(parameters.text);
-    return Response.json({ ok: true, result: { message_id: texts.length, chat: { id: -100 }, text: parameters.text } });
+    const args = JSON.parse(init!.body as string); sent.push(args.text);
+    return Response.json({ ok: true, result: { message_id: sent.length, chat: { id: -100 }, text: args.text } });
   });
   try {
     f.provider.setResponses([
-      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: 'Первое.' } }), { stopReason: 'toolUse' }),
-      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: 'Второе.' } }), { stopReason: 'toolUse' }),
-      fauxAssistantMessage('Оба сообщения отправлены.'),
+      fauxAssistantMessage(fauxToolCall('telegram_api', { purpose: 'action', method: 'sendMessage', parameters: { chat_id: '-100', text: 'Первое отдельное сообщение.' } }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage(fauxToolCall('telegram_api', { purpose: 'action', method: 'sendMessage', parameters: { chat_id: '-100', text: 'Второе отдельное сообщение.' } }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Самостоятельный финал с важным уточнением.'),
     ]);
-    assert.equal(await f.create(telegram).respond('-100', 'two:messages', 'Отправь два отдельных сообщения.'), '');
-    assert.deepEqual(texts, ['Первое.', 'Второе.']); assert.equal(f.store.outgoing().length, 0);
+    const runtime = f.create(telegram), final = await runtime.respond('-100', 'actions:1', 'Отправь два сообщения и поясни результат.');
+    assert.equal(final, 'Самостоятельный финал с важным уточнением.'); assert.equal(sent.length, 2);
+    await runtime.close(); assert.equal(await f.create(telegram).respond('-100', 'actions:1', 'Отправь два сообщения и поясни результат.'), final);
+    assert.equal(sent.length, 2);
   } finally { await f.close(); }
 });
 
-test('rejected sends and deliveries to another chat leave this conversation final available', { timeout: 10_000 }, async () => {
-  for (const rejected of [true, false]) {
-    const f = await fixture();
-    const telegram = new Telegram('fixture-token', async () => rejected
-      ? Response.json({ ok: false, error_code: 403, description: 'Forbidden' }, { status: 403 })
-      : Response.json({ ok: true, result: { message_id: 42, chat: { id: -200 }, text: 'Текст в другом чате.' } }));
-    try {
-      f.provider.setResponses([
-        fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: rejected ? '-100' : '-200', text: 'Текст в другом чате.' } }), { stopReason: 'toolUse' }),
-        fauxAssistantMessage('Отдельный ответ в текущем чате.'),
-      ]);
-      assert.equal(await f.create(telegram).respond('-100', 'other:destination', 'Отправь сообщение.'), 'Отдельный ответ в текущем чате.');
-    } finally { await f.close(); }
-  }
-});
-
-test('reply ownership survives a long tool turn across transcript pages in either delivery order', { timeout: 20_000 }, async () => {
-  for (const sendFirst of [true, false]) {
-    const f = await fixture(); let sends = 0;
-    const telegram = new Telegram('fixture-token', async (url, init) => {
-      if (String(url).endsWith('sendMessage')) {
-        sends++; return Response.json({ ok: true, result: { message_id: 42, chat: { id: -100 }, text: JSON.parse(init!.body as string).text } });
-      }
-      return Response.json({ ok: true, result: { id: -100, type: 'supergroup' } });
-    });
-    try {
-      const reads = Array.from({ length: 270 }, (_, i) => fauxToolCall('telegram_api', { method: 'getChat', parameters: { chat_id: '-100' } }, { id: `read:${i}` }));
-      const send = fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: 'Ответ через инструмент.' } }, { id: 'reply:send' });
-      f.provider.setResponses([
-        fauxAssistantMessage(sendFirst ? [send, ...reads] : [...reads, send], { stopReason: 'toolUse' }),
-        fauxAssistantMessage('Иначе сформулированный финал после длинной цепочки.'),
-      ]);
-      const runtime = f.create(telegram);
-      assert.equal(await runtime.respond('-100', 'long:turn', 'Ответь и проверь сведения о чате.'), '');
-      assert.equal(sends, 1);
-      await runtime.close();
-      const db = new DatabaseSync(join(f.directory, `${createHash('sha256').update('-100').digest('hex')}.sqlite`), { readOnly: true });
-      try { assert.ok(Number(db.prepare('SELECT COUNT(*) AS count FROM entries').get()!.count) > 256); } finally { db.close(); }
-    } finally { await f.close(); }
-  }
-});
-
-test('an already-sent text leaves no automatic final to translate, regardless of its language', { timeout: 10_000 }, async () => {
-  const f = await fixture(); let sends = 0;
-  const telegram = new Telegram('fixture-token', async () => { sends++; return Response.json({ ok: true, result: { message_id: 42, chat: { id: -100 }, text: 'Готово.' } }); });
+test('missing or internal reply context never falls back to a literal sendMessage', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let requests = 0;
+  const telegram = new Telegram('fixture-token', async () => { requests++; throw new Error('Unexpected send'); });
   try {
     f.provider.setResponses([
-      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: 'Готово.' } }), { stopReason: 'toolUse' }),
-      fauxAssistantMessage('我已经完成了这个请求，不需要再次发送相同的消息给用户。'),
+      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: 'Draft' } }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Полный финал.'),
     ]);
-    assert.equal(await f.create(telegram).respond('-100', 'language:delivered', 'Скажи, что готово.'), '');
-    assert.equal(sends, 1); assert.equal(f.provider.state.callCount, 2);
+    assert.equal(await f.create(telegram).respond('-100', 'internal:1', 'Request'), 'Полный финал.'); assert.equal(requests, 0);
   } finally { await f.close(); }
 });
 

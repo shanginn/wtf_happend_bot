@@ -18,6 +18,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS outgoing(id TEXT PRIMARY KEY, chat TEXT NOT NULL, method TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', result TEXT);
       CREATE TABLE IF NOT EXISTS telegram_calls(id TEXT PRIMARY KEY, chat TEXT NOT NULL, request_hash TEXT NOT NULL, status TEXT NOT NULL, result TEXT);
+      CREATE TABLE IF NOT EXISTS reply_parts(reply_id TEXT NOT NULL, part INTEGER NOT NULL, outgoing_id TEXT NOT NULL UNIQUE, PRIMARY KEY(reply_id,part));
       CREATE TABLE IF NOT EXISTS chat_entities(id TEXT PRIMARY KEY, type TEXT, title TEXT, active INTEGER NOT NULL DEFAULT 1, first_seen_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL);`);
   }
   /** Only the process holding the owner lock may perform startup recovery. */
@@ -90,6 +91,12 @@ export class Store {
     if (existing && (existing.payload !== body || existing.method !== method || existing.chat !== chat)) throw new Error('Outgoing ID reused with a different payload');
     this.db.prepare('INSERT OR IGNORE INTO outgoing(id,chat,method,payload) VALUES(?,?,?,?)').run(id, chat, method, body);
   }
-  outgoing(): { id: string; chat: string; method: string; payload: string }[] { return this.db.prepare("SELECT id,chat,method,payload FROM outgoing WHERE status='pending' LIMIT 20").all() as never; }
+  outgoing(): { id: string; chat: string; method: string; payload: string }[] {
+    return this.db.prepare(`SELECT o.id,o.chat,o.method,o.payload FROM outgoing o WHERE o.status='pending' AND NOT EXISTS (
+      SELECT 1 FROM reply_parts part JOIN reply_parts prior ON prior.reply_id=part.reply_id AND prior.part<part.part
+      JOIN outgoing previous ON previous.id=prior.outgoing_id WHERE part.outgoing_id=o.id AND previous.status!='sent'
+    ) ORDER BY o.rowid LIMIT 20`).all() as never;
+  }
+  claimOutgoing(id: string): boolean { return Number(this.db.prepare("UPDATE outgoing SET status='sending' WHERE id=? AND status='pending'").run(id).changes) === 1; }
   outgoingStatus(id: string, status: string, result?: unknown): void { this.db.prepare('UPDATE outgoing SET status=?,result=? WHERE id=?').run(status, result === undefined ? null : JSON.stringify(result), id); }
 }

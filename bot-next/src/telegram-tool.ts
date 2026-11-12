@@ -6,6 +6,8 @@ import { Telegram, TelegramError, type TelegramFile } from './telegram.js';
 import { atomic } from './budget.js';
 import { widgetRequestError } from './widget-format.js';
 import { rememberWidgetCall } from './widget-state.js';
+import { Replies, ReplyProtocolError } from './replies.js';
+import { toolReplyContext } from './reply-context.js';
 
 type Result = { ok: true; result: unknown } | { ok: false; outcome: 'rejected' | 'unknown'; description: string; error_code?: number; parameters?: Record<string, unknown> };
 const uncertain: Result = { ok: false, outcome: 'unknown', description: 'Telegram may have performed this request. Do not repeat it: delivery could not be confirmed.' };
@@ -36,12 +38,36 @@ export async function callTelegramTool(store: Store, telegram: Telegram, id: str
   return result;
 }
 
-export function telegramTool(telegram: Telegram, store: Store, chat: string, operationNamespace = chat) {
+export function telegramTool(telegram: Telegram, store: Store, chat: string, operationNamespace = chat, replies = new Replies(store), replyScope = chat) {
   return defineTool({
     name: 'telegram_api',
-    description: `Call ANY Telegram Bot API method, with its official method name and arbitrary parameters. Direct api.telegram.org uses the latest server API (verified 10.4, 2026-11-09); no SDK version gate or method allowlist. Current chat_id is ${chat}; include it in parameters for chat methods. For example sendPoll: {chat_id:"${chat}",question:"Question?",options:[{text:"Yes"},{text:"No"}]}. HTML widgets: sendWidget {chat_id,html,caption,chat_data,public_data,allow_queries}; check generated HTML with telegram_widget_check first. Widgets currently work only in private chats in production. sendSharedWidget reuses widget_id; editMessageWidgetData changes widget state; editSharedWidgetData changes shared public data. HTML cannot be replaced on an existing widget. Send, edit or delete messages; polls, reactions, pins, moderation, invites, files, stickers, Stars and all other Bot API methods use this same tool. Existing file_id values and HTTPS file URLs go directly in parameters. To upload bytes, use files (base64 by default, or utf8); put attach://FIELD in parameters for nested attachments such as sendMediaGroup. Returns the actual Telegram result or error, including permission errors. On unknown outcome do not repeat the action.`,
-    parameters: obj({ method: str(), parameters: map(unknown()), files: opt(arr(obj({ field: str(), data: str(), filename: str(), mime_type: opt(str()), encoding: opt(oneOf(['base64', 'utf8'])) }))) }),
+    description: `Full Telegram Bot API, no method allowlist. Current chat_id is ${chat}. DELIVERY CONTRACT: sendMessage/sendRichMessage default to purpose=reply. A conversational reply is a draft, NOT an HTTP send: only plain sendMessage with the current chat/source/topic can be staged; it returns delivery=draft,sent=false and no message_id. Your complete final answer replaces draft text and is delivered once by the application. Do not claim a draft was sent. For a separately intended literal API action (another recipient, multiple independent messages, exact formatting/entities/keyboards) set purpose=action explicitly; then ANY method/parameters are forwarded unchanged and the actual Telegram result is returned. Never use action merely to deliver an ordinary conversational reply. Non-text methods default to action.
+Direct api.telegram.org uses the latest server API (verified 10.4, 2026-11-09), with no SDK version gate. Example sendPoll: {chat_id:"${chat}",question:"Question?",options:[{text:"Yes"},{text:"No"}]}. HTML widgets: sendWidget {chat_id,html,caption,chat_data,public_data,allow_queries}; check HTML with telegram_widget_check first. Production widgets are private-chat only. sendSharedWidget reuses widget_id; editMessageWidgetData/editSharedWidgetData change state; HTML cannot be replaced. Polls, reactions, moderation, files, stickers, Stars and all other methods remain available. File_id/HTTPS URLs go in parameters. For uploads use files (base64 or utf8); nested attachments use attach://FIELD. Literal actions return actual permission errors. Never retry an unknown action outcome.`,
+    parameters: obj({ method: str(), parameters: map(unknown()), purpose: opt(oneOf(['reply', 'action'])), files: opt(arr(obj({ field: str(), data: str(), filename: str(), mime_type: opt(str()), encoding: opt(oneOf(['base64', 'utf8'])) }))) }),
     replay: 'safe',
-    execute: async ({ method, parameters, files }, api) => ({ output: [{ type: 'text' as const, text: JSON.stringify(await callTelegramTool(store, telegram, `telegram-api:${operationNamespace}:${api.taskId}`, chat, method, parameters, files)) }] }),
+    execute: async ({ method, parameters, files, purpose }, api, context) => {
+      const operation = `telegram-api:${operationNamespace}:${api.taskId}`;
+      const intent = purpose ?? (method === 'sendMessage' || method === 'sendRichMessage' ? 'reply' : 'action');
+      let result: unknown;
+      if (intent === 'action') {
+        if (store.db.prepare('SELECT 1 FROM reply_drafts WHERE id=?').get(operation)) throw new ReplyProtocolError('TELEGRAM_OPERATION_INTENT_CONFLICT');
+        result = await callTelegramTool(store, telegram, operation, chat, method, parameters, files);
+      }
+      else try {
+        if (files?.length) throw new ReplyProtocolError('REPLY_DRAFT_FILES_REQUIRE_ACTION');
+        const binding = await toolReplyContext(api, context, replies, chat, replyScope);
+        const previous = store.db.prepare('SELECT result,status FROM telegram_calls WHERE id=?').get(operation) as { result: string | null; status: string } | undefined;
+        if (previous) {
+          if (!binding.legacy) throw new ReplyProtocolError('TELEGRAM_OPERATION_INTENT_CONFLICT');
+          const value = previous.result ? JSON.parse(previous.result) as { ok?: boolean; result?: { message_id: number; chat: { id: number }; text?: string }; outcome?: string } : undefined;
+          replies.adoptLegacy(binding.delivery, value?.ok && value.result ? [value.result] : [], !value || value.outcome === 'unknown');
+        }
+        result = { ...replies.draft(binding.delivery, operation, chat, method, parameters), description: 'Draft only; no Telegram request was made and no message_id exists. Return the complete final answer. The final replaces the draft and is delivered once by the application.' };
+      } catch (error) {
+        if (!(error instanceof ReplyProtocolError)) throw error;
+        result = { ok: false, outcome: 'rejected', protocol_error: error.code, description: 'No Telegram request was made. For a conversational reply return complete final text. Use purpose=action only for a separately intended literal Telegram API action, never to bypass the reply channel.' };
+      }
+      return { output: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+    },
   });
 }

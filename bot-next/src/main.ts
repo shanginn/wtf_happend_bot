@@ -21,6 +21,7 @@ import { createSearch } from './search-client.js';
 import { buildTelegramInput, messageFiles, participantReference } from './telegram-context.js';
 import { Widgets } from './widgets.js';
 import { withWidgetState } from './widget-state.js';
+import { Replies } from './replies.js';
 
 export function projectMessage(message: TelegramMessage, canShowSource?: (message: TelegramMessage) => boolean) {
   const author = message.sender_chat ? { reference: participantReference(message), kind: 'chat', senderChat: message.sender_chat.id, name: message.sender_chat.title, username: message.sender_chat.username }
@@ -46,7 +47,9 @@ export function acquireOwner(directory: string): DatabaseSync {
 export async function main(): Promise<void> {
   const config = readConfig();
   const db = openDatabase(config.dataDir), owner = acquireOwner(config.dataDir), store = new Store(db);
+  const replies = new Replies(store);
   store.recoverInterrupted();
+  replies.recoverLegacyOutbox();
   const keyPath = join(config.dataDir, 'invoice.key');
   let signingKey: string;
   try { signingKey = readFileSync(keyPath, 'utf8'); }
@@ -63,7 +66,7 @@ export async function main(): Promise<void> {
   learning.recoverInterrupted();
   const search = createSearch(config, budget, store);
   const runtime = new Runtime({ directory: join(config.dataDir, 'pi'), provider: config.provider, model: config.model,
-    budget, memory, store, stars, media, telegram, search, extraTools: (chat, namespace) => learning.tools(chat, namespace) });
+    budget, memory, store, stars, media, telegram, search, replies, extraTools: (chat, namespace) => learning.tools(chat, namespace) });
   runtime.quote(); // fail before polling if model identity or pricing is missing
   const jev = new Jev(config.jevKey, config.jevModel, budget, fetch, config.jevProvider);
   let stopped = false;
@@ -135,14 +138,14 @@ export async function main(): Promise<void> {
       catch { content.push({ type: 'text', text: 'Image could not be downloaded. Do not pretend to have seen it.' }); }
     }
     store.set(`route:${item.chat}`, JSON.stringify({ messageId: message.message_id, topic: message.message_thread_id }));
+    const requestId = `telegram:${item.id}`;
+    const delivery = replies.open(item.chat, requestId, { chat: item.chat, messageId: message.message_id, ...(message.message_thread_id === undefined ? {} : { topic: message.message_thread_id }) }, item.id);
     try {
       const reference = participantReference(message);
-      const answer = await runtime.respond(item.chat, `telegram:${item.id}`, content, text, { kind: 'telegram.message', data: { telegramUpdateId: item.id, telegramMessageId: message.message_id, telegramMessageTimestamp: message.date, ...(reference ? { telegramParticipant: reference } : {}) } });
-      if (answer) reply(`answer:${item.id}`, message, answer);
-      store.status(item.id, 'done');
+      const answer = await runtime.respond(item.chat, requestId, content, text, { kind: 'telegram.message', data: { replyProtocol: { version: delivery.version, id: delivery.id }, telegramUpdateId: item.id, telegramMessageId: message.message_id, telegramMessageTimestamp: message.date, ...(reference ? { telegramParticipant: reference } : {}) } });
+      replies.complete(delivery, answer);
     } catch {
-      store.status(item.id, 'failed');
-      if (explicit) reply(`failure:${item.id}`, message, 'Сейчас не получилось завершить ответ. Попробуй ещё раз чуть позже.');
+      replies.fail(delivery, explicit ? 'Сейчас не получилось завершить ответ. Попробуй ещё раз чуть позже.' : '');
     }
   };
 
@@ -157,7 +160,7 @@ export async function main(): Promise<void> {
         active.set(item.chat, work);
       }
       for (const out of store.outgoing()) {
-        store.outgoingStatus(out.id, 'sending');
+        if (!store.claimOutgoing(out.id)) continue;
         try { const result = await telegram.call(out.method, JSON.parse(out.payload)); store.outgoingStatus(out.id, 'sent', result); store.set(`spoke:${out.chat}`, String(Date.now())); }
         catch (error) { store.outgoingStatus(out.id, error instanceof TelegramError && error.outcome === 'rejected' ? 'rejected' : 'unknown'); }
       }
