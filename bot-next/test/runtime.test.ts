@@ -18,6 +18,14 @@ import { OpenRouterSearch } from '../src/openrouter-search.js';
 import { buildTelegramInput } from '../src/telegram-context.js';
 import { Widgets } from '../src/widgets.js';
 import { messageWidget } from '../src/widget-state.js';
+import { type ToolFeedback, toolFeedback } from '../src/tool-feedback.js';
+
+function editorInput(context: { messages: readonly import('@earendil-works/pi-ai').Message[] }): { request: string; text: string; current_tool_results: ToolFeedback[] } {
+  const input = context.messages.find(message => message.role === 'user');
+  assert.ok(input);
+  const text = typeof input.content === 'string' ? input.content : input.content.flatMap(item => item.type === 'text' ? [item.text] : []).join('\n');
+  return JSON.parse(text);
+}
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'wtf-pi-runtime-test-'));
@@ -174,7 +182,7 @@ test('missing or internal reply context never falls back to a literal sendMessag
   } finally { await f.close(); }
 });
 
-test('Chinese output is repaired with zero tools, without repeating Telegram effects, and survives replay', { timeout: 10_000 }, async () => {
+test('language final receives confirmed tool results with zero tools, never repeats effects and survives replay', { timeout: 10_000 }, async () => {
   const f = await fixture();
   try {
     let sends = 0;
@@ -184,7 +192,17 @@ test('Chinese output is repaired with zero tools, without repeating Telegram eff
       fauxAssistantMessage('投票已经创建了。现在大家可以选择是否恢复记忆，我不会再次重复发送这个投票。'),
       context => {
         assert.equal(context.messages.flatMap(message => message.role === 'system' ? message.toolsAdded ?? [] : []).length, 0);
-        assert.ok(!JSON.stringify(context).includes('sendPoll'), 'the language editor receives only the answer, without action history');
+        const input = editorInput(context);
+        assert.equal(input.request, 'Создай опрос о восстановлении памяти.');
+        assert.equal(input.current_tool_results.length, 1);
+        const feedback = input.current_tool_results[0]!;
+        assert.equal(feedback.call.arguments.method, 'sendPoll');
+        assert.equal(feedback.results[0]!.toolCallId, feedback.call.id);
+        assert.equal(feedback.results[0]!.isError, false);
+        const result = feedback.results[0]!.content[0]!;
+        assert.equal(result.type, 'text');
+        if (result.type === 'text') assert.deepEqual(JSON.parse(result.text), { ok: true, result: { message_id: 42 } });
+        assert.ok(!JSON.stringify(input).includes('private-token'));
         return fauxAssistantMessage('Опрос создан.');
       },
     ]);
@@ -207,6 +225,121 @@ test('language correction cannot leak another Chinese reply while requested tran
     await assert.rejects(f.create().respond('-100', 'bad:language', 'Какие новости?'), /wrong language/);
     f.provider.appendResponses([fauxAssistantMessage(chinese)]);
     assert.equal(await f.create().respond('-200', 'requested:language', 'Переведи на китайский'), chinese);
+  } finally { await f.close(); }
+});
+
+test('every tool round feeds the next model call and the language final retains this input errors and draft receipt', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let requests = 0;
+  const telegram = new Telegram('private-token', async url => {
+    requests++;
+    if (String(url).endsWith('/getChat')) return Response.json({ ok: true, result: { id: -100, title: 'OLD_RESULT_IGNORED' } });
+    assert.ok(String(url).endsWith('/sendPoll'));
+    return Response.json({ ok: false, error_code: 403, description: 'Not enough rights to send polls' }, { status: 403 });
+  });
+  const final = 'Факт не сохранён: нет подтверждающей цитаты. Опрос создать не удалось — не хватает прав.';
+  try {
+    f.provider.setResponses([
+      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'getChat', parameters: { chat_id: '-100' } }, { id: 'old-call' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Получил прежний результат.'),
+    ]);
+    const old = f.create(telegram); await old.respond('-100', 'old:feedback', 'Покажи чат.'); await old.close();
+    const runtime = f.create(telegram), delivery = runtime.replies.open('-100', 'telegram:2', { chat: '-100', messageId: 2 });
+    const entry = { kind: 'telegram.message', data: { telegramUpdateId: 2, replyProtocol: { ...delivery } } };
+    f.provider.appendResponses([
+      fauxAssistantMessage(fauxToolCall('remember', { subject: 'user', text: 'Неподтверждённый факт', message_id: 99, quote: 'Нет такого источника' }, { id: 'memory-failed' }), { stopReason: 'toolUse' }),
+      context => {
+        const feedback = toolFeedback(context.messages).find(item => item.call.id === 'memory-failed');
+        assert.equal(feedback?.results[0]?.isError, true, 'the next round must see the actual tool error');
+        return fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendPoll', parameters: { chat_id: '-100', question: 'Продолжить?', options: [{ text: 'Да' }, { text: 'Нет' }] } }, { id: 'poll-rejected' }), { stopReason: 'toolUse' });
+      },
+      context => {
+        const feedback = toolFeedback(context.messages).filter(item => ['memory-failed', 'poll-rejected'].includes(item.call.id));
+        assert.equal(feedback.length, 2);
+        assert.ok(JSON.stringify(feedback).includes('Not enough rights'));
+        return fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'sendMessage', parameters: { chat_id: '-100', text: 'Предварительный ответ.' } }, { id: 'reply-draft' }), { stopReason: 'toolUse' });
+      },
+      context => {
+        const receipt = toolFeedback(context.messages).find(item => item.call.id === 'reply-draft');
+        const result = receipt?.results[0]?.content[0];
+        assert.equal(result?.type, 'text');
+        if (result?.type === 'text') assert.equal(JSON.parse(result.text).sent, false, 'the final model call sees the unsent draft receipt');
+        return fauxAssistantMessage('事实已保存，投票也已经创建，所有操作都已成功完成。');
+      },
+      context => {
+        assert.equal(context.messages.flatMap(message => message.role === 'system' ? message.toolsAdded ?? [] : []).length, 0);
+        const input = editorInput(context), feedback = input.current_tool_results;
+        assert.deepEqual(feedback.map(item => item.call.id), ['memory-failed', 'poll-rejected', 'reply-draft']);
+        assert.equal(feedback[0]!.results[0]!.isError, true);
+        const rejected = feedback[1]!.results[0]!.content[0]!, draft = feedback[2]!.results[0]!.content[0]!;
+        assert.equal(rejected.type, 'text'); assert.equal(draft.type, 'text');
+        if (rejected.type === 'text' && draft.type === 'text') {
+          assert.equal(JSON.parse(rejected.text).outcome, 'rejected'); assert.equal(JSON.parse(draft.text).sent, false);
+        }
+        assert.ok(!JSON.stringify(input).includes('OLD_RESULT_IGNORED'));
+        return fauxAssistantMessage(final);
+      },
+    ]);
+    assert.equal(await runtime.respond('-100', 'telegram:2', 'Запомни факт и создай опрос.', 'Запомни факт и создай опрос.', entry), final);
+    runtime.replies.complete(delivery, final);
+    assert.equal(requests, 2, 'only the old read and the rejected poll reached the fake transport');
+    assert.equal(f.store.outgoing().length, 1); assert.equal(JSON.parse(f.store.outgoing()[0]!.payload).text, final);
+    const calls = f.provider.state.callCount; await runtime.close();
+    assert.equal(await f.create(telegram).respond('-100', 'telegram:2', 'Запомни факт и создай опрос.', 'Запомни факт и создай опрос.', entry), final);
+    assert.equal(f.provider.state.callCount, calls); assert.equal(requests, 2);
+  } finally { await f.close(); }
+});
+
+test('search final receives non-search action receipts alongside search results and never repeats either tool', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let polls = 0, searches = 0;
+  const telegram = new Telegram('private-token', async () => { polls++; return Response.json({ ok: true, result: { message_id: 42, poll: { id: 'confirmed-poll' } } }); });
+  const search = new InternetSearch('http://searxng:8080', async () => { searches++; return Response.json({ results: [{ title: 'Источник', url: 'https://example.org/news' }] }); });
+  try {
+    f.provider.setResponses([
+      fauxAssistantMessage([
+        fauxToolCall('telegram_api', { method: 'sendPoll', parameters: { chat_id: '-100', question: 'Обсудим?', options: [{ text: 'Да' }, { text: 'Нет' }] } }, { id: 'poll' }),
+        fauxToolCall('internet_search', { query: 'новости' }, { id: 'search' }),
+      ], { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Опрос создан, но поиск заблокирован CAPTCHA.'),
+      context => {
+        const feedback = editorInput(context).current_tool_results;
+        assert.deepEqual(feedback.map(item => item.call.id), ['poll', 'search']);
+        assert.ok(JSON.stringify(feedback[0]).includes('confirmed-poll'));
+        assert.ok(JSON.stringify(feedback[1]).includes('https://example.org/news'));
+        assert.equal(context.messages.flatMap(message => message.role === 'system' ? message.toolsAdded ?? [] : []).length, 0);
+        return fauxAssistantMessage('Опрос создан. Нашёл источник: https://example.org/news');
+      },
+    ]);
+    const runtime = f.create(telegram, search), answer = await runtime.respond('-100', 'search:with-action', 'Создай опрос и найди новости.');
+    assert.equal(answer, 'Опрос создан. Нашёл источник: https://example.org/news');
+    const calls = f.provider.state.callCount; await runtime.close();
+    assert.equal(await f.create(telegram, search).respond('-100', 'search:with-action', 'Создай опрос и найди новости.'), answer);
+    assert.equal(polls, 1); assert.equal(searches, 1); assert.equal(f.provider.state.callCount, calls);
+  } finally { await f.close(); }
+});
+
+test('final tool context and persisted editors stay isolated for equal request IDs in separate sessions of one chat', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let requests = 0;
+  const telegram = new Telegram('private-token', async () => Response.json({ ok: true, result: { id: -100, title: `session-${++requests}` } }));
+  try {
+    f.provider.setResponses([1, 2].flatMap(id => [
+      fauxAssistantMessage(fauxToolCall('telegram_api', { method: 'getChat', parameters: { chat_id: '-100' } }, { id: 'same-call-id' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('已经收到聊天信息，现在将根据结果用俄语回复用户。'),
+      (context: Parameters<typeof editorInput>[0]) => {
+        const input = editorInput(context), feedback = input.current_tool_results;
+        assert.equal(input.request, `Запрос сессии ${id}.`);
+        assert.equal(feedback.length, 1);
+        const result = feedback[0]!.results[0]!.content[0]!;
+        assert.equal(result.type, 'text');
+        if (result.type === 'text') assert.equal(JSON.parse(result.text).result.title, `session-${id}`);
+        return fauxAssistantMessage(`Результат ${id}.`);
+      },
+    ]));
+    const runtime = f.create(telegram);
+    for (const id of [1, 2]) assert.equal(await runtime.respond('-100', 'same-request', `Запрос сессии ${id}.`, `Запрос сессии ${id}.`, undefined, `widget:session:${id}`), `Результат ${id}.`);
+    const calls = f.provider.state.callCount; await runtime.close();
+    const restarted = f.create(telegram);
+    for (const id of [1, 2]) assert.equal(await restarted.respond('-100', 'same-request', `Запрос сессии ${id}.`, `Запрос сессии ${id}.`, undefined, `widget:session:${id}`), `Результат ${id}.`);
+    assert.equal(requests, 2); assert.equal(f.provider.state.callCount, calls);
   } finally { await f.close(); }
 });
 
