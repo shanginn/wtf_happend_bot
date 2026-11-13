@@ -13,7 +13,7 @@ test('model projection exposes Telegram identifiers for tools but excludes payme
   };
   const result = projectMessage(message);
   assert.equal(result.text, 'Спасибо!');
-  assert.equal(result.image, true);
+  assert.equal(result.image, false, 'payment images are not exposed to vision');
   assert.equal(result.replyTo, 9);
   assert.equal(result.chat_id, -100);
   assert.equal(result.message_thread_id, 17);

@@ -22,6 +22,7 @@ import { buildTelegramInput, messageFiles, participantReference } from './telegr
 import { Widgets } from './widgets.js';
 import { withWidgetState } from './widget-state.js';
 import { Replies } from './replies.js';
+import { appendTelegramImages, imageFile } from './telegram-images.js';
 
 export function projectMessage(message: TelegramMessage, canShowSource?: (message: TelegramMessage) => boolean) {
   const author = message.sender_chat ? { reference: participantReference(message), kind: 'chat', senderChat: message.sender_chat.id, name: message.sender_chat.title, username: message.sender_chat.username }
@@ -30,11 +31,11 @@ export function projectMessage(message: TelegramMessage, canShowSource?: (messag
   const replyVisible = reply && canShowSource?.(reply) !== false && !reply.successful_payment && !reply.refunded_payment;
   return { id: message.message_id, chat_id: message.chat.id, message_thread_id: message.message_thread_id, date: new Date(message.date * 1000).toISOString(),
     author,
-    text: (message.text ?? message.caption ?? '').slice(0,8000), image: Boolean(message.photo?.length),
+    text: (message.text ?? message.caption ?? '').slice(0,8000), image: Boolean(imageFile(message)),
     files: messageFiles(message),
     poll: message.poll, widget: message.widget, replyTo: message.reply_to_message?.message_id,
     reply: replyVisible ? { id: reply.message_id, participant: participantReference(reply), author: reply.sender_chat?.title ?? [reply.from?.first_name, reply.from?.last_name].filter(Boolean).join(' '), is_bot: reply.from?.is_bot, date: new Date(reply.date * 1000).toISOString(), text: (reply.text ?? reply.caption ?? '').slice(0, 80) } : undefined,
-    replyPoll: replyVisible ? reply.poll : undefined, replyWidget: replyVisible ? reply.widget : undefined };
+    replyFiles: replyVisible ? messageFiles(reply) : undefined, replyPoll: replyVisible ? reply.poll : undefined, replyWidget: replyVisible ? reply.widget : undefined };
 }
 
 /** A separate SQLite lock is held for the process lifetime and releases on crash. */
@@ -66,7 +67,7 @@ export async function main(): Promise<void> {
   learning.recoverInterrupted();
   const search = createSearch(config, budget, store);
   const runtime = new Runtime({ directory: join(config.dataDir, 'pi'), provider: config.provider, model: config.model,
-    budget, memory, store, stars, media, telegram, search, replies, extraTools: (chat, namespace) => learning.tools(chat, namespace) });
+    budget, memory, store, stars, media, telegram, search, replies, timezone: config.timezone, extraTools: (chat, namespace) => learning.tools(chat, namespace) });
   runtime.quote(); // fail before polling if model identity or pricing is missing
   const jev = new Jev(config.jevKey, config.jevModel, budget, fetch, config.jevProvider);
   let stopped = false;
@@ -132,11 +133,7 @@ export async function main(): Promise<void> {
     const activeSkills = learning.skills.current(item.chat);
     const content = buildTelegramInput({ current: { message, updateId: item.id, kind: update.edited_message ? 'edited message' : 'message' }, history,
       timezone: config.timezone, bot: identity, canShowSource, now: Date.now(), memories: memory.recall({ scope: item.chat, query: '', limit: 12 }), skillVersion: activeSkills?.hash, guidance: activeSkills?.tree['AGENTS.md'], summarize: command === 'wtf' });
-    const photo = canShowSource(message) ? message.photo?.filter(p => (p.file_size ?? Infinity) <= 4_000_000).at(-1) : undefined;
-    if (photo) {
-      try { content.push(await telegram.image(photo.file_id)); }
-      catch { content.push({ type: 'text', text: 'Image could not be downloaded. Do not pretend to have seen it.' }); }
-    }
+    await appendTelegramImages(content, telegram, message, history, canShowSource, config.timezone);
     store.set(`route:${item.chat}`, JSON.stringify({ messageId: message.message_id, topic: message.message_thread_id }));
     const requestId = `telegram:${item.id}`;
     const delivery = replies.open(item.chat, requestId, { chat: item.chat, messageId: message.message_id, ...(message.message_thread_id === undefined ? {} : { topic: message.message_thread_id }) }, item.id);

@@ -35,6 +35,16 @@ test('insufficient model budget prevents any upstream call', async () => {
   } finally { db.close(); }
 });
 
+test('text-only models reject image input before upstream calls or reservations instead of silently dropping pixels', async () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    const f = modelsFixture(), budget = new Budget(db, 1_000_000);
+    const result = await budgetedModels(f.models, budget, 'chat').completeSimple({ ...f.model, input: ['text'] }, { messages: [{ role: 'user', timestamp: 0, content: [{ type: 'image', mimeType: 'image/png', data: 'synthetic' }] }] });
+    assert.equal(result.stopReason, 'error'); assert.match(result.errorMessage!, /does not support image/);
+    assert.equal(f.provider.state.callCount, 0); assert.equal(budget.balance().reservedMicros, 0);
+  } finally { db.close(); }
+});
+
 test('all standard model entrypoints reserve and settle actual reported usage', async () => {
   for (const method of ['streamSimple', 'completeSimple', 'stream', 'complete'] as const) {
     const db = new DatabaseSync(':memory:');

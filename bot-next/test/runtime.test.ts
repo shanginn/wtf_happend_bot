@@ -19,6 +19,8 @@ import { buildTelegramInput } from '../src/telegram-context.js';
 import { Widgets } from '../src/widgets.js';
 import { messageWidget } from '../src/widget-state.js';
 import { type ToolFeedback, toolFeedback } from '../src/tool-feedback.js';
+import { appendTelegramImages } from '../src/telegram-images.js';
+import { tinyPng } from './image-fixture.js';
 
 function editorInput(context: { messages: readonly import('@earendil-works/pi-ai').Message[] }): { request: string; text: string; current_tool_results: ToolFeedback[] } {
   const input = context.messages.find(message => message.role === 'user');
@@ -30,7 +32,7 @@ function editorInput(context: { messages: readonly import('@earendil-works/pi-ai
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'wtf-pi-runtime-test-'));
   const db = new DatabaseSync(':memory:');
-  const provider = fauxProvider({ provider: 'offline', api: 'offline', models: [{ id: 'test', contextWindow: 128_000, maxTokens: 4096, cost: { input: 0.1, output: 0.2, cacheRead: 0.01, cacheWrite: 0.1 } }] });
+  const provider = fauxProvider({ provider: 'offline', api: 'offline', models: [{ id: 'test', input: ['text', 'image'], contextWindow: 128_000, maxTokens: 4096, cost: { input: 0.1, output: 0.2, cacheRead: 0.01, cacheWrite: 0.1 } }] });
   const models = createModels(); models.setProvider(provider.provider);
   const memory = new MemoryStore(db), store = new Store(db), budget = new Budget(db, 10_000_000);
   const stars = new Stars(db, { signingKey: 'x'.repeat(32), botId: 'offline' });
@@ -81,6 +83,102 @@ test('legacy Telegram message blocks and participant/timestamp metadata survive 
     } finally { db.close(); }
     assert.equal(await f.create().respond('-100', 'telegram:100', content, message.text, entry), 'Ник.');
     assert.equal(f.provider.state.callCount, 1);
+  } finally { await f.close(); }
+});
+
+test('image documents enter Pi as native pixels with attribution and survive final language correction and replay', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let downloads = 0;
+  const telegram = new Telegram('private-token', async url => {
+    downloads++;
+    return String(url).endsWith('/getFile') ? Response.json({ ok: true, result: { file_path: 'documents/fixture.png' } }) : new Response(tinyPng);
+  });
+  try {
+    const message = { message_id: 42, date: 1794469813, chat: { id: -100, type: 'supergroup' }, from: { id: 7, first_name: 'Ник' }, caption: 'Что на картинке?', document: { file_id: 'fixture-image', mime_type: 'image/png' } };
+    const content = buildTelegramInput({ current: { message, updateId: 1, kind: 'message' }, history: [], timezone: 'Asia/Yekaterinburg', bot: { id: 777, first_name: 'Bot', is_bot: true }, now: 1794469813000, memories: [] });
+    await appendTelegramImages(content, telegram, message, [], () => true, 'Asia/Yekaterinburg');
+    f.provider.setResponses([
+      context => {
+        const images = context.messages.flatMap(message => Array.isArray(message.content) ? message.content.filter(item => item.type === 'image') : []);
+        assert.equal(images.length, 1); assert.equal(images[0]!.data, tinyPng.toString('base64'));
+        assert.ok(JSON.stringify(context.messages).includes('telegram_user:7'));
+        return fauxAssistantMessage('这是一张非常小的图片，无法从中读出文字或辨认具体物体。');
+      },
+      context => {
+        const input = context.messages.find(message => message.role === 'user')!;
+        assert.ok(Array.isArray(input.content));
+        assert.equal(input.content.filter(item => item.type === 'image').length, 1);
+        const first = input.content[0]!; assert.equal(first.type, 'text');
+        if (first.type === 'text') { assert.match(JSON.parse(first.text).current_images[0].attribution, /telegram_user:7/); assert.ok(!first.text.includes(tinyPng.toString('base64'))); }
+        return fauxAssistantMessage('Картинка слишком маленькая, чтобы различить детали.');
+      },
+    ]);
+    const runtime = f.create(telegram), answer = await runtime.respond('-100', 'image:direct', content, message.caption);
+    assert.equal(answer, 'Картинка слишком маленькая, чтобы различить детали.');
+    assert.equal(downloads, 2); await runtime.close();
+    assert.equal(await f.create(telegram).respond('-100', 'image:direct', content, message.caption), answer);
+    assert.equal(downloads, 2); assert.equal(f.provider.state.callCount, 2);
+  } finally { await f.close(); }
+});
+
+test('view_telegram_image returns history pixels to the model and final editor without repeating downloads on replay', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let downloads = 0;
+  const telegram = new Telegram('private-token', async url => {
+    downloads++;
+    return String(url).endsWith('/getFile') ? Response.json({ ok: true, result: { file_path: 'documents/fixture.png', file_size: tinyPng.length } }) : new Response(tinyPng);
+  });
+  try {
+    f.store.ingest({ update_id: 1, message: { message_id: 1, date: 1794469813, chat: { id: -100 }, from: { id: 7, first_name: 'Ник' }, document: { file_id: 'history-image', mime_type: 'image/png' } } });
+    f.store.ingest({ update_id: 2, message: { message_id: 2, date: 1794469820, chat: { id: -100 }, text: 'Посмотри картинку выше.' } });
+    const runtime = f.create(telegram), delivery = runtime.replies.open('-100', 'telegram:2', { chat: '-100', messageId: 2 }, 2);
+    const entry = { kind: 'telegram.message', data: { telegramUpdateId: 2, replyProtocol: { ...delivery } } };
+    f.provider.setResponses([
+      fauxAssistantMessage(fauxToolCall('view_telegram_image', { message_id: 1 }), { stopReason: 'toolUse' }),
+      context => {
+        const result = context.messages.find(message => message.role === 'toolResult' && message.toolName === 'view_telegram_image');
+        assert.equal(result?.role, 'toolResult');
+        if (result?.role === 'toolResult') { assert.equal(result.isError, false); assert.ok(result.content.some(item => item.type === 'image' && item.data === tinyPng.toString('base64'))); }
+        assert.ok(JSON.stringify(result).includes('telegram_user:7'));
+        return fauxAssistantMessage('这张图片太小，无法辨认其中的具体物体，也看不到可读取的文字。');
+      },
+      context => {
+        const input = context.messages.find(message => message.role === 'user')!; assert.ok(Array.isArray(input.content));
+        assert.equal(input.content.filter(item => item.type === 'image').length, 1);
+        const first = input.content[0]!; assert.equal(first.type, 'text');
+        if (first.type === 'text') {
+          const data = JSON.parse(first.text); assert.equal(data.current_tool_results[0].call.name, 'view_telegram_image');
+          assert.equal(data.current_tool_results[0].results[0].content[1].image_ref, 'image:1');
+          assert.ok(!first.text.includes(tinyPng.toString('base64')));
+        }
+        return fauxAssistantMessage('Посмотрел: деталей на такой маленькой картинке не разобрать.');
+      },
+    ]);
+    const answer = await runtime.respond('-100', 'telegram:2', 'Посмотри картинку выше.', 'Посмотри картинку выше.', entry);
+    assert.match(answer, /Посмотрел/); assert.equal(downloads, 2); await runtime.close();
+    assert.equal(await f.create(telegram).respond('-100', 'telegram:2', 'Посмотри картинку выше.', 'Посмотри картинку выше.', entry), answer);
+    assert.equal(downloads, 2); assert.equal(f.provider.state.callCount, 3);
+  } finally { await f.close(); }
+});
+
+test('image tool cannot read forgotten, future or cross-chat images even when their message IDs are supplied', { timeout: 10_000 }, async () => {
+  const f = await fixture(); let downloads = 0;
+  const telegram = new Telegram('private-token', async () => { downloads++; throw new Error('must not fetch a hidden image'); });
+  try {
+    for (const id of [1, 4, 5, 8, 9]) f.store.ingest({ update_id: id, message: { message_id: id, date: 1794469800 + id, chat: { id: id === 5 ? -200 : -100 }, ...(id === 8 ? { text: 'Посмотри картинки.' } : { document: { file_id: `image-${id}`, mime_type: 'image/png' } }) } });
+    f.store.set('memory:context-floor:-100', '1');
+    const fact = f.memory.remember({ scope: '-100', subject: 'fixture', text: 'Forgotten', sources: [{ id: '-100:4', quote: 'Forgotten' }] });
+    assert.ok('memory' in fact);
+    f.memory.forget({ scope: '-100', id: fact.memory.id });
+    const runtime = f.create(telegram), delivery = runtime.replies.open('-100', 'telegram:8', { chat: '-100', messageId: 8 }, 8);
+    f.provider.setResponses([
+      fauxAssistantMessage([1, 4, 5, 9].map(message_id => fauxToolCall('view_telegram_image', { message_id })), { stopReason: 'toolUse' }),
+      context => {
+        const results = context.messages.filter(message => message.role === 'toolResult'); assert.equal(results.length, 4);
+        assert.ok(results.every(result => result.isError && result.content.every(item => item.type !== 'image')));
+        return fauxAssistantMessage('Эти картинки недоступны в текущем контексте.');
+      },
+    ]);
+    assert.equal(await runtime.respond('-100', 'telegram:8', 'Посмотри картинки.', 'Посмотри картинки.', { kind: 'telegram.message', data: { telegramUpdateId: 8, replyProtocol: { ...delivery } } }), 'Эти картинки недоступны в текущем контексте.');
+    assert.equal(downloads, 0);
   } finally { await f.close(); }
 });
 

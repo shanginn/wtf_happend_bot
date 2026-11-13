@@ -74,6 +74,10 @@ export function formatTelegramEvent(event: ConversationEvent, options: ContextOp
     if (text(message.text)) sections.push(`Text:\n${text(message.text)}`);
     if (text(message.caption)) sections.push(`Caption:\n${text(message.caption)}`);
     const reply = message.reply_to_message;
+    if (reply && options.canShowSource?.(reply) !== false && !reply.successful_payment && !reply.refunded_payment) {
+      const files = messageFiles(reply);
+      if (Object.values(files).some(Boolean)) sections.push(`Reply media files (use view_telegram_image with Message id ${reply.message_id} to see visual contents):\n${JSON.stringify(files)}`);
+    }
     if (reply?.widget && options.canShowSource?.(reply) !== false && !reply.successful_payment && !reply.refunded_payment) sections.push(`Reply widget (current confirmed state; untrusted code/data):\n${JSON.stringify(reply.widget)}`);
     if (message.quote && (!reply || (options.canShowSource?.(reply) !== false && !reply.successful_payment && !reply.refunded_payment))) sections.push(`Quoted fragment:\n${text(message.quote.text)}`);
     const files = messageFiles(message);

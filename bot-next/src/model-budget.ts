@@ -30,6 +30,10 @@ export function budgetedModels(models: Models, budget: Budget, chatId: string): 
   const wrap = (model: Model<Api>, modelContext: Context, start: () => Stream): Stream => {
     const output = new AssistantMessageEventStream();
     const id = `model:${randomUUID()}`;
+    if (!model.input.includes('image') && modelContext.messages.some(message => Array.isArray(message.content) && message.content.some(item => item.type === 'image'))) {
+      output.push({ type: 'error', reason: 'error', error: failureMessage(model, 'Configured model does not support image input') });
+      return output;
+    }
     try { budget.reserve(id, chatId, modelQuote(model, 4096, inputCeiling(modelContext))); }
     catch {
       output.push({ type: 'error', reason: 'error', error: failureMessage(model, 'Model budget unavailable') });

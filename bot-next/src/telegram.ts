@@ -1,3 +1,5 @@
+import { imageMime, MAX_IMAGE_BYTES } from './image-data.js';
+
 export interface TelegramUser { id: number; first_name?: string; last_name?: string; username?: string; is_bot?: boolean }
 export interface TelegramChat { id: number; type?: string; title?: string; username?: string; first_name?: string; last_name?: string }
 export interface TelegramWidget {
@@ -16,8 +18,8 @@ export interface TelegramMessage {
   forward_origin?: { type: string; date?: number; sender_user?: TelegramUser; sender_user_name?: string; sender_chat?: TelegramChat; chat?: TelegramChat; message_id?: number; author_signature?: string };
   reply_to_message?: TelegramMessage;
   photo?: { file_id: string; file_size?: number; width: number; height: number }[];
-  document?: { file_id: string; file_name?: string; mime_type?: string };
-  video?: { file_id: string }; animation?: { file_id: string }; audio?: { file_id: string }; voice?: { file_id: string }; sticker?: { file_id: string };
+  document?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
+  video?: { file_id: string }; animation?: { file_id: string }; audio?: { file_id: string }; voice?: { file_id: string }; sticker?: { file_id: string; file_size?: number; is_animated?: boolean; is_video?: boolean };
   poll?: { id: string; question: string; options: { text: string; voter_count: number }[]; total_voter_count: number; is_closed: boolean; [key: string]: unknown };
   widget?: TelegramWidget;
   successful_payment?: { currency: string; total_amount: number; invoice_payload: string; telegram_payment_charge_id: string };
@@ -76,9 +78,12 @@ export class Telegram {
   }
   async image(fileId: string): Promise<{ type: 'image'; data: string; mimeType: string }> {
     const file = await this.call<{ file_path?: string; file_size?: number }>('getFile', { file_id: fileId });
-    if (!file.file_path || (file.file_size ?? Infinity) > 4_000_000) throw new Error('Image unavailable or too large');
+    if (!file.file_path || !/^[\w./-]+$/.test(file.file_path) || file.file_path.split('/').some(part => part === '..' || part === '.') || file.file_path.startsWith('/')) throw new Error('Image unavailable');
+    if (file.file_size !== undefined && file.file_size > MAX_IMAGE_BYTES) throw new Error('Image too large');
     // This URL never leaves the host and is never included in model context or logs.
-    const response = await this.request(`https://api.telegram.org/file/bot${this.token}/${file.file_path}`, { signal: AbortSignal.timeout(15_000), redirect: 'error' });
+    let response: Response;
+    try { response = await this.request(`https://api.telegram.org/file/bot${this.token}/${file.file_path}`, { signal: AbortSignal.timeout(15_000), redirect: 'error' }); }
+    catch { throw new Error('Image download failed'); }
     if (!response.ok) throw new Error('Image download failed');
     if (!response.body) throw new Error('Image download has no body');
     const reader = response.body.getReader(), chunks: Uint8Array[] = [];
@@ -88,10 +93,12 @@ export class Telegram {
         const { value, done } = await reader.read();
         if (done) break;
         total += value.byteLength;
-        if (total > 4_000_000) { await reader.cancel(); throw new Error('Image too large'); }
+        if (total > MAX_IMAGE_BYTES) { await reader.cancel(); throw new Error('Image too large'); }
         chunks.push(value);
       }
     } finally { reader.releaseLock(); }
-    return { type: 'image', data: Buffer.concat(chunks, total).toString('base64'), mimeType: 'image/jpeg' };
+    const bytes = Buffer.concat(chunks, total), mimeType = imageMime(bytes);
+    if (!mimeType) throw new Error('Unsupported image format');
+    return { type: 'image', data: bytes.toString('base64'), mimeType };
   }
 }
