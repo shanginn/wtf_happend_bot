@@ -4,7 +4,7 @@ import { readFileSync, mkdtempSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { validateAccess, cleanup } from '../scripts/ci-access.js';
-import { LEGACY, TARGET, planRelease, release, type Cluster, type Deployment, type Resource } from '../scripts/deploy.js';
+import { LEGACY, TARGET, Kubectl, planRelease, release, type Cluster, type Deployment, type Resource } from '../scripts/deploy.js';
 
 const access = () => ({ 'current-context': 'scoped', clusters: [{ name: 'unified', cluster: {
   server: 'https://100.96.0.1:6443', 'certificate-authority-data': 'verified-ca', 'proxy-url': 'socks5://127.0.0.1:1080',
@@ -76,8 +76,17 @@ class FakeCluster implements Cluster {
     this.deployments.get(name)!.status = { readyReplicas: this.deployments.get(name)!.spec.replicas };
   }
   restore(value: Deployment) { this.deployments.set(value.metadata.name, structuredClone(value)); if (value.spec.replicas) { assert.equal(this.running.size, 0); this.running.add(value.metadata.name); } }
-  logs() { return this.failure === 'identity' ? 'Bot started: @wrong_bot.' : 'Bot started: @wtf_happend_bot. Model openrouter/deepseek/deepseek-v4.1-flash.'; }
+  identity() { return { id: 7486525941, username: this.failure === 'identity' ? 'wrong_bot' : 'wtf_happend_bot' }; }
 }
+test('release identity comes from the fresh process health proof rather than a startup log substring', () => {
+  class FixtureKubectl extends Kubectl {
+    calls: string[][] = [];
+    override run(args: string[]) { this.calls.push(args); return JSON.stringify({ id: 7486525941, username: 'wtf_happend_bot' }); }
+  }
+  const cluster = new FixtureKubectl();
+  assert.equal(cluster.identity(TARGET).username, 'wtf_happend_bot');
+  assert.deepEqual(cluster.calls, [['exec', `deployment/${TARGET}`, '-c', 'bot', '--', 'node', 'dist/src/healthcheck.js', '--identity']]);
+});
 test('release requires a CI digest and always stages zero replicas before a real startup check', () => {
   assert.throws(() => planRelease(template(), 'ghcr.io/shanginn/wtf_happend_bot:latest', revision, '123-1'), /immutable/);
   const value = plan();

@@ -29,7 +29,7 @@ export interface Cluster {
   removeCheck(name: string): void;
   ready(name: string): void;
   restore(deployment: Deployment): void;
-  logs(name: string): string;
+  identity(name: string): { id: number; username?: string };
 }
 
 export function planRelease(template: Resource[], image: string, revision: string, run: string): { resources: Resource[]; candidate: Deployment; check: Resource } {
@@ -79,7 +79,8 @@ export function release(cluster: Cluster, plan: ReturnType<typeof planRelease>, 
     if (current?.spec.replicas !== 1 || current.status?.readyReplicas !== 1 ||
       current.spec.template.spec.containers[0]!.image !== plan.candidate.spec.template.spec.containers[0]!.image) throw new Error('Release did not become the single ready poller');
     if (cluster.deployment(LEGACY)?.spec.replicas) throw new Error('Legacy poller became active during cutover');
-    if (!cluster.logs(TARGET).includes('Bot started: @wtf_happend_bot.')) throw new Error('Running Telegram identity does not match @wtf_happend_bot');
+    const identity = cluster.identity(TARGET);
+    if (!Number.isSafeInteger(identity.id) || identity.id < 1 || identity.username?.toLowerCase() !== 'wtf_happend_bot') throw new Error('Running Telegram identity does not match @wtf_happend_bot');
   } catch (failure) {
     const recovery: string[] = [];
     const attempt = (operation: () => void) => { try { operation(); } catch (error) { recovery.push(error instanceof Error ? error.message : 'Recovery failed'); } };
@@ -154,7 +155,7 @@ export class Kubectl implements Cluster {
       { op: 'test', path: '/metadata/uid', value: deployment.metadata.uid }, { op: 'replace', path: '/spec', value: deployment.spec },
     ])]);
   }
-  logs(name: string): string { return this.run(['logs', `deployment/${name}`, '-c', 'bot', '--tail=20']); }
+  identity(name: string): { id: number; username?: string } { return JSON.parse(this.run(['exec', `deployment/${name}`, '-c', 'bot', '--', 'node', 'dist/src/healthcheck.js', '--identity'])); }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -23,6 +23,7 @@ import { Widgets } from './widgets.js';
 import { withWidgetState } from './widget-state.js';
 import { Replies } from './replies.js';
 import { appendTelegramImages, imageFile } from './telegram-images.js';
+import { markPolled, runtimeFingerprint, startPoller } from './poller-health.js';
 
 export function projectMessage(message: TelegramMessage, canShowSource?: (message: TelegramMessage) => boolean) {
   const author = message.sender_chat ? { reference: participantReference(message), kind: 'chat', senderChat: message.sender_chat.id, name: message.sender_chat.title, username: message.sender_chat.username }
@@ -58,6 +59,9 @@ export async function main(): Promise<void> {
   const telegram = new Telegram(config.telegramToken);
   const widgets = new Widgets(store, telegram); widgets.recoverInterrupted();
   const identity = await telegram.call<TelegramUser>('getMe');
+  const fingerprint = runtimeFingerprint(process.pid);
+  if (process.platform === 'linux' && !fingerprint) throw new Error('Cannot identify the current poller process');
+  const poller = startPoller(store, identity, fingerprint ?? `local:${process.pid}:${randomBytes(16).toString('hex')}`);
   const budget = new Budget(db, config.budgetMicros), memory = new MemoryStore(db);
   const stars = new Stars(db, { botId: String(identity.id), signingKey });
   const media = config.falKey && config.falEndpoint && config.falPriceMicros
@@ -176,7 +180,7 @@ export async function main(): Promise<void> {
     while (!stopped) {
       try {
         const updates = await telegram.updates(Number(store.get('offset') ?? 0));
-        store.set('poll:last-ok', String(Date.now())); store.set('poll:last-error', '');
+        markPolled(store, poller);
         await Promise.all(updates.filter(update => update.widget_query || update.shared_widget_query).map(update => widgets.accept(update, config.chats)));
         for (const update of updates) {
           if (update.widget_query || update.shared_widget_query) { store.ingest(update, []); continue; }

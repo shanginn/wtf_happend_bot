@@ -63,6 +63,10 @@
                 "imagePullPolicy": "IfNotPresent",
                 "env": [
                   {
+                    "name": "BOT_POD_UID",
+                    "valueFrom": { "fieldRef": { "fieldPath": "metadata.uid" } }
+                  },
+                  {
                     "name": "TELEGRAM_BOT_TOKEN",
                     "valueFrom": {
                       "secretKeyRef": {

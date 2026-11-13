@@ -1,8 +1,10 @@
 import { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
+import { pollerHealth } from './poller-health.js';
 
 const db = new DatabaseSync(resolve(process.env.BOT_DATA_DIR ?? 'var', 'bot.sqlite'), { readOnly: true });
 try {
-  const row = db.prepare("SELECT value FROM settings WHERE key='poll:last-ok'").get() as { value: string } | undefined;
-  if (!row || Date.now() - Number(row.value) > 90_000) process.exitCode = 1;
+  const health = pollerHealth({ get: key => (db.prepare('SELECT value FROM settings WHERE key=?').get(key) as { value: string } | undefined)?.value });
+  if (!health) process.exitCode = 1;
+  else if (process.argv.includes('--identity')) console.log(JSON.stringify(health.bot));
 } finally { db.close(); }
