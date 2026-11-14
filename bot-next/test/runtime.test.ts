@@ -19,8 +19,9 @@ import { buildTelegramInput } from '../src/telegram-context.js';
 import { Widgets } from '../src/widgets.js';
 import { messageWidget } from '../src/widget-state.js';
 import { type ToolFeedback, toolFeedback } from '../src/tool-feedback.js';
-import { appendTelegramImages } from '../src/telegram-images.js';
+import { loadTelegramImages } from '../src/telegram-images.js';
 import { tinyPng } from './image-fixture.js';
+import { historyCoverage } from '../src/chat-history.js';
 
 function editorInput(context: { messages: readonly import('@earendil-works/pi-ai').Message[] }): { request: string; text: string; current_tool_results: ToolFeedback[] } {
   const input = context.messages.find(message => message.role === 'user');
@@ -94,8 +95,8 @@ test('image documents enter Pi as native pixels with attribution and survive fin
   });
   try {
     const message = { message_id: 42, date: 1794469813, chat: { id: -100, type: 'supergroup' }, from: { id: 7, first_name: 'Ник' }, caption: 'Что на картинке?', document: { file_id: 'fixture-image', mime_type: 'image/png' } };
-    const content = buildTelegramInput({ current: { message, updateId: 1, kind: 'message' }, history: [], timezone: 'Asia/Yekaterinburg', bot: { id: 777, first_name: 'Bot', is_bot: true }, now: 1794469813000, memories: [] });
-    await appendTelegramImages(content, telegram, message, [], () => true, 'Asia/Yekaterinburg');
+    const attachments = await loadTelegramImages(telegram, message, [], () => true);
+    const content = buildTelegramInput({ current: { message, updateId: 1, kind: 'message' }, history: [], attachments, timezone: 'Asia/Yekaterinburg', bot: { id: 777, first_name: 'Bot', is_bot: true }, now: 1794469813000, memories: [] });
     f.provider.setResponses([
       context => {
         const images = context.messages.flatMap(message => Array.isArray(message.content) ? message.content.filter(item => item.type === 'image') : []);
@@ -117,6 +118,53 @@ test('image documents enter Pi as native pixels with attribution and survive fin
     assert.equal(downloads, 2); await runtime.close();
     assert.equal(await f.create(telegram).respond('-100', 'image:direct', content, message.caption), answer);
     assert.equal(downloads, 2); assert.equal(f.provider.state.callCount, 2);
+  } finally { await f.close(); }
+});
+
+test('history search retrieves an earlier conversation outside recent context and facts, then reuses the result after restart', { timeout: 10_000 }, async () => {
+  const f = await fixture();
+  try {
+    f.store.ingest({ update_id: 1, message: { message_id: 1, date: Date.parse('2026-11-10T10:00:00Z') / 1000, chat: { id: -100 }, from: { id: 7, first_name: 'Ник' }, text: 'Играли в детектива. Улика — синий ключ.' } });
+    for (let id = 2; id <= 40; id++) f.store.ingest({ update_id: id, message: { message_id: id, date: Date.parse('2026-11-14T10:00:00Z') / 1000 + id, chat: { id: -100 }, text: id === 40 ? 'Помнишь детектива?' : 'Другая тема.' } });
+    const current = f.store.recent('-100', 1)[0]!;
+    const content = buildTelegramInput({ current: { message: current, updateId: 40, kind: 'message' }, history: f.store.conversationEvents('-100', 40), archive: historyCoverage(f.store, '-100', 40), timezone: 'Asia/Yekaterinburg', bot: { id: 777 }, now: Date.parse('2026-11-14T10:01:00Z'), memories: [] });
+    assert.ok(!JSON.stringify(content).includes('синий ключ'));
+    const runtime = f.create(), delivery = runtime.replies.open('-100', 'telegram:40', { chat: '-100', messageId: 40 }, 40);
+    const entry = { kind: 'telegram.message', data: { telegramUpdateId: 40, replyProtocol: { ...delivery } } };
+    f.provider.setResponses([
+      context => {
+        assert.ok(JSON.stringify(context.messages).includes('2026-11-10'));
+        return fauxAssistantMessage(fauxToolCall('search_chat_history', { query: 'детектив' }), { stopReason: 'toolUse' });
+      },
+      context => {
+        const result = context.messages.find(message => message.role === 'toolResult' && message.toolName === 'search_chat_history');
+        assert.ok(JSON.stringify(result).includes('синий ключ')); assert.ok(JSON.stringify(result).includes('telegram_user:7'));
+        return fauxAssistantMessage('Да, 10 ноября играли в детектива: уликой был синий ключ.');
+      },
+    ]);
+    const answer = await runtime.respond('-100', 'telegram:40', content, current.text, entry);
+    assert.match(answer, /синий ключ/); assert.equal(f.memory.recall({ scope: '-100' }).length, 0, 'archive lookup is independent from extracted facts');
+    await runtime.close();
+    assert.equal(await f.create().respond('-100', 'telegram:40', content, current.text, entry), answer);
+    assert.equal(f.provider.state.callCount, 2);
+  } finally { await f.close(); }
+});
+
+test('history tool binds its snapshot to the admitted input and rejects a cursor into future updates', { timeout: 10_000 }, async () => {
+  const f = await fixture();
+  try {
+    for (const id of [1, 2, 3]) f.store.ingest({ update_id: id, message: { message_id: id, date: 1794469800 + id, chat: { id: -100 }, text: id === 3 ? 'FUTURE_PRIVATE_FIXTURE' : 'История' } });
+    const runtime = f.create(), delivery = runtime.replies.open('-100', 'telegram:2', { chat: '-100', messageId: 2 }, 2);
+    f.provider.setResponses([
+      fauxAssistantMessage(fauxToolCall('search_chat_history', { query: 'FUTURE_PRIVATE_FIXTURE', before_update_id: 4 }), { stopReason: 'toolUse' }),
+      context => {
+        const result = context.messages.find(message => message.role === 'toolResult' && message.toolName === 'search_chat_history');
+        assert.ok(result?.role === 'toolResult' && result.isError);
+        assert.ok(!JSON.stringify(result).includes('message_id'));
+        return fauxAssistantMessage('Этот диапазон недоступен.');
+      },
+    ]);
+    assert.equal(await runtime.respond('-100', 'telegram:2', 'Проверь историю.', 'Проверь историю.', { kind: 'telegram.message', data: { telegramUpdateId: 2, replyProtocol: { ...delivery } } }), 'Этот диапазон недоступен.');
   } finally { await f.close(); }
 });
 

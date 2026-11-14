@@ -6,7 +6,7 @@ import { tinyPng } from './image-fixture.js';
 
 test('final editor receives actual image blocks from the input and tools with references, attribution and no base64 in JSON', () => {
   const image: ImageContent = { type: 'image', data: tinyPng.toString('base64'), mimeType: 'image/png' };
-  const content = finalInput({ request: 'Что на картинке?', text: 'Ответ', current_tool_results: [{ call: { id: 'call', name: 'view_telegram_image', arguments: { message_id: 42 } }, results: [{ role: 'toolResult', toolCallId: 'call', toolName: 'view_telegram_image', isError: false, content: [{ type: 'text', text: 'Message id: 42' }, image] }] }] }, [{ type: 'text', text: 'Telegram image contents:\nMessage id: 42\nParticipant reference: telegram_user:7' }, image]);
+  const content = finalInput({ request: 'Что на картинке?', text: 'Ответ', current_tool_results: [{ call: { id: 'call', name: 'view_telegram_image', arguments: { message_id: 42 } }, results: [{ role: 'toolResult', toolCallId: 'call', toolName: 'view_telegram_image', isError: false, content: [{ type: 'text', text: 'Message id: 42' }, image] }] }] }, [{ type: 'text', text: 'Current Telegram message:\nMessage id: 42\nParticipant reference: telegram_user:7' }, image]);
   assert.ok(Array.isArray(content));
   assert.equal(content.filter(item => item.type === 'image').length, 1, 'same pixels from input and tool are not duplicated');
   const json = content[0]!; assert.equal(json.type, 'text');

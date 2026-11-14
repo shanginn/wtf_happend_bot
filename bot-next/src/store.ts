@@ -15,6 +15,7 @@ export interface ConversationEvent { message: TelegramMessage; updateId?: number
 export class Store {
   constructor(readonly db: DatabaseSync) {
     db.exec(`CREATE TABLE IF NOT EXISTS ingress(id INTEGER PRIMARY KEY, chat TEXT NOT NULL, payload TEXT NOT NULL, decision TEXT, status TEXT NOT NULL DEFAULT 'pending');
+      CREATE INDEX IF NOT EXISTS ingress_chat_id ON ingress(chat,id);
       CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS outgoing(id TEXT PRIMARY KEY, chat TEXT NOT NULL, method TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', result TEXT);
       CREATE TABLE IF NOT EXISTS telegram_calls(id TEXT PRIMARY KEY, chat TEXT NOT NULL, request_hash TEXT NOT NULL, status TEXT NOT NULL, result TEXT);

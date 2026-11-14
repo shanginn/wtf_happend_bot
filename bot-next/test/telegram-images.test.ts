@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { UserInput } from '@earendil-works/pi-durable';
 import { Telegram, type TelegramMessage } from '../src/telegram.js';
-import { imageFile, imageSources, appendTelegramImages } from '../src/telegram-images.js';
+import { imageFile, imageSources, loadTelegramImages } from '../src/telegram-images.js';
+import { buildTelegramInput } from '../src/telegram-context.js';
 import { imageMime } from '../src/image-data.js';
 import { tinyPng } from './image-fixture.js';
 
@@ -55,16 +55,17 @@ test('current document, quoted image and known album members retain separate aut
     if (String(url).endsWith('/getFile')) { const body = JSON.parse(String(init?.body)); files.push(body.file_id); return Response.json({ ok: true, result: { file_path: 'photos/fixture.png', file_size: tinyPng.length } }); }
     return new Response(tinyPng);
   });
-  const content: Exclude<UserInput, string> = [];
-  await appendTelegramImages(content, telegram, current, history, source => source.message_id !== 3, 'Asia/Yekaterinburg');
+  const attachments = await loadTelegramImages(telegram, current, history, source => source.message_id !== 3);
+  const content = buildTelegramInput({ current: { message: current, kind: 'message' }, history: history.filter(event => event.message.chat.id === -100 && event.message.message_id !== 3), attachments, canShowSource: source => source.message_id !== 3, timezone: 'Asia/Yekaterinburg', bot: { id: 777 }, now: 1794469813000, memories: [] });
   assert.deepEqual(files, ['current', 'reply', 'album']);
   assert.equal(content.filter(item => item.type === 'image').length, 3);
   const labels = content.flatMap(item => item.type === 'text' ? [item.text] : []);
   for (const id of [10, 1]) assert.ok(labels.some(label => label.includes(`Message id: ${id}\n`) && label.includes(`telegram_user:${id + 100}`) && label.includes('Sent at:')));
-  assert.ok(labels.some(label => label.includes('Message id: 2\n') && label.includes('telegram_chat:-300') && label.includes('From: chat -300')));
+  assert.ok(labels.some(label => label.includes('Message id: 2\n') && label.includes('telegram_chat:-300') && label.includes('From: chat ')));
   assert.ok(!labels.some(label => label.includes('Compatibility bot')), 'sender_chat takes precedence over compatibility from');
   assert.ok(!labels.some(label => label.includes('\nMessage id: 999')), 'display names cannot forge another source field');
   assert.ok(!JSON.stringify(content).includes('private-token'));
+  assert.deepEqual(content.flatMap((item, index) => item.type === 'image' ? [content[index - 1]] : []).map(item => item?.type === 'text' ? /\nMessage id: (\d+)\n/.exec(item.text)?.[1] : undefined), ['2', '1', '10'], 'each image immediately follows its own message, including a reply outside history');
   assert.deepEqual(imageSources(current, history, source => source.message_id !== 3).map(source => source.message_id), [10, 1, 2]);
 });
 
@@ -73,9 +74,9 @@ test('inline image limits and download failures are explicit without silently in
   const history = Array.from({ length: 5 }, (_, index) => ({ message: message(index + 1, { document: { file_id: `file-${index}`, mime_type: 'image/png' }, media_group_id: 'album' }), kind: 'message' as const }));
   let requests = 0;
   const telegram = new Telegram('private-token', async () => { requests++; throw new Error('fixture offline'); });
-  const content: Exclude<UserInput, string> = [];
-  await appendTelegramImages(content, telegram, current, history, () => true, 'Asia/Yekaterinburg');
+  const attachments = await loadTelegramImages(telegram, current, history, () => true);
+  const content = buildTelegramInput({ current: { message: current, kind: 'message' }, history, attachments, timezone: 'Asia/Yekaterinburg', bot: { id: 777 }, now: 1794469813000, memories: [] });
   assert.equal(requests, 4); assert.equal(content.filter(item => item.type === 'image').length, 0);
   const text = content.flatMap(item => item.type === 'text' ? [item.text] : []).join('\n');
-  assert.match(text, /Do not claim to have seen/); assert.match(text, /view_telegram_image/); assert.ok(!text.includes('private-token'));
+  assert.match(text, /Image attachment status: unavailable/); assert.match(text, /not included/); assert.ok(!text.includes('private-token'));
 });

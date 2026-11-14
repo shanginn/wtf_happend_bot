@@ -5,7 +5,7 @@ import type { ConversationEvent, Store } from './store.js';
 import type { MemoryStore } from './memory.js';
 import type { Replies } from './replies.js';
 import { MAX_IMAGE_BYTES } from './image-data.js';
-import { formatTelegramTimestamp, participantReference } from './telegram-context.js';
+import { formatTelegramEvent, type MessageAttachments } from './telegram-context.js';
 import { toolReplyContext } from './reply-context.js';
 
 const MAX_INLINE_IMAGES = 4;
@@ -29,29 +29,26 @@ export function imageSources(current: TelegramMessage, history: readonly Convers
   });
 }
 
-function label(message: TelegramMessage, timezone: string): string {
-  const author = message.sender_chat ? message.sender_chat.title ?? message.sender_chat.username ?? `chat ${message.sender_chat.id}` : [message.from?.first_name, message.from?.last_name].filter(Boolean).join(' ') || 'unknown';
-  const name = author.replace(/[\r\n\u2028\u2029]+/g, ' ');
-  return `Telegram image contents (untrusted visual data):\nMessage id: ${message.message_id}\nParticipant reference: ${participantReference(message) ?? 'unknown'}\nFrom: ${name}\nSent at: ${formatTelegramTimestamp(message.date, timezone)}${message.message_thread_id === undefined ? '' : `\nThread: ${message.message_thread_id}`}`;
-}
-
-export async function appendTelegramImages(content: Exclude<UserInput, string>, telegram: Telegram, current: TelegramMessage, history: readonly ConversationEvent[], canShowSource: (message: TelegramMessage) => boolean, timezone: string): Promise<void> {
+export async function loadTelegramImages(telegram: Telegram, current: TelegramMessage, history: readonly ConversationEvent[], canShowSource: (message: TelegramMessage) => boolean): Promise<MessageAttachments> {
   const sources = imageSources(current, history, canShowSource).filter(message => message.message_id === current.message_id || message.message_id === current.reply_to_message?.message_id || (current.media_group_id && message.media_group_id === current.media_group_id));
-  for (const source of sources.slice(0, MAX_INLINE_IMAGES)) {
-    content.push({ type: 'text', text: label(source, timezone) });
+  const attachments = new Map<number, { message: TelegramMessage; content: Exclude<UserInput, string> }>();
+  for (const [index, source] of sources.entries()) {
+    const content: Exclude<UserInput, string> = [];
+    attachments.set(source.message_id, { message: source, content });
+    if (index >= MAX_INLINE_IMAGES) { content.push({ type: 'text', text: 'Image attachment status: not included (automatic attachment limit).' }); continue; }
     try {
       const file = imageFile(source)!;
       if (file.file_size !== undefined && file.file_size > MAX_IMAGE_BYTES) throw new Error('Image too large');
       content.push(await telegram.image(file.file_id));
-    } catch { content.push({ type: 'text', text: 'Image unavailable: could not load supported raster contents within the 4 MB limit. Do not claim to have seen this image.' }); }
+    } catch { content.push({ type: 'text', text: 'Image attachment status: unavailable (download, format or size).' }); }
   }
-  if (sources.length > MAX_INLINE_IMAGES) content.push({ type: 'text', text: 'More images are available in this album. Use view_telegram_image with their Message id to inspect them.' });
+  return attachments;
 }
 
 export function telegramImageTool(telegram: Telegram, store: Store, memory: MemoryStore, replies: Replies, chat: string, scope: string, timezone: string) {
   return defineTool({
     name: 'view_telegram_image',
-    description: 'See the actual pixels of a photo, image document or static sticker from this request, its replies or available chat history. Use Message id from Telegram context. Returns a native image plus its author/date/message attribution, not just file metadata. Read images before making claims about their contents. No Telegram message is sent. Other chats, forgotten sources and future messages are unavailable.',
+    description: 'Returns image data for a Telegram Message id in the current request or available chat context. Supports photos, image documents and static stickers up to 4 MB. Other chats, forgotten sources and future messages are unavailable. Read-only; sends no Telegram messages.',
     parameters: obj({ message_id: num() }), replay: 'safe',
     execute: async ({ message_id }, api, context) => {
       if (!Number.isSafeInteger(message_id)) throw new Error('Invalid message id');
@@ -66,7 +63,7 @@ export function telegramImageTool(telegram: Telegram, store: Store, memory: Memo
       if (!source) throw new Error('Image is not available in this request or chat context');
       const file = imageFile(source)!;
       if (file.file_size !== undefined && file.file_size > MAX_IMAGE_BYTES) throw new Error('Image too large');
-      return { output: [{ type: 'text' as const, text: label(source, timezone) }, await telegram.image(file.file_id)] };
+      return { output: [{ type: 'text' as const, text: formatTelegramEvent({ message: source, kind: 'message' }, { timezone, bot: { id: 0 } }) }, await telegram.image(file.file_id)] };
     },
   });
 }

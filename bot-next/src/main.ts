@@ -22,8 +22,9 @@ import { buildTelegramInput, messageFiles, participantReference } from './telegr
 import { Widgets } from './widgets.js';
 import { withWidgetState } from './widget-state.js';
 import { Replies } from './replies.js';
-import { appendTelegramImages, imageFile } from './telegram-images.js';
+import { loadTelegramImages, imageFile } from './telegram-images.js';
 import { markPolled, runtimeFingerprint, startPoller } from './poller-health.js';
+import { historyCoverage } from './chat-history.js';
 
 export function projectMessage(message: TelegramMessage, canShowSource?: (message: TelegramMessage) => boolean) {
   const author = message.sender_chat ? { reference: participantReference(message), kind: 'chat', senderChat: message.sender_chat.id, name: message.sender_chat.title, username: message.sender_chat.username }
@@ -135,9 +136,9 @@ export async function main(): Promise<void> {
     }
     if (!decision.reply) { store.status(item.id, 'silent'); return; }
     const activeSkills = learning.skills.current(item.chat);
-    const content = buildTelegramInput({ current: { message, updateId: item.id, kind: update.edited_message ? 'edited message' : 'message' }, history,
+    const attachments = await loadTelegramImages(telegram, message, history, canShowSource);
+    const content = buildTelegramInput({ current: { message, updateId: item.id, kind: update.edited_message ? 'edited message' : 'message' }, history, attachments, archive: historyCoverage(store, item.chat, item.id),
       timezone: config.timezone, bot: identity, canShowSource, now: Date.now(), memories: memory.recall({ scope: item.chat, query: '', limit: 12 }), skillVersion: activeSkills?.hash, guidance: activeSkills?.tree['AGENTS.md'], summarize: command === 'wtf' });
-    await appendTelegramImages(content, telegram, message, history, canShowSource, config.timezone);
     store.set(`route:${item.chat}`, JSON.stringify({ messageId: message.message_id, topic: message.message_thread_id }));
     const requestId = `telegram:${item.id}`;
     const delivery = replies.open(item.chat, requestId, { chat: item.chat, messageId: message.message_id, ...(message.message_thread_id === undefined ? {} : { topic: message.message_thread_id }) }, item.id);
